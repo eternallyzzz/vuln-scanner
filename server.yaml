@@ -1,0 +1,16 @@
+# VulnScanner Server Configuration
+
+grpc_addr: ":9090"
+http_addr: ":8080"
+database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable"
+jwt_secret: "change-me-in-production"
+api_key: "sk-change-me"
+
+# LLM is optional. Uncomment to enable.
+# llm:
+#   provider: "openai"
+#   api_key: "${OPENAI_API_KEY}"
+#   model: "gpt-4o-mini"
+#   auto_analyze:
+#     - "CRITICAL"
+#     - "HIGH"

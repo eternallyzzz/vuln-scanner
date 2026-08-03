@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vulnscan-config
+  namespace: vuln-scanner
+data:
+  database-url: "postgres://vulnscan:vulnscan@postgres:5432/vulnscan?sslmode=disable"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vulnscan-secrets
+  namespace: vuln-scanner
+type: Opaque
+stringData:
+  db-user: "vulnscan"
+  db-password: "change-me"
+  jwt-secret: "change-me-in-production"
+  api-key: "sk-change-me"

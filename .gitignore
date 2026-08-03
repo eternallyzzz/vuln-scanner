@@ -1,0 +1,42 @@
+# Binaries
+bin/
+agents/
+*.exe
+*.test
+*.out
+
+# Dependencies
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Certificates
+certs/
+*.pem
+*.key
+
+# Database
+*.db
+*.sqlite
+
+# Coverage
+coverage.out
+coverage.html
+
+# Environment
+.env
+.env.local
+
+# Generated protobuf
+api/gen/
+
+# Agent local config
+.vuln-scanner/

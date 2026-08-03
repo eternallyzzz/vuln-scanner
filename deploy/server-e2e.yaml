@@ -1,0 +1,19 @@
+grpc_addr: ":9090"
+http_addr: ":8080"
+database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable"
+jwt_secret: "change-me-in-production"
+api_key: "sk-change-me"
+
+alerting:
+  enabled: true
+  webhook_url: "http://localhost:9999/hook"
+  webhook_secret: "e2e-secret"
+  delivery_interval_seconds: 10
+  max_attempts: 3
+
+patch:
+  enabled: true
+  default_approval_required: true
+  agent_timeout_seconds: 600
+  apt_command: "apt-get install -y --only-upgrade"
+  dry_run: true

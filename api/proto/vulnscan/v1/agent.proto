@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package vulnscan.v1;
+
+option go_package = "vuln-scanner/api/gen/vulnscan/v1;vulnscanv1";
+
+service AgentService {
+  rpc Auth(AuthRequest) returns (AuthResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc SyncInventory(SyncInventoryRequest) returns (SyncInventoryResponse);
+  rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
+  rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
+}
+
+message AuthRequest {
+  string agent_id = 1;
+  string fingerprint = 2;
+}
+
+message AuthResponse {
+  string token = 1;
+  int64 expires_in = 2;
+  string grpc_addr = 3;
+  string status = 4;
+  string message = 5;
+}
+
+message RefreshTokenRequest {
+  string agent_id = 1;
+  string token = 2;
+  string fingerprint = 3;
+}
+
+message RefreshTokenResponse {
+  string token = 1;
+  int64 expires_in = 2;
+}
+
+message HeartbeatRequest {
+  string agent_id = 1;
+  string token = 2;
+  int64 collector_errors = 3;
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+}
+
+message SyncInventoryRequest {
+  string agent_id = 1;
+  string token = 2;
+  SyncMode mode = 3;
+  repeated Asset assets = 4;
+}
+
+message SyncInventoryResponse {
+  bool ok = 1;
+  int64 received_count = 2;
+}
+
+message PatchTaskInfo {
+  int64 id = 1;
+  string asset_name = 2;
+  string fix_type = 3;
+  string fix_value = 4;
+  string command = 5;
+  repeated CommandArgv commands = 6;
+  bool dry_run = 7;
+}
+
+message CommandArgv {
+  repeated string argv = 1;
+}
+
+message FetchPatchTasksRequest {
+  string agent_id = 1;
+  string token = 2;
+}
+
+message FetchPatchTasksResponse {
+  repeated PatchTaskInfo tasks = 1;
+}
+
+message ReportPatchTaskRequest {
+  int64 task_id = 1;
+  string agent_id = 2;
+  string token = 3;
+  string status = 4;
+  int32 exit_code = 5;
+  string output = 6;
+}
+
+message ReportPatchTaskResponse {
+  bool ok = 1;
+}
+
+enum SyncMode {
+  FULL = 0;
+  INCREMENTAL = 1;
+}
+
+message Asset {
+  string name = 1;
+  string version = 2;
+  string arch = 3;
+  string format = 4;
+  string vendor = 5;
+  string location = 6;
+  string install_date = 7;
+  string status = 8;
+  AssetType type = 9;
+}
+
+enum AssetType {
+  PACKAGE = 0;
+  HOTFIX = 1;
+  LANGUAGE = 2;
+  OS = 3;
+}
