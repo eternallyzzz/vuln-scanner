@@ -110,6 +110,13 @@ func (s *Service) evaluate(ctx context.Context, agentID string, results []Result
 			if !ruleMatches(rule, agentID, *res, metaMap[res.AssetName]) {
 				continue
 			}
+			exempt, err := s.store.IsExempt(ctx, agentID, res.AssetName, res.CVEID)
+			if err != nil {
+				slog.Warn("exemption lookup failed", "agent_id", agentID,
+					"cve", res.CVEID, "error", err)
+			} else if exempt {
+				continue
+			}
 			key := fmt.Sprintf("%d|%s|%s", rule.ID, res.CVEID, res.AssetName)
 			activeKeys = append(activeKeys, key)
 

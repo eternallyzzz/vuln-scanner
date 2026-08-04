@@ -52,6 +52,7 @@ message SyncInventoryRequest {
   string token = 2;
   SyncMode mode = 3;
   repeated Asset assets = 4;
+  SystemInfo system_info = 5;
 }
 
 message SyncInventoryResponse {
@@ -110,6 +111,180 @@ message Asset {
   string install_date = 7;
   string status = 8;
   AssetType type = 9;
+}
+
+message SystemInfo {
+  string hostname = 1;
+  string os = 2;
+  string version = 3;
+  string arch = 4;
+  string machine_id = 5;
+  string system_manufacturer = 6;
+  string system_model = 7;
+  string system_serial = 8;
+  int64 memory_mb = 9;
+  repeated CPUSpec cpu = 10;
+  repeated GPUSpec gpu = 11;
+  MotherboardSpec motherboard = 12;
+  repeated NetInterfaceSpec net_interfaces = 13;
+  repeated PortInfo open_ports = 14;
+  repeated ProcessInfo processes = 15;
+  repeated StorageSpec storage = 16;
+  string bios_version = 17;
+  string bios_date = 18;
+  string kernel_version = 19;
+  int64 uptime_seconds = 20;
+  string boot_time = 21;
+  string timezone = 22;
+  string os_domain = 23;
+  repeated MemoryModule memory_modules = 24;
+  repeated ServiceInfo services = 25;
+  repeated StartupItem startup_items = 26;
+  repeated ScheduledTask scheduled_tasks = 27;
+  repeated RouteInfo routes = 28;
+  repeated FirewallRule firewall_rules = 29;
+  repeated NeighborInfo neighbors = 30;
+  repeated CertificateInfo certificates = 31;
+  repeated AccountInfo accounts = 32;
+  repeated SSHKeyInfo ssh_keys = 33;
+  repeated RuntimeInfo runtimes = 34;
+  bool tpm_enabled = 35;
+  string disk_encryption = 36;
+  string antivirus = 37;
+  string selinux = 38;
+  string apparmor = 39;
+  repeated string truncated = 40;
+}
+
+message CPUSpec {
+  string name = 1;
+  int32 cores = 2;
+}
+
+message GPUSpec {
+  string name = 1;
+  string driver = 2;
+}
+
+message MotherboardSpec {
+  string manufacturer = 1;
+  string product = 2;
+}
+
+message NetInterfaceSpec {
+  string name = 1;
+  string mac = 2;
+  repeated string addresses = 3;
+  repeated string gateways = 4;
+  repeated string dns = 5;
+  string link_speed = 6;
+  string driver = 7;
+}
+
+message PortInfo {
+  string protocol = 1;
+  string address = 2;
+  int32 port = 3;
+  string process = 4;
+}
+
+message ProcessInfo {
+  int32 pid = 1;
+  string name = 2;
+  string user = 3;
+  int64 memory_mb = 4;
+}
+
+message StorageSpec {
+  string name = 1;
+  int64 size_bytes = 2;
+  string mount = 3;
+  string serial = 4;
+  string model = 5;
+  string firmware = 6;
+  double usage_percent = 7;
+}
+
+message ServiceInfo {
+  string name = 1;
+  string state = 2;
+  string start_type = 3;
+  string run_as = 4;
+}
+
+message StartupItem {
+  string name = 1;
+  string command = 2;
+  string location = 3;
+}
+
+message ScheduledTask {
+  string name = 1;
+  string status = 2;
+  string next_run = 3;
+  string command = 4;
+}
+
+message RouteInfo {
+  string destination = 1;
+  string gateway = 2;
+  string interface = 3;
+  string metric = 4;
+}
+
+message FirewallRule {
+  string name = 1;
+  string enabled = 2;
+  string direction = 3;
+  string action = 4;
+  string protocol = 5;
+  string local_port = 6;
+  string remote_ip = 7;
+}
+
+message NeighborInfo {
+  string interface = 1;
+  string ip = 2;
+  string mac = 3;
+  string state = 4;
+}
+
+message CertificateInfo {
+  string subject = 1;
+  string issuer = 2;
+  string serial = 3;
+  string not_before = 4;
+  string not_after = 5;
+  string store = 6;
+}
+
+message AccountInfo {
+  string name = 1;
+  string domain = 2;
+  string group = 3;
+  bool admin = 4;
+  bool disabled = 5;
+}
+
+message SSHKeyInfo {
+  string user = 1;
+  string path = 2;
+  string type = 3;
+  string fingerprint = 4;
+}
+
+message MemoryModule {
+  string slot = 1;
+  int64 capacity_mb = 2;
+  string type = 3;
+  string speed = 4;
+  string serial = 5;
+}
+
+message RuntimeInfo {
+  string name = 1;
+  string type = 2;
+  string state = 3;
 }
 
 enum AssetType {

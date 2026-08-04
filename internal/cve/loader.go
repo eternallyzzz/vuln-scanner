@@ -14,20 +14,23 @@ import (
 	gocvss30 "github.com/pandatix/go-cvss/30"
 	gocvss31 "github.com/pandatix/go-cvss/31"
 	gocvss40 "github.com/pandatix/go-cvss/40"
+
+	"vuln-scanner/internal/store"
 )
 
 type Loader struct {
-	feed *FeedManager
-	msrc *MSRCClient
-	nvd  *NVDClient
-	osv  *OSVClient
+	feed  *FeedManager
+	store *store.Store
+	msrc  *MSRCClient
+	nvd   *NVDClient
+	osv   *OSVClient
 	// redhatMu serializes RefreshRedHat runs so a startup preload and a
 	// manual refresh cannot duplicate the long package_state detail crawl.
 	redhatMu sync.Mutex
 }
 
-func NewLoader(feed *FeedManager, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient) *Loader {
-	return &Loader{feed: feed, msrc: msrc, nvd: nvd, osv: osv}
+func NewLoader(feed *FeedManager, st *store.Store, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient) *Loader {
+	return &Loader{feed: feed, store: st, msrc: msrc, nvd: nvd, osv: osv}
 }
 
 func (l *Loader) RefreshAllNVD(ctx context.Context, agents []AgentSnapshotSummary) {

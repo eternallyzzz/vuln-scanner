@@ -72,14 +72,23 @@ func (s *Store) ReplaceContainerVulns(ctx context.Context, agentID, imageName st
 		}
 	}
 	for _, r := range byCVE {
+		canonical := CanonicalCVEID(r.CVEID)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO cve_results (agent_id, cve_id, asset_name, asset_version,
 				fixed_version, kb_article, kb_url, severity, cvss_score, summary,
-				source, status, detected_at)
-			VALUES ($1,$2,$3,$4,$5,'','',$6,$7,$8,'trivy','active',$9)
+				source, status, detected_at, canonical_cve_id)
+			VALUES ($1,$2,$3,$4,$5,'','',$6,$7,$8,'trivy','active',$9,$10)
 		`, agentID, r.CVEID, imageName, r.AssetVersion, r.FixedVersion,
-			r.Severity, r.CVSSScore, r.Summary, now); err != nil {
+			r.Severity, r.CVSSScore, r.Summary, now, canonical); err != nil {
 			return err
+		}
+		if canonical != r.CVEID {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO cve_alias (alias_id, canonical_cve_id, source)
+				VALUES ($1,$2,'trivy') ON CONFLICT (alias_id) DO NOTHING
+			`, r.CVEID, canonical); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit(ctx)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "vuln-scanner/api/gen/vulnscan/v1"
+	"vuln-scanner/internal/collector"
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/store"
 
@@ -194,8 +195,16 @@ func (s *AgentGRPCServer) SyncInventory(ctx context.Context, req *pb.SyncInvento
 		slog.Error("failed to store asset snapshot", "agent_id", agentID, "error", err)
 		return nil, status.Error(codes.Internal, "failed to store snapshot")
 	}
-	if err := s.store.SyncCMDBFromSnapshot(ctx, agentID, snap.Assets, mode == "FULL"); err != nil {
+	if _, err := s.store.SyncCMDBFromSnapshot(ctx, agentID, snap.Assets, mode == "FULL"); err != nil {
 		slog.Warn("cmdb sync failed", "agent_id", agentID, "mode", mode, "error", err)
+	}
+
+	if mode == "FULL" && req.GetSystemInfo() != nil {
+		info := hostSystemInfoFromPB(req.GetSystemInfo())
+		info.AgentID = agentID
+		if err := s.store.SaveHostSystemInfo(ctx, info); err != nil {
+			slog.Warn("host system info save failed", "agent_id", agentID, "error", err)
+		}
 	}
 
 	for _, a := range req.GetAssets() {
@@ -217,6 +226,134 @@ func (s *AgentGRPCServer) SyncInventory(ctx context.Context, req *pb.SyncInvento
 		Ok:            true,
 		ReceivedCount: int64(len(req.GetAssets())),
 	}, nil
+}
+
+func hostSystemInfoFromPB(in *pb.SystemInfo) *store.HostSystemInfo {
+	info := &store.HostSystemInfo{
+		Hostname:           in.GetHostname(),
+		OS:                 in.GetOs(),
+		OSVersion:          in.GetVersion(),
+		Arch:               in.GetArch(),
+		MachineID:          in.GetMachineId(),
+		SystemManufacturer: in.GetSystemManufacturer(),
+		SystemModel:        in.GetSystemModel(),
+		SystemSerial:       in.GetSystemSerial(),
+		BIOSVersion:        in.GetBiosVersion(),
+		BIOSDate:           in.GetBiosDate(),
+		KernelVersion:      in.GetKernelVersion(),
+		UptimeSeconds:      in.GetUptimeSeconds(),
+		BootTime:           in.GetBootTime(),
+		Timezone:           in.GetTimezone(),
+		OSDomain:           in.GetOsDomain(),
+		MemoryMB:           in.GetMemoryMb(),
+		TPMEnabled:         in.GetTpmEnabled(),
+		DiskEncryption:     in.GetDiskEncryption(),
+		Antivirus:          in.GetAntivirus(),
+		SELinux:            in.GetSelinux(),
+		AppArmor:           in.GetApparmor(),
+		Truncated:          in.GetTruncated(),
+	}
+	for _, c := range in.GetCpu() {
+		info.CPU = append(info.CPU, collector.CPUSpec{Name: c.GetName(), Cores: int(c.GetCores())})
+	}
+	for _, g := range in.GetGpu() {
+		info.GPU = append(info.GPU, collector.GPUSpec{Name: g.GetName(), Driver: g.GetDriver()})
+	}
+	if mb := in.GetMotherboard(); mb != nil {
+		info.Motherboard = &collector.MotherboardSpec{
+			Manufacturer: mb.GetManufacturer(),
+			Product:      mb.GetProduct(),
+		}
+	}
+	for _, n := range in.GetNetInterfaces() {
+		info.NetInterfaces = append(info.NetInterfaces, collector.NetInterfaceSpec{
+			Name: n.GetName(), MAC: n.GetMac(),
+			Addresses: n.GetAddresses(), Gateways: n.GetGateways(), DNS: n.GetDns(),
+			LinkSpeed: n.GetLinkSpeed(), Driver: n.GetDriver(),
+		})
+	}
+	for _, p := range in.GetOpenPorts() {
+		info.OpenPorts = append(info.OpenPorts, collector.PortInfo{
+			Protocol: p.GetProtocol(), Address: p.GetAddress(),
+			Port: int(p.GetPort()), Process: p.GetProcess(),
+		})
+	}
+	for _, p := range in.GetProcesses() {
+		info.Processes = append(info.Processes, collector.ProcessInfo{
+			PID: int(p.GetPid()), Name: p.GetName(), User: p.GetUser(), MemoryMB: p.GetMemoryMb(),
+		})
+	}
+	for _, d := range in.GetStorage() {
+		info.Storage = append(info.Storage, collector.StorageSpec{
+			Name: d.GetName(), SizeBytes: d.GetSizeBytes(), Mount: d.GetMount(),
+			Serial: d.GetSerial(), Model: d.GetModel(), Firmware: d.GetFirmware(),
+			UsagePercent: d.GetUsagePercent(),
+		})
+	}
+	for _, m := range in.GetMemoryModules() {
+		info.MemoryModules = append(info.MemoryModules, collector.MemoryModule{
+			Slot: m.GetSlot(), CapacityMB: m.GetCapacityMb(), Type: m.GetType(),
+			Speed: m.GetSpeed(), Serial: m.GetSerial(),
+		})
+	}
+	for _, v := range in.GetServices() {
+		info.Services = append(info.Services, collector.ServiceInfo{
+			Name: v.GetName(), State: v.GetState(),
+			StartType: v.GetStartType(), RunAs: v.GetRunAs(),
+		})
+	}
+	for _, v := range in.GetStartupItems() {
+		info.StartupItems = append(info.StartupItems, collector.StartupItem{
+			Name: v.GetName(), Command: v.GetCommand(), Location: v.GetLocation(),
+		})
+	}
+	for _, v := range in.GetScheduledTasks() {
+		info.ScheduledTasks = append(info.ScheduledTasks, collector.ScheduledTask{
+			Name: v.GetName(), Status: v.GetStatus(),
+			NextRun: v.GetNextRun(), Command: v.GetCommand(),
+		})
+	}
+	for _, v := range in.GetRoutes() {
+		info.Routes = append(info.Routes, collector.RouteInfo{
+			Destination: v.GetDestination(), Gateway: v.GetGateway(),
+			Interface: v.GetInterface(), Metric: v.GetMetric(),
+		})
+	}
+	for _, v := range in.GetFirewallRules() {
+		info.FirewallRules = append(info.FirewallRules, collector.FirewallRule{
+			Name: v.GetName(), Enabled: v.GetEnabled(), Direction: v.GetDirection(),
+			Action: v.GetAction(), Protocol: v.GetProtocol(),
+			LocalPort: v.GetLocalPort(), RemoteIP: v.GetRemoteIp(),
+		})
+	}
+	for _, v := range in.GetNeighbors() {
+		info.Neighbors = append(info.Neighbors, collector.NeighborInfo{
+			Interface: v.GetInterface(), IP: v.GetIp(), MAC: v.GetMac(), State: v.GetState(),
+		})
+	}
+	for _, v := range in.GetCertificates() {
+		info.Certificates = append(info.Certificates, collector.CertificateInfo{
+			Subject: v.GetSubject(), Issuer: v.GetIssuer(), Serial: v.GetSerial(),
+			NotBefore: v.GetNotBefore(), NotAfter: v.GetNotAfter(), Store: v.GetStore(),
+		})
+	}
+	for _, v := range in.GetAccounts() {
+		info.Accounts = append(info.Accounts, collector.AccountInfo{
+			Name: v.GetName(), Domain: v.GetDomain(), Group: v.GetGroup(),
+			Admin: v.GetAdmin(), Disabled: v.GetDisabled(),
+		})
+	}
+	for _, v := range in.GetSshKeys() {
+		info.SSHKeys = append(info.SSHKeys, collector.SSHKeyInfo{
+			User: v.GetUser(), Path: v.GetPath(), Type: v.GetType(), Fingerprint: v.GetFingerprint(),
+		})
+	}
+	for _, v := range in.GetRuntimes() {
+		info.Runtimes = append(info.Runtimes, collector.RuntimeInfo{
+			Name: v.GetName(), Type: v.GetType(), State: v.GetState(),
+		})
+	}
+	return info
 }
 
 // mergeIncremental merges a set of changed assets into the agent's stored

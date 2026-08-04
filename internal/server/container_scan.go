@@ -162,6 +162,10 @@ func (w *Worker) runContainerScan(ctx context.Context) {
 	w.containerState.VulnsTotal = vulns
 	w.containerMu.Unlock()
 
+	if _, err := w.store.RecalcAgentRisk(ctx, agentID); err != nil {
+		slog.Warn("container risk recalc failed", "agent_id", agentID, "error", err)
+	}
+
 	seenAlert := map[string]bool{}
 	alertResults := make([]alert.Result, 0, len(allResults))
 	for _, r := range allResults {

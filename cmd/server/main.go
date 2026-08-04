@@ -73,7 +73,7 @@ func main() {
 	msrcClient := cve.NewMSRCClient()
 	nvdClient := cve.NewNVDClient()
 	osvClient := cve.NewOSVClient()
-	loader := cve.NewLoader(feed, msrcClient, nvdClient, osvClient)
+	loader := cve.NewLoader(feed, db, msrcClient, nvdClient, osvClient)
 	matcher := cve.NewMatcher(db, loader, feed)
 
 	alertSvc, err := alert.NewService(db, cfg.Alerting)

@@ -193,11 +193,17 @@ func (s *Store) UpsertAlertFromResult(ctx context.Context, rule AlertRule, agent
 	var created bool
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO alerts (rule_id, agent_id, cve_id, asset_name, severity, cvss_score, source,
-			status, first_seen, last_seen, occurrence_count)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,'open',NOW(),NOW(),1)
+			status, first_seen, last_seen, occurrence_count, epss_score, kev, risk_score, risk_level)
+		SELECT $1,$2,$3,$4,$5,$6,$7,'open',NOW(),NOW(),1,
+			COALESCE(cr.epss_score,0), COALESCE(cr.kev,false),
+			COALESCE(cr.risk_score,0), COALESCE(cr.risk_level,'')
+		FROM (SELECT 1) x LEFT JOIN cve_results cr
+			ON cr.agent_id=$2 AND cr.cve_id=$3 AND cr.asset_name=$4 AND cr.status='active'
 		ON CONFLICT (rule_id, agent_id, cve_id, asset_name) WHERE status='open'
 		DO UPDATE SET last_seen=NOW(), occurrence_count=alerts.occurrence_count+1,
-			severity=EXCLUDED.severity, cvss_score=EXCLUDED.cvss_score, source=EXCLUDED.source
+			severity=EXCLUDED.severity, cvss_score=EXCLUDED.cvss_score, source=EXCLUDED.source,
+			epss_score=EXCLUDED.epss_score, kev=EXCLUDED.kev,
+			risk_score=EXCLUDED.risk_score, risk_level=EXCLUDED.risk_level
 		RETURNING id, (xmax = 0)
 	`, rule.ID, agentID, cveID, assetName, severity, cvss, source).Scan(&id, &created)
 	return id, created, err

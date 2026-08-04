@@ -10,10 +10,8 @@ import (
 	colAPK "vuln-scanner/internal/collector/apk"
 	colDebian "vuln-scanner/internal/collector/debian"
 	"vuln-scanner/internal/collector/linuxinfo"
-
-colRPM "vuln-scanner/internal/collector/rpm"
-
 	colRPM "vuln-scanner/internal/collector/rpm"
+	"vuln-scanner/internal/collector/sca"
 )
 
 func platformCollector() collector.Collector {

@@ -60,6 +60,7 @@ func (s *RESTServer) Handler() http.Handler {
 	r.Use(s.apiKeyMiddleware)
 
 	r.Get("/health", s.health)
+	r.Get("/demo", s.serveDemo)
 	r.Get("/dl/{platform}", s.downloadAgent)
 	r.Get("/r/{code}", s.downloadScript)
 	r.Post("/api/v1/register", s.registerAgent)
@@ -72,6 +73,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Get("/agents/{id}/vulns", s.getAgentVulns)
 		r.Get("/agents/{id}/vulns/{cveId}", s.getAgentVulnDetail)
 		r.Get("/agents/{id}/report", s.getAgentReport)
+		r.Get("/agents/{id}/system-info", s.getAgentSystemInfo)
 		r.Get("/agents/{id}/install-command", s.getInstallCommand)
 		r.Get("/agents/{id}/recommendations", s.getRecommendations)
 		r.Post("/agents/{id}/patch-tasks/generate", s.generatePatchTasks)
@@ -102,12 +104,25 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/alerts/{alertId}/remediate", s.remediateAlert)
 
 		r.Get("/dashboard", s.dashboard)
+		r.Get("/demo-summary", s.demoSummary)
+		r.Get("/risk/summary", s.getRiskSummary)
+		r.Get("/risk/top", s.getRiskTop)
+		r.Get("/risk/export.csv", s.getRiskExport)
+		r.Get("/reports/trend", s.getRiskTrend)
+		r.Get("/exceptions", s.listExceptions)
+		r.Post("/exceptions", s.createException)
+		r.Post("/exceptions/{exceptionId}/revoke", s.revokeException)
+		r.Get("/sla-policies", s.listSLAPolicies)
+		r.Put("/sla-policies/{policyId}", s.updateSLAPolicy)
 		r.Get("/search", s.search)
 		r.Get("/stats", s.stats)
 		r.Post("/analyze", s.triggerAnalysis)
 		r.Get("/analyze/{analysisId}", s.getAnalysis)
 		r.Post("/trigger-match", s.triggerMatch)
 		r.Post("/admin/refresh-feeds", s.refreshFeeds)
+		r.Post("/admin/refresh-intel", s.refreshIntel)
+		r.Post("/admin/reconcile-cmdb", s.reconcileAllCMDB)
+		r.Post("/admin/reconcile-cmdb/{agentId}", s.reconcileAgentCMDB)
 		r.Get("/scan-policies", s.listScanPolicies)
 		r.Put("/scan-policies/{agentId}", s.upsertScanPolicy)
 		r.Post("/agents/{id}/scan", s.triggerAgentScan)
@@ -116,6 +131,9 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Get("/container/images", s.listContainerImages)
 		r.Get("/assets/summary", s.assetSummary)
 		r.Get("/assets", s.listAssets)
+		r.Get("/assets/export", s.exportAssets)
+		r.Post("/assets/import", s.importAssets)
+		r.Get("/cmdb/reconcile-report", s.reconcileReport)
 		r.Get("/assets/{assetId}", s.getAsset)
 		r.Post("/assets/bulk-meta", s.bulkUpdateAssetMeta)
 		r.Put("/assets/{assetId}", s.updateAsset)
@@ -130,6 +148,7 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		whiteList := map[string]bool{
 			"/health":          true,
+			"/demo":            true,
 			"/api/v1/register": true,
 		}
 		for prefix := range whiteList {
@@ -278,6 +297,7 @@ func (s *RESTServer) getAgentVulns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	enrichAdvisoryURLs(results)
 
 	agent, _ := s.store.GetAgent(r.Context(), id)
 
@@ -298,6 +318,7 @@ func (s *RESTServer) getAgentVulnDetail(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 404, "not found")
 		return
 	}
+	enrichAdvisoryURLs([]store.CVEResult{*result})
 	writeJSON(w, 200, result)
 }
 
@@ -310,6 +331,7 @@ func (s *RESTServer) getAgentReport(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, _ := s.store.GetAssetSnapshot(r.Context(), id)
 	results, _, _ := s.store.GetCVEResults(r.Context(), id, "", false, 0, 10000)
+	enrichAdvisoryURLs(results)
 
 	writeJSON(w, 200, map[string]interface{}{
 		"agent":    agent,
@@ -359,6 +381,7 @@ func (s *RESTServer) search(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, err.Error())
 			return
 		}
+		enrichAdvisoryURLs(results)
 		writeJSON(w, 200, map[string]interface{}{
 			"cve_id":          cveID,
 			"affected_agents": results,
@@ -512,14 +535,16 @@ func (s *RESTServer) getRecommendations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	for i := range recs {
-		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, recs[i].FixType,
-			recs[i].FixedVersion, recs[i].AssetName, recs[i].ReferenceURL,
+		rec := &recs[i]
+		if rec.FixType == "kb" {
+			rec.ReferenceURL, rec.PatchURL = msrcLinks(rec.ExampleCVE, rec.ReferenceURL)
+			enrichKBLinks(rec.KBs)
+		}
+		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,
+			rec.FixedVersion, rec.AssetName, rec.ReferenceURL,
 			agent.OSType, agent.OSVersion)
 		if err == nil && cmd.Deployable {
-			recs[i].Deployable = true
-			if recs[i].FixType == "kb" {
-				recs[i].PatchURL = recs[i].ReferenceURL
-			}
+			rec.Deployable = true
 		}
 	}
 	writeJSON(w, 200, map[string]interface{}{

@@ -7,17 +7,27 @@ import (
 )
 
 func (s *Store) UpsertCVEResult(ctx context.Context, r *CVEResult) error {
+	canonical := CanonicalCVEID(r.CVEID)
+	var fixedAt interface{}
+	if r.Status == "fixed" {
+		fixedAt = time.Now()
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO cve_results (agent_id, cve_id, asset_name, asset_version,
-			fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at,
+			canonical_cve_id, fixed_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT (agent_id, cve_id, asset_name, asset_version) DO UPDATE
 		SET fixed_version=$5, fix_state=$6, kb_article=$7, kb_url=$8, severity=$9,
-			cvss_score=$10, summary=$11, source=$12, status=$13, detected_at=$14
+			cvss_score=$10, summary=$11, source=$12, status=$13, detected_at=$14,
+			canonical_cve_id=$15, fixed_at=$16
 	`, r.AgentID, r.CVEID, r.AssetName, r.AssetVersion,
 		r.FixedVersion, r.FixState, r.KBArticle, r.KBURL, r.Severity,
-		r.CVSSScore, r.Summary, r.Source, r.Status, time.Now())
-	return err
+		r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt)
+	if err != nil {
+		return err
+	}
+	return s.RecordAlias(ctx, r.CVEID, canonical, r.Source)
 }
 
 func (s *Store) GetCVEResults(ctx context.Context, agentID string, severity string, hasFix bool, offset, limit int) ([]CVEResult, int, error) {
@@ -150,15 +160,29 @@ func (s *Store) BulkUpsertCVEResults(ctx context.Context, entries []*CVEResult) 
 	}
 
 	for _, r := range entries {
+		canonical := CanonicalCVEID(r.CVEID)
+		var fixedAt interface{}
+		if r.Status == "fixed" {
+			fixedAt = time.Now()
+		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO cve_results (agent_id, cve_id, asset_name, asset_version,
-				fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+				fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at,
+				canonical_cve_id, fixed_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		`, r.AgentID, r.CVEID, r.AssetName, r.AssetVersion,
 			r.FixedVersion, r.FixState, r.KBArticle, r.KBURL, r.Severity,
-			r.CVSSScore, r.Summary, r.Source, r.Status, time.Now())
+			r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt)
 		if err != nil {
 			return err
+		}
+		if canonical != r.CVEID {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO cve_alias (alias_id, canonical_cve_id, source)
+				VALUES ($1,$2,$3) ON CONFLICT (alias_id) DO NOTHING
+			`, r.CVEID, canonical, r.Source); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -177,19 +201,32 @@ func (s *Store) AgentOSType(ctx context.Context, agentID string) string {
 }
 
 type FixRecommendation struct {
-	AssetName    string  `json:"asset_name"`
-	Format       string  `json:"format,omitempty"`
-	ActiveCVEs   int     `json:"active_cves"`
-	FixType      string  `json:"fix_type"`
-	FixValue     string  `json:"fix_value"`
-	FixedVersion string  `json:"fixed_version"`
-	Action       string  `json:"action"`
-	MaxCVSS      float64 `json:"max_cvss_score"`
-	Risk         string  `json:"risk"`
-	ExampleCVE   string  `json:"example_cve"`
-	ReferenceURL string  `json:"reference_url,omitempty"`
-	Deployable   bool    `json:"deployable"`
-	PatchURL     string  `json:"patch_url,omitempty"`
+	AssetName    string                  `json:"asset_name"`
+	Format       string                  `json:"format,omitempty"`
+	ActiveCVEs   int                     `json:"active_cves"`
+	FixType      string                  `json:"fix_type"`
+	FixValue     string                  `json:"fix_value"`
+	FixedVersion string                  `json:"fixed_version"`
+	Action       string                  `json:"action"`
+	MaxCVSS      float64                 `json:"max_cvss_score"`
+	Risk         string                  `json:"risk"`
+	ExampleCVE   string                  `json:"example_cve"`
+	ReferenceURL string                  `json:"reference_url,omitempty"`
+	Deployable   bool                    `json:"deployable"`
+	PatchURL     string                  `json:"patch_url,omitempty"`
+	KBs          []KBPatchRecommendation `json:"kbs,omitempty"`
+}
+
+// KBPatchRecommendation lists one KB's active CVE set for an asset.
+type KBPatchRecommendation struct {
+	Kb           string   `json:"kb"`
+	AssetName    string   `json:"asset_name"`
+	CVECount     int      `json:"cve_count"`
+	CVEIDs       []string `json:"cve_ids"`
+	MaxCVSS      float64  `json:"max_cvss_score"`
+	MaxSeverity  string   `json:"max_severity"`
+	ReferenceURL string   `json:"reference_url,omitempty"`
+	PatchURL     string   `json:"patch_url,omitempty"`
 }
 
 func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]FixRecommendation, error) {
@@ -214,6 +251,7 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 	defer rows.Close()
 
 	var recs []FixRecommendation
+	hasKB := false
 	for rows.Next() {
 		var r FixRecommendation
 		var rawFix, refURL, assetFormat string
@@ -232,6 +270,7 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 			r.FixType = "kb"
 			r.FixValue = rawFix
 			r.Action = "install_patch"
+			hasKB = true
 		} else if rawFix == "0" || rawFix == "" {
 			r.FixType = "none"
 			r.Action = "monitor"
@@ -245,7 +284,58 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 		}
 		recs = append(recs, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if hasKB {
+		kbs, err := s.GetKBPatchRecommendations(ctx, agentID)
+		if err != nil {
+			return nil, err
+		}
+		byAsset := make(map[string][]KBPatchRecommendation)
+		for _, kb := range kbs {
+			byAsset[kb.AssetName] = append(byAsset[kb.AssetName], kb)
+		}
+		for i := range recs {
+			if recs[i].FixType == "kb" {
+				recs[i].KBs = byAsset[recs[i].AssetName]
+			}
+		}
+	}
 	return recs, nil
+}
+
+// GetKBPatchRecommendations returns the active CVE list grouped per
+// (asset, KB) for MSRC patch recommendations.
+func (s *Store) GetKBPatchRecommendations(ctx context.Context, agentID string) ([]KBPatchRecommendation, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.asset_name,
+			COALESCE(NULLIF(r.fixed_version, ''), NULLIF(r.kb_article, '')) AS kb,
+			COUNT(DISTINCT r.cve_id) AS cve_count,
+			array_agg(DISTINCT r.cve_id ORDER BY r.cve_id) AS cve_ids,
+			COALESCE(MAX(r.cvss_score), 0) AS max_cvss,
+			COALESCE(MAX(r.severity), '') AS max_severity
+		FROM cve_results r
+		WHERE r.agent_id = $1 AND r.status = 'active'
+		  AND (r.fixed_version LIKE 'KB%' OR r.kb_article LIKE 'KB%')
+		GROUP BY r.asset_name, kb
+		ORDER BY cve_count DESC, kb
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []KBPatchRecommendation
+	for rows.Next() {
+		var k KBPatchRecommendation
+		if err := rows.Scan(&k.AssetName, &k.Kb, &k.CVECount, &k.CVEIDs,
+			&k.MaxCVSS, &k.MaxSeverity); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ActiveCVEsByAsset(ctx context.Context, agentID string) (map[string][]string, error) {

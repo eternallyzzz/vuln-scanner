@@ -24,6 +24,9 @@ type Asset struct {
 	Vendor       string    `json:"vendor,omitempty"`
 	Arch         string    `json:"arch,omitempty"`
 	Location     string    `json:"location,omitempty"`
+	Source       string    `json:"source"`
+	Hostname     string    `json:"hostname,omitempty"`
+	IP           string    `json:"ip,omitempty"`
 	AgentID      string    `json:"agent_id"`
 	Lifecycle    string    `json:"lifecycle"`
 	Environment  string    `json:"environment"`
@@ -75,6 +78,14 @@ type snapshotSoftware struct {
 	Location string `json:"location"`
 }
 
+// ReconcileCounts summarizes one snapshot-to-CMDB sync.
+type ReconcileCounts struct {
+	Upserted  int `json:"upserted"`
+	Retired   int `json:"retired"`
+	Relations int `json:"relations"`
+	Changes   int `json:"changes"`
+}
+
 func HostAssetKey(agentID string) string {
 	return "host:" + agentID
 }
@@ -87,19 +98,19 @@ func SoftwareAssetKey(agentID, name, format, arch, location string) string {
 // SyncCMDBFromSnapshot materializes the agent snapshot into the assets table.
 // FULL mode reconciles (retires software CIs no longer present, rebuilds
 // relations); INCREMENTAL only upserts the given inventory.
-func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assetsJSON []byte, full bool) error {
+func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assetsJSON []byte, full bool) (ReconcileCounts, error) {
 	var cur struct {
 		Assets []snapshotSoftware `json:"assets"`
 	}
 	if len(assetsJSON) > 0 {
 		if err := json.Unmarshal(assetsJSON, &cur); err != nil {
-			return fmt.Errorf("parse snapshot assets: %w", err)
+			return ReconcileCounts{}, fmt.Errorf("parse snapshot assets: %w", err)
 		}
 	}
 
 	agent, err := s.GetAgent(ctx, agentID)
 	if err != nil {
-		return fmt.Errorf("get agent: %w", err)
+		return ReconcileCounts{}, fmt.Errorf("get agent: %w", err)
 	}
 	hostname := ""
 	osType := ""
@@ -112,7 +123,7 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return ReconcileCounts{}, err
 	}
 	defer tx.Rollback(ctx)
 
@@ -124,20 +135,20 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 		WHERE agent_id=$1 AND asset_type='software'
 	`, agentID)
 	if err != nil {
-		return err
+		return ReconcileCounts{}, err
 	}
 	existing := map[string]string{}
 	for rows.Next() {
 		var key, ver string
 		if err := rows.Scan(&key, &ver); err != nil {
 			rows.Close()
-			return err
+			return ReconcileCounts{}, err
 		}
 		existing[key] = ver
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return err
+		return ReconcileCounts{}, err
 	}
 
 	keys := make([]string, 0, len(cur.Assets))
@@ -157,7 +168,7 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 			SET version=EXCLUDED.version, format=EXCLUDED.format, vendor=EXCLUDED.vendor,
 				arch=EXCLUDED.arch, location=EXCLUDED.location, last_seen=NOW(), updated_at=NOW()
 		`, key, sw.Name, sw.Version, sw.Format, sw.Vendor, sw.Arch, sw.Location, agentID); err != nil {
-			return err
+			return ReconcileCounts{}, err
 		}
 
 		prev, ok := existing[key]
@@ -173,26 +184,26 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 	}
 
 	if len(changes) > 0 {
-		if err := insertAssetChangesTx(ctx, tx, agentID, changes, now); err != nil {
-			return err
+		if err := insertAssetChangesTx(ctx, tx, agentID, changes, now, "agent", ""); err != nil {
+			return ReconcileCounts{}, err
 		}
 	}
 
 	hostKey := HostAssetKey(agentID)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO assets (asset_key, asset_type, name, version, os_type, os_version,
-			agent_id, lifecycle, first_seen, last_seen, updated_at)
-		VALUES ($1,'host',$2,$3,$4,$5,$6,'active',NOW(),NOW(),NOW())
+			hostname, agent_id, lifecycle, first_seen, last_seen, updated_at)
+		VALUES ($1,'host',$2,$3,$4,$5,$2,$6,'active',NOW(),NOW(),NOW())
 		ON CONFLICT (asset_key) DO UPDATE
-		SET name=$2, version=$3, os_type=$4, os_version=$5, last_seen=NOW(),
+		SET name=$2, version=$3, os_type=$4, os_version=$5, hostname=$2, last_seen=NOW(),
 			updated_at=NOW(), lifecycle='active'
 	`, hostKey, hostname, osVersion, osType, osVersion, agentID); err != nil {
-		return err
+		return ReconcileCounts{}, err
 	}
 
 	if full {
 		if _, err := tx.Exec(ctx, `DELETE FROM asset_relations WHERE parent_key=$1`, hostKey); err != nil {
-			return err
+			return ReconcileCounts{}, err
 		}
 	}
 	if len(keys) > 0 {
@@ -202,11 +213,12 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 				VALUES ($1,$2,'installs')
 				ON CONFLICT (parent_key, child_key, relation_type) DO NOTHING
 			`, hostKey, key); err != nil {
-				return err
+				return ReconcileCounts{}, err
 			}
 		}
 	}
 
+	var retiredChanges []assetChangeRecord
 	if full {
 		retired, err := tx.Query(ctx, `
 			UPDATE assets SET lifecycle='retired', updated_at=NOW()
@@ -214,14 +226,13 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 			RETURNING asset_key, name, version, format
 		`, agentID, keys)
 		if err != nil {
-			return err
+			return ReconcileCounts{}, err
 		}
-		var retiredChanges []assetChangeRecord
 		for retired.Next() {
 			var k, n, v, f string
 			if err := retired.Scan(&k, &n, &v, &f); err != nil {
 				retired.Close()
-				return err
+				return ReconcileCounts{}, err
 			}
 			retiredChanges = append(retiredChanges, assetChangeRecord{
 				Key: k, Name: n, Old: v, New: "", Format: f, ChangeType: "retired",
@@ -229,29 +240,41 @@ func (s *Store) SyncCMDBFromSnapshot(ctx context.Context, agentID string, assets
 		}
 		retired.Close()
 		if err := retired.Err(); err != nil {
-			return err
+			return ReconcileCounts{}, err
 		}
 		if len(retiredChanges) > 0 {
-			if err := insertAssetChangesTx(ctx, tx, agentID, retiredChanges, now); err != nil {
-				return err
+			if err := insertAssetChangesTx(ctx, tx, agentID, retiredChanges, now, "agent", ""); err != nil {
+				return ReconcileCounts{}, err
 			}
 		}
 	}
 
-	return tx.Commit(ctx)
+	upserted := 0
+	for _, c := range changes {
+		if c.ChangeType == "added" || c.ChangeType == "updated" {
+			upserted++
+		}
+	}
+	counts := ReconcileCounts{
+		Upserted:  upserted,
+		Retired:   len(retiredChanges),
+		Relations: len(keys),
+		Changes:   len(changes) + len(retiredChanges),
+	}
+	return counts, tx.Commit(ctx)
 }
 
 type assetChangeRecord struct {
 	Key, Name, Old, New, Format, ChangeType string
 }
 
-func insertAssetChangesTx(ctx context.Context, tx pgx.Tx, agentID string, changes []assetChangeRecord, now time.Time) error {
+func insertAssetChangesTx(ctx context.Context, tx pgx.Tx, agentID string, changes []assetChangeRecord, now time.Time, source, actor string) error {
 	for _, c := range changes {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO asset_changes (agent_id, change_type, asset_name, old_version, new_version,
 				format, detected_at, asset_key, change_source, actor)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'agent','')
-		`, agentID, c.ChangeType, c.Name, c.Old, c.New, c.Format, now, c.Key); err != nil {
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		`, agentID, c.ChangeType, c.Name, c.Old, c.New, c.Format, now, c.Key, source, actor); err != nil {
 			return err
 		}
 	}
@@ -322,7 +345,7 @@ func (s *Store) ListAssets(ctx context.Context, f AssetFilters) ([]Asset, int, e
 	where := f.whereClause(&listArgs)
 	listArgs = append(listArgs, f.Limit, f.Offset)
 	query := "SELECT id, asset_key, asset_type, name, version, os_type, os_version, format, " +
-		"vendor, arch, location, agent_id, lifecycle, environment, business_unit, owner, tags, " +
+		"vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags, " +
 		"first_seen, last_seen, updated_at FROM assets" + where +
 		fmt.Sprintf(" ORDER BY name LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 	rows, err := s.pool.Query(ctx, query, listArgs...)
@@ -346,7 +369,7 @@ func scanAsset(row interface{ Scan(...interface{}) error }) (Asset, error) {
 	var a Asset
 	err := row.Scan(&a.ID, &a.AssetKey, &a.AssetType, &a.Name, &a.Version,
 		&a.OSType, &a.OSVersion, &a.Format, &a.Vendor, &a.Arch, &a.Location,
-		&a.AgentID, &a.Lifecycle, &a.Environment, &a.BusinessUnit, &a.Owner,
+		&a.Source, &a.Hostname, &a.IP, &a.AgentID, &a.Lifecycle, &a.Environment, &a.BusinessUnit, &a.Owner,
 		&a.Tags, &a.FirstSeen, &a.LastSeen, &a.UpdatedAt)
 	return a, err
 }
@@ -354,7 +377,7 @@ func scanAsset(row interface{ Scan(...interface{}) error }) (Asset, error) {
 func (s *Store) GetAsset(ctx context.Context, id int64) (Asset, error) {
 	return scanAsset(s.pool.QueryRow(ctx, `
 		SELECT id, asset_key, asset_type, name, version, os_type, os_version, format,
-			vendor, arch, location, agent_id, lifecycle, environment, business_unit, owner, tags,
+			vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags,
 			first_seen, last_seen, updated_at FROM assets WHERE id=$1
 	`, id))
 }
@@ -415,7 +438,7 @@ func (s *Store) UpdateAssetMeta(ctx context.Context, id int64, env, businessUnit
 			tags=$6, updated_at=NOW()
 		WHERE id=$1
 		RETURNING id, asset_key, asset_type, name, version, os_type, os_version, format,
-			vendor, arch, location, agent_id, lifecycle, environment, business_unit, owner, tags,
+			vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags,
 			first_seen, last_seen, updated_at
 	`, id, env, businessUnit, owner, lifecycle, cleanTags))
 	if err != nil {
@@ -462,12 +485,12 @@ func (s *Store) BulkUpdateAssetMeta(ctx context.Context, items []AssetMetaUpdate
 		var cur Asset
 		err := tx.QueryRow(ctx, `
 			SELECT id, asset_key, asset_type, name, version, os_type, os_version, format,
-				vendor, arch, location, agent_id, lifecycle, environment, business_unit, owner, tags,
+				vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags,
 				first_seen, last_seen, updated_at
 			FROM assets WHERE asset_key=$1 FOR UPDATE
 		`, item.AssetKey).Scan(&cur.ID, &cur.AssetKey, &cur.AssetType, &cur.Name, &cur.Version,
 			&cur.OSType, &cur.OSVersion, &cur.Format, &cur.Vendor, &cur.Arch, &cur.Location,
-			&cur.AgentID, &cur.Lifecycle, &cur.Environment, &cur.BusinessUnit, &cur.Owner,
+			&cur.Source, &cur.Hostname, &cur.IP, &cur.AgentID, &cur.Lifecycle, &cur.Environment, &cur.BusinessUnit, &cur.Owner,
 			&cur.Tags, &cur.FirstSeen, &cur.LastSeen, &cur.UpdatedAt)
 		if err != nil {
 			if err == pgx.ErrNoRows {

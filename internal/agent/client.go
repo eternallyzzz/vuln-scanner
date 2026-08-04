@@ -94,12 +94,13 @@ func (c *Client) Heartbeat(ctx context.Context, collectorErrors int64) error {
 	return err
 }
 
-func (c *Client) SyncInventory(ctx context.Context, assets []*pb.Asset, mode pb.SyncMode) error {
+func (c *Client) SyncInventory(ctx context.Context, assets []*pb.Asset, mode pb.SyncMode, sys *pb.SystemInfo) error {
 	_, err := c.rawClient.SyncInventory(ctx, &pb.SyncInventoryRequest{
-		AgentId: c.cfg.Agent.ID,
-		Token:   c.cfg.Agent.Token,
-		Mode:    mode,
-		Assets:  assets,
+		AgentId:    c.cfg.Agent.ID,
+		Token:      c.cfg.Agent.Token,
+		Mode:       mode,
+		Assets:     assets,
+		SystemInfo: sys,
 	})
 	return err
 }

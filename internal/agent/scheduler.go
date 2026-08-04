@@ -139,7 +139,7 @@ func (s *Scheduler) doFullSync(ctx context.Context) ([]collector.Asset, collecto
 		pbAssets = append(pbAssets, assetToPb(a))
 	}
 
-	if err := s.client.SyncInventory(ctx, pbAssets, pb.SyncMode_FULL); err != nil {
+	if err := s.client.SyncInventory(ctx, pbAssets, pb.SyncMode_FULL, systemInfoToPb(sys)); err != nil {
 		slog.Error("full sync rpc failed", "error", err)
 		return assets, sys
 	}
@@ -181,7 +181,7 @@ func (s *Scheduler) doIncrementalSync(ctx context.Context) {
 		return
 	}
 
-	if err := s.client.SyncInventory(ctx, changed, pb.SyncMode_INCREMENTAL); err != nil {
+	if err := s.client.SyncInventory(ctx, changed, pb.SyncMode_INCREMENTAL, nil); err != nil {
 		slog.Warn("incremental sync rpc failed", "error", err)
 		return
 	}
@@ -234,6 +234,135 @@ func assetToPb(a collector.Asset) *pb.Asset {
 		Status:      a.Status,
 		Type:        assetType,
 	}
+}
+
+func systemInfoToPb(s collector.SystemInfo) *pb.SystemInfo {
+	if s.Hostname == "" && s.OS == "" && s.Arch == "" {
+		return nil
+	}
+	out := &pb.SystemInfo{
+		Hostname:           s.Hostname,
+		Os:                 s.OS,
+		Version:            s.Version,
+		Arch:               s.Arch,
+		MachineId:          s.MachineID,
+		SystemManufacturer: s.SystemManufacturer,
+		SystemModel:        s.SystemModel,
+		SystemSerial:       s.SystemSerial,
+		MemoryMb:           s.MemoryMB,
+		BiosVersion:        s.BIOSVersion,
+		BiosDate:           s.BIOSDate,
+		KernelVersion:      s.KernelVersion,
+		UptimeSeconds:      s.UptimeSeconds,
+		BootTime:           s.BootTime,
+		Timezone:           s.Timezone,
+		OsDomain:           s.OSDomain,
+		TpmEnabled:         s.TPMEnabled,
+		DiskEncryption:     s.DiskEncryption,
+		Antivirus:          s.Antivirus,
+		Selinux:            s.SELinux,
+		Apparmor:           s.AppArmor,
+		Truncated:          s.Truncated,
+	}
+	for _, c := range s.CPU {
+		out.Cpu = append(out.Cpu, &pb.CPUSpec{Name: c.Name, Cores: int32(c.Cores)})
+	}
+	for _, g := range s.GPU {
+		out.Gpu = append(out.Gpu, &pb.GPUSpec{Name: g.Name, Driver: g.Driver})
+	}
+	if s.Motherboard != nil {
+		out.Motherboard = &pb.MotherboardSpec{
+			Manufacturer: s.Motherboard.Manufacturer,
+			Product:      s.Motherboard.Product,
+		}
+	}
+	for _, n := range s.NetInterfaces {
+		out.NetInterfaces = append(out.NetInterfaces, &pb.NetInterfaceSpec{
+			Name: n.Name, Mac: n.MAC,
+			Addresses: n.Addresses, Gateways: n.Gateways, Dns: n.DNS,
+			LinkSpeed: n.LinkSpeed, Driver: n.Driver,
+		})
+	}
+	for _, p := range s.OpenPorts {
+		out.OpenPorts = append(out.OpenPorts, &pb.PortInfo{
+			Protocol: p.Protocol, Address: p.Address,
+			Port: int32(p.Port), Process: p.Process,
+		})
+	}
+	for _, p := range s.Processes {
+		out.Processes = append(out.Processes, &pb.ProcessInfo{
+			Pid: int32(p.PID), Name: p.Name, User: p.User, MemoryMb: p.MemoryMB,
+		})
+	}
+	for _, d := range s.Storage {
+		out.Storage = append(out.Storage, &pb.StorageSpec{
+			Name: d.Name, SizeBytes: d.SizeBytes, Mount: d.Mount,
+			Serial: d.Serial, Model: d.Model, Firmware: d.Firmware,
+			UsagePercent: d.UsagePercent,
+		})
+	}
+	for _, m := range s.MemoryModules {
+		out.MemoryModules = append(out.MemoryModules, &pb.MemoryModule{
+			Slot: m.Slot, CapacityMb: m.CapacityMB, Type: m.Type,
+			Speed: m.Speed, Serial: m.Serial,
+		})
+	}
+	for _, v := range s.Services {
+		out.Services = append(out.Services, &pb.ServiceInfo{
+			Name: v.Name, State: v.State, StartType: v.StartType, RunAs: v.RunAs,
+		})
+	}
+	for _, v := range s.StartupItems {
+		out.StartupItems = append(out.StartupItems, &pb.StartupItem{
+			Name: v.Name, Command: v.Command, Location: v.Location,
+		})
+	}
+	for _, v := range s.ScheduledTasks {
+		out.ScheduledTasks = append(out.ScheduledTasks, &pb.ScheduledTask{
+			Name: v.Name, Status: v.Status, NextRun: v.NextRun, Command: v.Command,
+		})
+	}
+	for _, v := range s.Routes {
+		out.Routes = append(out.Routes, &pb.RouteInfo{
+			Destination: v.Destination, Gateway: v.Gateway,
+			Interface: v.Interface, Metric: v.Metric,
+		})
+	}
+	for _, v := range s.FirewallRules {
+		out.FirewallRules = append(out.FirewallRules, &pb.FirewallRule{
+			Name: v.Name, Enabled: v.Enabled, Direction: v.Direction,
+			Action: v.Action, Protocol: v.Protocol,
+			LocalPort: v.LocalPort, RemoteIp: v.RemoteIP,
+		})
+	}
+	for _, v := range s.Neighbors {
+		out.Neighbors = append(out.Neighbors, &pb.NeighborInfo{
+			Interface: v.Interface, Ip: v.IP, Mac: v.MAC, State: v.State,
+		})
+	}
+	for _, v := range s.Certificates {
+		out.Certificates = append(out.Certificates, &pb.CertificateInfo{
+			Subject: v.Subject, Issuer: v.Issuer, Serial: v.Serial,
+			NotBefore: v.NotBefore, NotAfter: v.NotAfter, Store: v.Store,
+		})
+	}
+	for _, v := range s.Accounts {
+		out.Accounts = append(out.Accounts, &pb.AccountInfo{
+			Name: v.Name, Domain: v.Domain, Group: v.Group,
+			Admin: v.Admin, Disabled: v.Disabled,
+		})
+	}
+	for _, v := range s.SSHKeys {
+		out.SshKeys = append(out.SshKeys, &pb.SSHKeyInfo{
+			User: v.User, Path: v.Path, Type: v.Type, Fingerprint: v.Fingerprint,
+		})
+	}
+	for _, v := range s.Runtimes {
+		out.Runtimes = append(out.Runtimes, &pb.RuntimeInfo{
+			Name: v.Name, Type: v.Type, State: v.State,
+		})
+	}
+	return out
 }
 
 // assetSyncKey identifies an inventory entry across sync cycles. Name alone is

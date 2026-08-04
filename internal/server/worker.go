@@ -124,16 +124,28 @@ func (w *Worker) feedLoop(ctx context.Context) {
 		w.loader.RefreshRedHat(context.Background(), agents)
 	}()
 
+	go func() {
+		slog.Info("feed: loading EPSS/KEV intel...")
+		if err := w.loader.RefreshIntel(context.Background()); err != nil {
+			slog.Error("feed: intel refresh failed", "error", err)
+		}
+		if _, err := w.store.RecalcAllRisk(context.Background()); err != nil {
+			slog.Error("feed: initial risk recalc failed", "error", err)
+		}
+	}()
+
 	refreshTicker := time.NewTicker(1 * time.Hour)
 	nvdTicker := time.NewTicker(3 * time.Hour)
 	osvTicker := time.NewTicker(6 * time.Hour)
 	debianTicker := time.NewTicker(6 * time.Hour)
 	redhatTicker := time.NewTicker(24 * time.Hour)
+	intelTicker := time.NewTicker(24 * time.Hour)
 	defer refreshTicker.Stop()
 	defer nvdTicker.Stop()
 	defer osvTicker.Stop()
 	defer debianTicker.Stop()
 	defer redhatTicker.Stop()
+	defer intelTicker.Stop()
 
 	for {
 		select {
@@ -158,6 +170,13 @@ func (w *Worker) feedLoop(ctx context.Context) {
 		case <-redhatTicker.C:
 			agents := w.collectAgentSummaries(ctx)
 			go w.loader.RefreshRedHat(context.Background(), agents)
+		case <-intelTicker.C:
+			if err := w.loader.RefreshIntel(ctx); err != nil {
+				slog.Error("feed: intel refresh failed", "error", err)
+			}
+			if _, err := w.store.RecalcAllRisk(ctx); err != nil {
+				slog.Error("feed: risk recalc failed", "error", err)
+			}
 		}
 	}
 }
@@ -251,6 +270,9 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 	if err := w.match.SaveResults(ctx, agentID, results); err != nil {
 		slog.Error("save results failed", "agent_id", agentID, "error", err)
 	}
+	if _, err := w.store.RecalcAgentRisk(ctx, agentID); err != nil {
+		slog.Warn("risk recalc failed", "agent_id", agentID, "error", err)
+	}
 	if w.alerts != nil && w.alerts.Enabled() {
 		alertResults := make([]alert.Result, 0, len(results))
 		for _, r := range results {
@@ -267,6 +289,15 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 			slog.Error("alert evaluation failed", "agent_id", agentID, "error", err)
 		}
 	}
+}
+
+// RefreshIntel triggers an EPSS/KEV refresh and a full risk recalculation.
+func (w *Worker) RefreshIntel(ctx context.Context) error {
+	if err := w.loader.RefreshIntel(ctx); err != nil {
+		return err
+	}
+	_, err := w.store.RecalcAllRisk(ctx)
+	return err
 }
 
 func (w *Worker) RunMatchCycle(ctx context.Context) {
