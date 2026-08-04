@@ -2,6 +2,9 @@ package server
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,5 +24,40 @@ func TestGRPCAddrForRequest(t *testing.T) {
 			t.Errorf("grpcAddrForRequest(%q, %q) = %q, want %q",
 				c.host, c.grpcCfg, got, c.want)
 		}
+	}
+}
+
+func TestDownloadAgentRoute(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "agents"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "agents", "linux-amd64")
+	if err := os.WriteFile(bin, []byte("agent-binary"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(old)
+
+	cfg := DefaultConfig()
+	cfg.HTTPAddr = ":8080"
+	cfg.APIKey = "test-key"
+	srv := NewRESTServer(nil, NewAgentAuth("jwt-secret"), cfg, nil, nil)
+
+	req := httptest.NewRequest("GET", "/dl/agent/linux-amd64", nil)
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != "agent-binary" {
+		t.Fatalf("body = %q, want agent-binary", rr.Body.String())
 	}
 }

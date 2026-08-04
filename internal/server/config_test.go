@@ -1,9 +1,83 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestLoadConfigEnvWithoutFile(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://u:p@db:5432/vulnscan?sslmode=disable")
+	t.Setenv("JWT_SECRET", "env-jwt")
+	t.Setenv("API_KEY", "env-api")
+	t.Setenv("SERVER_URL", "https://vuln.example.com")
+	t.Setenv("NVD_API_KEY", "env-nvd")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DatabaseURL != "postgres://u:p@db:5432/vulnscan?sslmode=disable" {
+		t.Fatalf("database_url = %q, want env value", cfg.DatabaseURL)
+	}
+	if cfg.JWTSecret != "env-jwt" {
+		t.Fatalf("jwt_secret = %q, want env value", cfg.JWTSecret)
+	}
+	if cfg.APIKey != "env-api" {
+		t.Fatalf("api_key = %q, want env value", cfg.APIKey)
+	}
+	if cfg.ServerURL != "https://vuln.example.com" {
+		t.Fatalf("server_url = %q, want env value", cfg.ServerURL)
+	}
+	if cfg.CVE.NVDAPIKey != "env-nvd" {
+		t.Fatalf("cve.nvd_api_key = %q, want env value", cfg.CVE.NVDAPIKey)
+	}
+}
+
+func TestLoadConfigEnvExpansionAndPrecedence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	content := []byte(`
+jwt_secret: "${JWT_SECRET}"
+api_key: "sk-file"
+database_url: "postgres://file:file@localhost:5432/file?sslmode=disable"
+server_url: "https://file.example.com/"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("JWT_SECRET", "expanded-jwt")
+	t.Setenv("API_KEY", "env-api")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JWTSecret != "expanded-jwt" {
+		t.Fatalf("jwt_secret = %q, want ${ENV} expansion", cfg.JWTSecret)
+	}
+	if cfg.APIKey != "env-api" {
+		t.Fatalf("api_key = %q, want env precedence over file", cfg.APIKey)
+	}
+	if cfg.DatabaseURL != "postgres://file:file@localhost:5432/file?sslmode=disable" {
+		t.Fatalf("database_url = %q, want file value", cfg.DatabaseURL)
+	}
+	if cfg.ServerURL != "https://file.example.com/" {
+		t.Fatalf("server_url = %q, want file value", cfg.ServerURL)
+	}
+}
+
+func TestServerURLFallbackAndTrim(t *testing.T) {
+	cfg := DefaultConfig()
+	if got := serverURL(cfg); got != "http://localhost:8080" {
+		t.Fatalf("serverURL() = %q, want localhost fallback", got)
+	}
+	cfg.ServerURL = "https://vuln.example.com/"
+	if got := serverURL(cfg); got != "https://vuln.example.com" {
+		t.Fatalf("serverURL() = %q, want trailing slash trimmed", got)
+	}
+}
 
 func TestCVEScanConfigFeedConfig(t *testing.T) {
 	c := &CVEScanConfig{

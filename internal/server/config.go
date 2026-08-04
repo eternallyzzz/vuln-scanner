@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -40,6 +41,7 @@ type Config struct {
 	DatabaseURL   string            `mapstructure:"database_url"`
 	JWTSecret     string            `mapstructure:"jwt_secret"`
 	APIKey        string            `mapstructure:"api_key"`
+	ServerURL     string            `mapstructure:"server_url"`
 	CVE           *CVEScanConfig    `mapstructure:"cve"`
 	LLM           *LLMConfig        `mapstructure:"llm"`
 	Alerting      *alert.Config     `mapstructure:"alerting"`
@@ -61,14 +63,23 @@ func LoadConfig(path string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	v := viper.New()
-	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
 	v.AutomaticEnv()
+	bindCoreEnv(v)
 
+	loaded := false
+	v.SetConfigFile(path)
 	if err := v.ReadInConfig(); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read config %s: %w", path, err)
+		}
+	} else {
+		loaded = true
+	}
+	if !loaded {
 		v.SetConfigFile("server.yaml")
-		if err2 := v.ReadInConfig(); err2 != nil {
-			return cfg, nil
+		if err := v.ReadInConfig(); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read config server.yaml: %w", err)
 		}
 	}
 
@@ -79,6 +90,7 @@ func LoadConfig(path string) (*Config, error) {
 	cfg.JWTSecret = os.ExpandEnv(cfg.JWTSecret)
 	cfg.APIKey = os.ExpandEnv(cfg.APIKey)
 	cfg.DatabaseURL = os.ExpandEnv(cfg.DatabaseURL)
+	cfg.ServerURL = os.ExpandEnv(cfg.ServerURL)
 	if cfg.CVE == nil {
 		cfg.CVE = &CVEScanConfig{}
 	}
@@ -89,6 +101,27 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// bindCoreEnv registers the environment variables that must work even when
+// the server runs without a config file (e.g. the container image). Viper
+// only exposes environment values for keys it knows about, so without these
+// bindings an env-only deployment would silently fall back to defaults.
+func bindCoreEnv(v *viper.Viper) {
+	for _, key := range []string{
+		"grpc_addr",
+		"http_addr",
+		"database_url",
+		"jwt_secret",
+		"api_key",
+		"server_url",
+	} {
+		_ = v.BindEnv(key)
+	}
+	// Nested keys cannot use the automatic mapping: viper would turn
+	// "cve.nvd_api_key" into "CVE.NVD_API_KEY", which is not a valid
+	// environment variable name. Bind the real variable explicitly.
+	_ = v.BindEnv("cve.nvd_api_key", "NVD_API_KEY")
 }
 
 func (c *Config) LLMEnabled() bool {

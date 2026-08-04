@@ -1,16 +1,28 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
+
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/server ./cmd/server
 
-FROM alpine:3.19
+# Server (linux/amd64)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+
+# Agent installers for all supported platforms, served via /dl/agent/<platform>
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/agents/linux-amd64 ./cmd/agent \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/agents/linux-arm64 ./cmd/agent \
+ && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/agents/windows-amd64.exe ./cmd/agent \
+ && CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/agents/windows-arm64.exe ./cmd/agent
+
+FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
-COPY --from=builder /app/server .
-COPY agents/ ./agents/
+COPY --from=builder /out/server ./server
+COPY --from=builder /out/agents ./agents
 EXPOSE 8080 9090
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1
 CMD ["./server"]

@@ -1,4 +1,4 @@
-.PHONY: all proto build build-agent build-server test clean lint run-server run-agent
+.PHONY: all proto build build-agent build-server test clean lint run-server run-agent docker-build docker-up docker-down
 
 GO ?= go
 PROTOC ?= protoc
@@ -52,6 +52,15 @@ migrate-up:
 
 migrate-down:
 	$(GO) run ./cmd/server migrate down
+
+docker-build:
+	docker compose -f deploy/docker-compose/docker-compose.yml build
+
+docker-up:
+	docker compose -f deploy/docker-compose/docker-compose.yml up -d
+
+docker-down:
+	docker compose -f deploy/docker-compose/docker-compose.yml down
 
 fmt:
 	$(GO) fmt ./...

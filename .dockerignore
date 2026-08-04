@@ -1,0 +1,45 @@
+# VCS
+.git
+.gitignore
+.github
+
+# Build outputs & local artifacts
+bin/
+agents/
+tmp/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Logs & results
+*.log
+results.json
+results_summary.json
+
+# Secrets & local config
+.env
+.env.local
+server.yaml
+server-e2e.yaml
+certs/
+*.pem
+*.key
+.vuln-scanner/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Sources not needed in the server image
+deploy/
+docs/
+README.md
+LICENSE
+Makefile
+.env.example

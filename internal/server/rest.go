@@ -48,9 +48,20 @@ func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker,
 		register: &RegisterHandler{
 			store:  s,
 			auth:   auth,
-			srvURL: "http://localhost" + cfg.HTTPAddr,
+			srvURL: serverURL(cfg),
 		},
 	}
+}
+
+// serverURL returns the externally reachable server base URL used by
+// registration/install scripts. It must point at a host agents can reach, so
+// production deployments should set server_url / SERVER_URL instead of
+// relying on the localhost fallback.
+func serverURL(cfg *Config) string {
+	if cfg.ServerURL != "" {
+		return strings.TrimSuffix(cfg.ServerURL, "/")
+	}
+	return "http://localhost" + cfg.HTTPAddr
 }
 
 func (s *RESTServer) Handler() http.Handler {
@@ -61,6 +72,9 @@ func (s *RESTServer) Handler() http.Handler {
 
 	r.Get("/health", s.health)
 	r.Get("/demo", s.serveDemo)
+	// Install scripts reference /dl/agent/<platform>; keep the single-segment
+	// alias for backward compatibility.
+	r.Get("/dl/agent/{platform}", s.downloadAgent)
 	r.Get("/dl/{platform}", s.downloadAgent)
 	r.Get("/r/{code}", s.downloadScript)
 	r.Post("/api/v1/register", s.registerAgent)

@@ -3,32 +3,45 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: vulnscan
-      POSTGRES_USER: vulnscan
-      POSTGRES_PASSWORD: vulnscan
+      POSTGRES_USER: ${POSTGRES_USER:-vulnscan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vulnscan}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vulnscan"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vulnscan}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   server:
     build:
       context: ../../
       dockerfile: deploy/docker-compose/Dockerfile.server
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "${HTTP_PORT:-8080}:8080"
+      - "${GRPC_PORT:-9090}:9090"
     environment:
-      DATABASE_URL: postgres://vulnscan:vulnscan@postgres:5432/vulnscan?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-vulnscan}:${POSTGRES_PASSWORD:-vulnscan}@postgres:5432/vulnscan?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      API_KEY: ${API_KEY:-sk-dev-only}
+      API_KEY: ${API_KEY:-sk-change-me}
+      SERVER_URL: ${SERVER_URL:-http://localhost:8080}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   pgdata:

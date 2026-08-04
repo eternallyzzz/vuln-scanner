@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +18,7 @@ func shellArgv(args ...string) []string {
 }
 
 func TestExecuteCommandsSuccess(t *testing.T) {
-	code, output, err := executeCommands(t.Context(), [][]string{shellArgv("echo", "hello")}, 10*time.Second)
+	code, output, err := executeCommands(context.Background(), [][]string{shellArgv("echo", "hello")}, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func TestExecuteCommandsFailure(t *testing.T) {
 	} else {
 		argv = []string{"sh", "-c", "exit 3"}
 	}
-	code, _, err := executeCommands(t.Context(), [][]string{argv}, 10*time.Second)
+	code, _, err := executeCommands(context.Background(), [][]string{argv}, 10*time.Second)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -48,7 +49,7 @@ func TestExecuteCommandsFailure(t *testing.T) {
 func TestExecuteCommandsStopsOnFirstFailure(t *testing.T) {
 	failing := shellArgv("exit", "7")
 	later := shellArgv("echo", "must-not-run")
-	code, _, err := executeCommands(t.Context(), [][]string{failing, later}, 10*time.Second)
+	code, _, err := executeCommands(context.Background(), [][]string{failing, later}, 10*time.Second)
 	if err == nil || code != 7 {
 		t.Fatalf("expected exit 7, got %d err %v", code, err)
 	}
@@ -64,7 +65,7 @@ func TestExecuteCommandsTruncatesOutput(t *testing.T) {
 	} else {
 		argv = []string{"sh", "-c", "cat " + big}
 	}
-	_, output, err := executeCommands(t.Context(), [][]string{argv}, 10*time.Second)
+	_, output, err := executeCommands(context.Background(), [][]string{argv}, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestExecuteCommandsTimeout(t *testing.T) {
 	} else {
 		argv = []string{"sh", "-c", "sleep 5"}
 	}
-	code, _, err := executeCommands(t.Context(), [][]string{argv}, 800*time.Millisecond)
+	code, _, err := executeCommands(context.Background(), [][]string{argv}, 800*time.Millisecond)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}

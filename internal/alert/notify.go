@@ -15,6 +15,7 @@ import (
 	"net/smtp"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -116,7 +117,7 @@ func (n *SMTPNotifier) Send(ctx context.Context, p Payload) error {
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		n.cfg.From, strings.Join(n.cfg.To, ","), subject, b.String())
 
-	addr := fmt.Sprintf("%s:%d", n.cfg.Host, n.cfg.Port)
+	addr := net.JoinHostPort(n.cfg.Host, strconv.Itoa(n.cfg.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return err

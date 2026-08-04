@@ -64,6 +64,21 @@ go run ./cmd/server
 go run ./cmd/agent run
 ```
 
+## Deployment / 部署
+
+测试/生产环境建议使用 Docker Compose 一键部署（含 PostgreSQL、自动迁移与内置 Agent 安装包），完整说明见
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)：
+
+```bash
+cd deploy/docker-compose
+cp ../../.env.example .env    # 修改 JWT_SECRET / API_KEY / SERVER_URL
+docker compose up -d --build
+```
+
+Agent 注册/安装脚本基于 `SERVER_URL`（默认 `http://localhost:8080`）生成下载地址，部署在服务器上时必须改为
+Agent 可达的对外地址。CI 在 main 分支构建并推送镜像至
+`ghcr.io/eternallyzzz/vuln-scanner`（`latest` 与 `sha-<commit>` 标签）。
+
 ## Configuration / 配置
 
 ### Server (`server.yaml`)
