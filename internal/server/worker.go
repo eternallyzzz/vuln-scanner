@@ -62,6 +62,7 @@ func (w *Worker) Start(ctx context.Context) {
 	go w.archiveLoop(ctx)
 	go w.scanPolicyLoop(ctx)
 	go w.remediationLoop(ctx)
+	go w.slaLoop(ctx)
 	go w.containerScanLoop(ctx)
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
@@ -91,13 +92,22 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	slog.Info("feed: loading recent MSRC (last 12 months)...")
 	if err := w.loader.LoadMSRCAll(ctx); err != nil {
 		slog.Error("feed: recent msrc load failed", "error", err)
+	} else if err := w.loader.SyncKBMetadata(ctx); err != nil {
+		slog.Error("feed: kb metadata sync failed", "error", err)
 	}
+	go validateKBLinks(context.Background(), w.store)
+	go resolveActiveKBDownloads(context.Background(), w.store, patch.NewCatalogResolver())
 	close(w.ready)
 	slog.Info("feed: recent MSRC loaded, match can start now")
 
 	go func() {
 		slog.Info("feed: loading historical MSRC in background...")
 		w.loader.LoadMSRCHistorical(context.Background())
+		if err := w.loader.SyncKBMetadata(context.Background()); err != nil {
+			slog.Error("feed: historical kb metadata sync failed", "error", err)
+		}
+		validateKBLinks(context.Background(), w.store)
+		resolveActiveKBDownloads(context.Background(), w.store, patch.NewCatalogResolver())
 	}()
 
 	go func() {
@@ -140,12 +150,14 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	debianTicker := time.NewTicker(6 * time.Hour)
 	redhatTicker := time.NewTicker(24 * time.Hour)
 	intelTicker := time.NewTicker(24 * time.Hour)
+	kbLinkTicker := time.NewTicker(6 * time.Hour)
 	defer refreshTicker.Stop()
 	defer nvdTicker.Stop()
 	defer osvTicker.Stop()
 	defer debianTicker.Stop()
 	defer redhatTicker.Stop()
 	defer intelTicker.Stop()
+	defer kbLinkTicker.Stop()
 
 	for {
 		select {
@@ -156,7 +168,10 @@ func (w *Worker) feedLoop(ctx context.Context) {
 		case <-refreshTicker.C:
 			if err := w.loader.RefreshMSRCCurrent(ctx); err != nil {
 				slog.Error("feed: msrc current refresh failed", "error", err)
+			} else if err := w.loader.SyncKBMetadata(ctx); err != nil {
+				slog.Error("feed: kb metadata sync failed", "error", err)
 			}
+			validateKBLinks(ctx, w.store)
 		case <-nvdTicker.C:
 			agents := w.collectAgentSummaries(ctx)
 			w.loader.RefreshExpiredNVD(ctx)
@@ -177,6 +192,9 @@ func (w *Worker) feedLoop(ctx context.Context) {
 			if _, err := w.store.RecalcAllRisk(ctx); err != nil {
 				slog.Error("feed: risk recalc failed", "error", err)
 			}
+		case <-kbLinkTicker.C:
+			validateKBLinks(ctx, w.store)
+			resolveActiveKBDownloads(ctx, w.store, patch.NewCatalogResolver())
 		}
 	}
 }
@@ -367,6 +385,35 @@ func (w *Worker) scanPolicyLoop(ctx context.Context) {
 				slog.Info("scan policy triggered", "agent_id", p.AgentID,
 					"interval_minutes", p.IntervalMinutes)
 			}
+		}
+	}
+}
+
+// slaLoop periodically checks for vulnerabilities past their SLA deadline
+// and creates/refreshes sla-breach alerts through the alert pipeline.
+func (w *Worker) slaLoop(ctx context.Context) {
+	if w.alerts == nil || !w.alerts.Enabled() {
+		return
+	}
+	if err := w.alerts.EnsureDefaultRules(ctx); err != nil {
+		slog.Error("sla: default rules seeding failed", "error", err)
+	}
+	run := func() {
+		if _, err := w.alerts.CheckSLA(ctx); err != nil {
+			slog.Error("sla: check failed", "error", err)
+		}
+	}
+	run()
+	ticker := time.NewTicker(w.alerts.SLACheckInterval())
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.done:
+			return
+		case <-ticker.C:
+			run()
 		}
 	}
 }

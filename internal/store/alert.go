@@ -131,6 +131,14 @@ func (s *Store) GetAlertRule(ctx context.Context, id int64) (AlertRule, error) {
 	`, id))
 }
 
+// GetAlertRuleByName returns the rule with the given name.
+func (s *Store) GetAlertRuleByName(ctx context.Context, name string) (AlertRule, error) {
+	return scanAlertRule(s.pool.QueryRow(ctx, `
+		SELECT `+alertRuleColumns+`
+		FROM alert_rules WHERE name=$1
+	`, name))
+}
+
 func (s *Store) CreateAlertRule(ctx context.Context, r AlertRule) (AlertRule, error) {
 	if r.AssetTagFilter == nil {
 		r.AssetTagFilter = []string{}
@@ -209,6 +217,30 @@ func (s *Store) UpsertAlertFromResult(ctx context.Context, rule AlertRule, agent
 	return id, created, err
 }
 
+// UpsertSLABreachAlert creates or refreshes an open SLA breach alert for an
+// overdue (agent, cve, asset). Existing open alerts are deduplicated by the
+// partial unique index and only bump occurrence_count/last_seen.
+func (s *Store) UpsertSLABreachAlert(ctx context.Context, ruleID int64, agentID, cveID, assetName, severity string, cvss float64) (int64, bool, error) {
+	var id int64
+	var created bool
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO alerts (rule_id, agent_id, cve_id, asset_name, severity, cvss_score, source,
+			status, first_seen, last_seen, occurrence_count, epss_score, kev, risk_score, risk_level)
+		SELECT $1,$2,$3,$4,$5,$6,'sla','open',NOW(),NOW(),1,
+			COALESCE(cr.epss_score,0), COALESCE(cr.kev,false),
+			COALESCE(cr.risk_score,0), COALESCE(cr.risk_level,'')
+		FROM (SELECT 1) x LEFT JOIN cve_results cr
+			ON cr.agent_id=$2 AND cr.cve_id=$3 AND cr.asset_name=$4 AND cr.status='active'
+		ON CONFLICT (rule_id, agent_id, cve_id, asset_name) WHERE status='open'
+		DO UPDATE SET last_seen=NOW(), occurrence_count=alerts.occurrence_count+1,
+			severity=EXCLUDED.severity, cvss_score=EXCLUDED.cvss_score,
+			epss_score=EXCLUDED.epss_score, kev=EXCLUDED.kev,
+			risk_score=EXCLUDED.risk_score, risk_level=EXCLUDED.risk_level
+		RETURNING id, (xmax = 0)
+	`, ruleID, agentID, cveID, assetName, severity, cvss).Scan(&id, &created)
+	return id, created, err
+}
+
 func (s *Store) CreateAlertDeliveries(ctx context.Context, alertID int64, channels []string) error {
 	for _, ch := range channels {
 		if _, err := s.pool.Exec(ctx, `
@@ -239,14 +271,44 @@ func (s *Store) ResolveInactiveAlerts(ctx context.Context, agentID string, activ
 	return err
 }
 
-func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, assetFilter string, limit, offset int) ([]Alert, error) {
+// ResolveSLABreachAlerts resolves open SLA alerts whose
+// agent|cve|asset key is no longer in the active (still overdue) set.
+func (s *Store) ResolveSLABreachAlerts(ctx context.Context, ruleID int64, activeKeys map[string]bool) (int64, error) {
+	if len(activeKeys) == 0 {
+		tag, err := s.pool.Exec(ctx, `
+			UPDATE alerts SET status='resolved', resolved_at=NOW()
+			WHERE rule_id=$1 AND status='open'
+		`, ruleID)
+		return tag.RowsAffected(), err
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET status='resolved', resolved_at=NOW()
+		WHERE rule_id=$1 AND status='open'
+		  AND (agent_id || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
+	`, ruleID, keysSlice(activeKeys))
+	return tag.RowsAffected(), err
+}
+
+func keysSlice(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, assetFilter string, limit, offset int) ([]AlertDetail, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+alertColumns+`
-		FROM alerts
-		WHERE (''=$1 OR status=$1) AND (''=$2 OR agent_id=$2) AND (''=$3 OR severity=$3)
+		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
+			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
+			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
+			COALESCE(r.name,'') AS rule_name
+		FROM alerts a
+		LEFT JOIN alert_rules r ON r.id=a.rule_id
+		WHERE (''=$1 OR a.status=$1) AND (''=$2 OR a.agent_id=$2) AND (''=$3 OR a.severity=$3)
 		  AND (''=$4 OR asset_name ILIKE '%' || $4 || '%')
 		ORDER BY last_seen DESC LIMIT $5 OFFSET $6
 	`, status, agentID, severity, assetFilter, limit, offset)
@@ -255,13 +317,13 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 	}
 	defer rows.Close()
 
-	var alerts []Alert
+	var alerts []AlertDetail
 	for rows.Next() {
-		var a Alert
+		var a AlertDetail
 		if err := rows.Scan(&a.ID, &a.RuleID, &a.AgentID, &a.CVEID, &a.AssetName,
 			&a.Severity, &a.CVSSScore, &a.Status, &a.FirstSeen, &a.LastSeen,
 			&a.OccurrenceCount, &a.ResolvedAt, &a.Source,
-			&a.RemediationCampaignID, &a.RemediationError); err != nil {
+			&a.RemediationCampaignID, &a.RemediationError, &a.RuleName); err != nil {
 			return nil, err
 		}
 		alerts = append(alerts, a)

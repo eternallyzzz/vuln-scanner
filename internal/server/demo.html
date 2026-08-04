@@ -160,7 +160,7 @@ footer{max-width:1280px; margin:26px auto 0; padding:12px 22px; border-top:1px s
       </div>
     </div>
     <div class="table-wrap"><table><thead><tr>
-      <th>级别</th><th>CVE</th><th>摘要</th><th>资产</th><th>当前版本</th><th>CVSS</th><th>来源</th><th>状态</th><th>修复版本</th>
+      <th>级别</th><th>CVE</th><th>摘要</th><th>资产</th><th>当前版本</th><th>CVSS</th><th>来源</th><th>验证</th><th>状态</th><th>修复版本</th>
     </tr></thead><tbody id="vulnBody"></tbody></table></div>
   </div>
   <div class="panel">
@@ -193,7 +193,7 @@ footer{max-width:1280px; margin:26px auto 0; padding:12px 22px; border-top:1px s
     <div class="panel">
       <h3>最近 Open 告警</h3>
       <div class="table-wrap"><table><thead><tr>
-        <th>ID</th><th>CVE</th><th>资产</th><th>级别</th><th>CVSS</th><th>主机</th><th>次数</th><th>最近触发</th><th>自动修复</th>
+        <th>ID</th><th>CVE</th><th>资产</th><th>级别</th><th>CVSS</th><th>主机</th><th>次数</th><th>最近触发</th><th>规则</th><th>自动修复</th>
       </tr></thead><tbody id="alertBody"></tbody></table></div>
     </div>
   </div>
@@ -286,6 +286,12 @@ function fmtTime(v) {
 }
 function sevBadge(s) { return `<span class="badge sv-${esc((s || "UNKNOWN").toLowerCase())}">${esc(s || "UNKNOWN")}</span>`; }
 function statusBadge(s) { return `<span class="badge st-${esc((s || "unknown").toLowerCase())}">${esc(s || "-")}</span>`; }
+function verificationBadge(s) {
+  const v = (s || "local").toLowerCase();
+  const label = v === "wsus" ? "WSUS 验证" : v === "wua" ? "WUA 验证" : "本地推断";
+  const cls = (v === "wua" || v === "wsus") ? "ok" : "";
+  return `<span class="badge ${cls}">${label}</span>`;
+}
 function host(agentId) { const a = state.agentMap[agentId]; return a ? a.hostname : "-"; }
 function cveLink(id) {
   const s = String(id || "");
@@ -390,7 +396,7 @@ async function loadAgents() {
 }
 
 async function loadVulns() {
-  if (!state.agentId) { $("vulnBody").innerHTML = emptyRow(9, "请先选择 Agent"); return; }
+  if (!state.agentId) { $("vulnBody").innerHTML = emptyRow(10, "请先选择 Agent"); return; }
   try {
     const id = state.agentId, sev = $("sevSel").value, page = state.vulnPage;
     const d = await api(`/agents/${encodeURIComponent(id)}/vulns?page_size=50&page=${page}&severity=${encodeURIComponent(sev)}`);
@@ -398,14 +404,14 @@ async function loadVulns() {
       `<tr><td>${sevBadge(v.severity)}</td><td>${cveLink(v.cve_id)}</td>` +
       `<td title="${esc(v.summary)}">${esc(trunc(v.summary, 80))}</td><td>${esc(v.asset_name)}</td>` +
       `<td>${esc(v.asset_version || "-")}</td><td>${v.cvss_score ? v.cvss_score.toFixed(1) : "-"}</td>` +
-      `<td>${esc(v.source)}</td><td>${statusBadge(v.status)}</td><td>${esc(v.fixed_version || "-")}</td></tr>`
+      `<td>${esc(v.source)}</td><td>${verificationBadge(v.verification_source)}</td><td>${statusBadge(v.status)}</td><td>${esc(v.fixed_version || "-")}</td></tr>`
     ).join("");
-    $("vulnBody").innerHTML = rows || emptyRow(9, "无匹配漏洞");
+    $("vulnBody").innerHTML = rows || emptyRow(10, "无匹配漏洞");
     $("vulnInfo").textContent = "共 " + d.total + " 条 · 第 " + d.page + " 页";
     $("vulnPrev").disabled = page <= 1;
     $("vulnNext").disabled = page * 50 >= d.total;
   } catch (e) {
-    $("vulnBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
+    $("vulnBody").innerHTML = emptyRow(10, "加载失败：" + e.message);
   }
 }
 
@@ -416,8 +422,11 @@ function kbCard(k) {
     <span class="kb-name">${esc(k.kb)}</span>
     <span class="rec-meta">CVE ${k.cve_count || 0} · ${esc(k.max_severity || "-")} · CVSS ${k.max_cvss_score ? k.max_cvss_score.toFixed(1) : "-"}</span>
     <span class="kb-links">
-      ${k.patch_url ? `<a target="_blank" rel="noopener" href="${esc(k.patch_url)}">补丁页</a>` : ""}
-      ${k.reference_url ? `<a target="_blank" rel="noopener" href="${esc(k.reference_url)}">MSRC 参考</a>` : ""}
+      ${(k.links || []).map((l) =>
+        `<a target="_blank" rel="noopener" href="${esc(l.url)}">` +
+        (l.type === "advisory" ? "MSRC 参考" : l.type === "support" ? "补丁页" : l.type === "download" ? "下载安装" : "目录搜索") +
+        (l.verified ? " ✓" : "") + `</a>`
+      ).join(" ")}
     </span>
   </div><details class="kb-cves"><summary>显示 CVE 列表（${ids.length}）</summary>
     <div class="chips">${chips || "无"}</div>
@@ -435,6 +444,7 @@ function recCard(r) {
     <span class="rec-asset">${esc(r.asset_name)}</span>
     ${sevBadge(r.risk)}
     <span class="rec-meta">${esc(r.fix_type || "-")} · ${esc(r.fix_value || "-")} · CVE ${r.active_cves || 0} · CVSS ${r.max_cvss_score ? r.max_cvss_score.toFixed(1) : "-"}</span>
+    ${verificationBadge(r.verification_source)}
     ${r.deployable ? '<span class="badge ok">可部署</span>' : ""}
     <span class="rec-action">${esc(r.action || "")}</span>
   </summary><div class="rec-body">
@@ -462,9 +472,11 @@ async function loadAlerts() {
       `<tr><td>${al.id}</td><td>${cveLink(al.cve_id)}</td><td>${esc(al.asset_name)}</td>` +
       `<td>${sevBadge(al.severity)}</td><td>${al.cvss_score ? al.cvss_score.toFixed(1) : "-"}</td>` +
       `<td>${esc(host(al.agent_id))}</td><td>${al.occurrence_count || 0}</td>` +
-      `<td>${fmtTime(al.last_seen)}</td><td title="${esc(al.remediation_error)}">${esc(trunc(al.remediation_error, 30))}</td></tr>`
+      `<td>${fmtTime(al.last_seen)}</td>` +
+      `<td>${esc(al.rule_name || "-")}${al.source === "sla" ? '<span class="badge st-failed">SLA</span>' : ""}</td>` +
+      `<td title="${esc(al.remediation_error)}">${esc(trunc(al.remediation_error, 30))}</td></tr>`
     ).join("");
-    $("alertBody").innerHTML = rows || emptyRow(9, "暂无 open 告警");
+    $("alertBody").innerHTML = rows || emptyRow(10, "暂无 open 告警");
   } catch (e) {
     $("alertBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
   }
@@ -474,10 +486,14 @@ async function loadTasks() {
   try {
     const d = await api("/patch-tasks?limit=50");
     const rows = (d.tasks || []).map((t) =>
-      `<tr><td>${t.id}</td><td>${esc(host(t.agent_id))}</td><td>${esc(t.asset_name)}</td>` +
-      `<td>${esc(t.action)}</td><td title="${esc(t.fix_value)}">${esc(trunc(t.fix_value, 24))}</td>` +
-      `<td>${statusBadge(t.status)}</td><td>${t.campaign_id || "-"}</td>` +
-      `<td title="${esc(t.command)}">${esc(trunc(t.command, 36))}</td><td>${fmtTime(t.created_at)}</td></tr>`
+      (() => {
+        const rc = t.result && t.result.exit_code;
+        const rebootTag = rc === 3010 ? '<span class="badge">需重启</span>' : "";
+        return `<tr><td>${t.id}</td><td>${esc(host(t.agent_id))}</td><td>${esc(t.asset_name)}</td>` +
+          `<td>${esc(t.action)}</td><td title="${esc(t.fix_value)}">${esc(trunc(t.fix_value, 24))}</td>` +
+          `<td>${statusBadge(t.status)}${rebootTag}</td><td>${t.campaign_id || "-"}</td>` +
+          `<td title="${esc(t.command)}">${esc(trunc(t.command, 36))}</td><td>${fmtTime(t.created_at)}</td></tr>`;
+      })()
     ).join("");
     $("taskBody").innerHTML = rows || emptyRow(9, "暂无补丁任务");
   } catch (e) {

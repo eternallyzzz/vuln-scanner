@@ -15,15 +15,16 @@ func (s *Store) UpsertCVEResult(ctx context.Context, r *CVEResult) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO cve_results (agent_id, cve_id, asset_name, asset_version,
 			fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at,
-			canonical_cve_id, fixed_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+			canonical_cve_id, fixed_at, verification_source)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT (agent_id, cve_id, asset_name, asset_version) DO UPDATE
 		SET fixed_version=$5, fix_state=$6, kb_article=$7, kb_url=$8, severity=$9,
 			cvss_score=$10, summary=$11, source=$12, status=$13, detected_at=$14,
-			canonical_cve_id=$15, fixed_at=$16
+			canonical_cve_id=$15, fixed_at=$16, verification_source=$17
 	`, r.AgentID, r.CVEID, r.AssetName, r.AssetVersion,
 		r.FixedVersion, r.FixState, r.KBArticle, r.KBURL, r.Severity,
-		r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt)
+		r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt,
+		r.VerificationSource)
 	if err != nil {
 		return err
 	}
@@ -42,7 +43,8 @@ func (s *Store) GetCVEResults(ctx context.Context, agentID string, severity stri
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, agent_id, cve_id, asset_name, asset_version,
-			fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at
+			fixed_version, fix_state, kb_article, kb_url, verification_source,
+			severity, cvss_score, summary, source, status, detected_at
 		FROM cve_results WHERE agent_id=$1
 		AND (''=$2 OR severity=$2) AND (NOT $3 OR fixed_version!='')
 		ORDER BY CASE severity
@@ -59,8 +61,8 @@ func (s *Store) GetCVEResults(ctx context.Context, agentID string, severity stri
 	for rows.Next() {
 		var r CVEResult
 		if err := rows.Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
-			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.Severity, &r.CVSSScore,
-			&r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
+			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
+			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
 			return nil, 0, err
 		}
 		results = append(results, r)
@@ -72,11 +74,12 @@ func (s *Store) GetCVEResult(ctx context.Context, agentID, cveID string) (*CVERe
 	var r CVEResult
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, agent_id, cve_id, asset_name, asset_version,
-			fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at
+			fixed_version, fix_state, kb_article, kb_url, verification_source,
+			severity, cvss_score, summary, source, status, detected_at
 		FROM cve_results WHERE agent_id=$1 AND cve_id=$2
 	`, agentID, cveID).Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
-		&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.Severity, &r.CVSSScore,
-		&r.Summary, &r.Source, &r.Status, &r.DetectedAt)
+		&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
+		&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +89,8 @@ func (s *Store) GetCVEResult(ctx context.Context, agentID, cveID string) (*CVERe
 func (s *Store) SearchByCVE(ctx context.Context, cveID string) ([]CVEResult, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.agent_id, r.cve_id, r.asset_name, r.asset_version,
-			r.fixed_version, r.fix_state, r.kb_article, r.kb_url, r.severity, r.cvss_score,
-			r.summary, r.source, r.status, r.detected_at
+			r.fixed_version, r.fix_state, r.kb_article, r.kb_url, r.verification_source,
+			r.severity, r.cvss_score, r.summary, r.source, r.status, r.detected_at
 		FROM cve_results r WHERE r.cve_id=$1
 	`, cveID)
 	if err != nil {
@@ -99,8 +102,8 @@ func (s *Store) SearchByCVE(ctx context.Context, cveID string) ([]CVEResult, err
 	for rows.Next() {
 		var r CVEResult
 		if err := rows.Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
-			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.Severity, &r.CVSSScore,
-			&r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
+			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
+			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -168,11 +171,12 @@ func (s *Store) BulkUpsertCVEResults(ctx context.Context, entries []*CVEResult) 
 		_, err := tx.Exec(ctx, `
 			INSERT INTO cve_results (agent_id, cve_id, asset_name, asset_version,
 				fixed_version, fix_state, kb_article, kb_url, severity, cvss_score, summary, source, status, detected_at,
-				canonical_cve_id, fixed_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+				canonical_cve_id, fixed_at, verification_source)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		`, r.AgentID, r.CVEID, r.AssetName, r.AssetVersion,
 			r.FixedVersion, r.FixState, r.KBArticle, r.KBURL, r.Severity,
-			r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt)
+			r.CVSSScore, r.Summary, r.Source, r.Status, time.Now(), canonical, fixedAt,
+			r.VerificationSource)
 		if err != nil {
 			return err
 		}
@@ -201,32 +205,43 @@ func (s *Store) AgentOSType(ctx context.Context, agentID string) string {
 }
 
 type FixRecommendation struct {
-	AssetName    string                  `json:"asset_name"`
-	Format       string                  `json:"format,omitempty"`
-	ActiveCVEs   int                     `json:"active_cves"`
-	FixType      string                  `json:"fix_type"`
-	FixValue     string                  `json:"fix_value"`
-	FixedVersion string                  `json:"fixed_version"`
-	Action       string                  `json:"action"`
-	MaxCVSS      float64                 `json:"max_cvss_score"`
-	Risk         string                  `json:"risk"`
-	ExampleCVE   string                  `json:"example_cve"`
-	ReferenceURL string                  `json:"reference_url,omitempty"`
-	Deployable   bool                    `json:"deployable"`
-	PatchURL     string                  `json:"patch_url,omitempty"`
-	KBs          []KBPatchRecommendation `json:"kbs,omitempty"`
+	AssetName          string                  `json:"asset_name"`
+	Format             string                  `json:"format,omitempty"`
+	ActiveCVEs         int                     `json:"active_cves"`
+	FixType            string                  `json:"fix_type"`
+	FixValue           string                  `json:"fix_value"`
+	FixedVersion       string                  `json:"fixed_version"`
+	Action             string                  `json:"action"`
+	MaxCVSS            float64                 `json:"max_cvss_score"`
+	Risk               string                  `json:"risk"`
+	ExampleCVE         string                  `json:"example_cve"`
+	ReferenceURL       string                  `json:"reference_url,omitempty"`
+	Deployable         bool                    `json:"deployable"`
+	VerificationSource string                  `json:"verification_source,omitempty"`
+	PatchURL           string                  `json:"patch_url,omitempty"`
+	PatchSHA256        string                  `json:"patch_sha256,omitempty"`
+	KBs                []KBPatchRecommendation `json:"kbs,omitempty"`
+}
+
+// PatchLink is one typed link (advisory/support/catalog/download) shown for
+// a KB recommendation.
+type PatchLink struct {
+	Type     string `json:"type"`
+	URL      string `json:"url"`
+	Verified bool   `json:"verified,omitempty"`
 }
 
 // KBPatchRecommendation lists one KB's active CVE set for an asset.
 type KBPatchRecommendation struct {
-	Kb           string   `json:"kb"`
-	AssetName    string   `json:"asset_name"`
-	CVECount     int      `json:"cve_count"`
-	CVEIDs       []string `json:"cve_ids"`
-	MaxCVSS      float64  `json:"max_cvss_score"`
-	MaxSeverity  string   `json:"max_severity"`
-	ReferenceURL string   `json:"reference_url,omitempty"`
-	PatchURL     string   `json:"patch_url,omitempty"`
+	Kb           string      `json:"kb"`
+	AssetName    string      `json:"asset_name"`
+	CVECount     int         `json:"cve_count"`
+	CVEIDs       []string    `json:"cve_ids"`
+	MaxCVSS      float64     `json:"max_cvss_score"`
+	MaxSeverity  string      `json:"max_severity"`
+	ReferenceURL string      `json:"reference_url,omitempty"`
+	PatchURL     string      `json:"patch_url,omitempty"`
+	Links        []PatchLink `json:"links,omitempty"`
 }
 
 func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]FixRecommendation, error) {
@@ -239,7 +254,8 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 			COALESCE(MAX(NULLIF(r.kb_url, '')), '') as ref_url,
 			COALESCE((SELECT a.format FROM assets a
 				WHERE a.agent_id = $1 AND a.name = r.asset_name
-				LIMIT 1), '') as asset_format
+				LIMIT 1), '') as asset_format,
+			COALESCE(MAX(NULLIF(r.verification_source, '')), '') as verification_source
 		FROM cve_results r
 		WHERE r.agent_id = $1 AND r.status = 'active'
 		GROUP BY r.asset_name
@@ -254,12 +270,13 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 	hasKB := false
 	for rows.Next() {
 		var r FixRecommendation
-		var rawFix, refURL, assetFormat string
+		var rawFix, refURL, assetFormat, verificationSource string
 		if err := rows.Scan(&r.AssetName, &r.ActiveCVEs, &rawFix, &r.MaxCVSS,
-			&r.ExampleCVE, &refURL, &assetFormat); err != nil {
+			&r.ExampleCVE, &refURL, &assetFormat, &verificationSource); err != nil {
 			continue
 		}
 		r.FixedVersion = rawFix
+		r.VerificationSource = verificationSource
 		r.Risk = riskFromCVSS(r.MaxCVSS)
 		r.Format = assetFormat
 		if assetFormat == "container" {

@@ -22,6 +22,8 @@ type Config struct {
 		CollectionInterval  int    `mapstructure:"collection_interval"`
 		PatchEnabled        bool   `mapstructure:"patch_enabled"`
 		PatchTimeoutSeconds int    `mapstructure:"patch_timeout_seconds"`
+		WUAEnabled          bool   `mapstructure:"wua_collect"`
+		WUATimeoutSeconds   int    `mapstructure:"wua_timeout_seconds"`
 	} `mapstructure:"agent"`
 }
 
@@ -36,13 +38,25 @@ func ConfigPath() string {
 	return filepath.Join(ConfigDir(), "agent.yaml")
 }
 
+// configPath returns the agent config location. VULNSCAN_AGENT_CONFIG lets
+// tests and isolated e2e runs point the agent at a temporary config without
+// touching the user's default configuration.
+func configPath() string {
+	if p := os.Getenv("VULNSCAN_AGENT_CONFIG"); p != "" {
+		return p
+	}
+	return ConfigPath()
+}
+
 func LoadConfig() (*Config, error) {
 	cfg := &Config{}
 	cfg.Agent.CollectionInterval = 3600
 	cfg.Agent.PatchTimeoutSeconds = 600
+	cfg.Agent.WUAEnabled = true
+	cfg.Agent.WUATimeoutSeconds = 60
 
 	v := viper.New()
-	v.SetConfigFile(ConfigPath())
+	v.SetConfigFile(configPath())
 	v.SetConfigType("yaml")
 
 	if err := v.ReadInConfig(); err != nil {
@@ -80,8 +94,10 @@ func SaveConfig(cfg *Config) error {
 	v.Set("agent.collection_interval", cfg.Agent.CollectionInterval)
 	v.Set("agent.patch_enabled", cfg.Agent.PatchEnabled)
 	v.Set("agent.patch_timeout_seconds", cfg.Agent.PatchTimeoutSeconds)
+	v.Set("agent.wua_collect", cfg.Agent.WUAEnabled)
+	v.Set("agent.wua_timeout_seconds", cfg.Agent.WUATimeoutSeconds)
 
-	return v.WriteConfigAs(ConfigPath())
+	return v.WriteConfigAs(configPath())
 }
 
 func Fingerprint() string {

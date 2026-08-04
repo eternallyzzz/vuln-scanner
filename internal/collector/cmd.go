@@ -21,3 +21,12 @@ func RunTimeoutWith(timeout time.Duration, name string, args ...string) ([]byte,
 	defer cancel()
 	return exec.CommandContext(ctx, name, args...).Output()
 }
+
+// RunCombinedTimeoutWith executes a command with a bounded timeout and
+// returns both stdout and stderr so callers can include diagnostics when a
+// command fails.
+func RunCombinedTimeoutWith(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}

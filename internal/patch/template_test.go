@@ -1,6 +1,9 @@
 package patch
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func testCfg() *Config {
 	return &Config{Enabled: true, AgentTimeoutSeconds: 600}
@@ -24,7 +27,7 @@ func TestBuildCommandVersion(t *testing.T) {
 }
 
 func TestBuildCommandForAgentDnf(t *testing.T) {
-	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "",
+	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "", "",
 		"rocky linux", "9.4")
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +48,7 @@ func TestBuildCommandForAgentDnf(t *testing.T) {
 }
 
 func TestBuildCommandForAgentYum(t *testing.T) {
-	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "",
+	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "", "",
 		"centos linux", "7.9")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +63,7 @@ func TestBuildCommandForAgentYum(t *testing.T) {
 }
 
 func TestBuildCommandForAgentAptFallback(t *testing.T) {
-	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "",
+	cmd, err := BuildCommandForAgent(testCfg(), "version", "1.2.3", "openssl", "", "",
 		"debian gnu/linux", "12")
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +74,7 @@ func TestBuildCommandForAgentAptFallback(t *testing.T) {
 }
 
 func TestBuildCommandForAgentApk(t *testing.T) {
-	cmd, err := BuildCommandForAgent(testCfg(), "version", "3.0.16-r1", "openssl", "",
+	cmd, err := BuildCommandForAgent(testCfg(), "version", "3.0.16-r1", "openssl", "", "",
 		"Alpine Linux", "3.23.3")
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +157,26 @@ func TestBuildCommandKB(t *testing.T) {
 		if cmd.Deployable {
 			t.Fatalf("url %q must not be deployable", url)
 		}
+	}
+}
+
+func TestBuildCommandKBWithSHA256(t *testing.T) {
+	cmd, err := BuildCommandForAgent(testCfg(), "kb", "KB5018427", "Windows",
+		"https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5018427-x64.msu",
+		"abc123", "Windows 11 Pro 22H2", "6.3.22621")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cmd.Deployable {
+		t.Fatal("catalog download host must be deployable")
+	}
+	script := cmd.ArgvLists[0][len(cmd.ArgvLists[0])-1]
+	if !strings.Contains(script, "Get-FileHash -Algorithm SHA256") ||
+		!strings.Contains(script, "abc123") {
+		t.Fatalf("script must verify sha256: %v", cmd.ArgvLists[0])
+	}
+	if !strings.Contains(cmd.Display, "sha256 verified") {
+		t.Fatalf("display must mention sha256: %q", cmd.Display)
 	}
 }
 

@@ -162,15 +162,36 @@ func (c *MSRCClient) parseCVRFToFeedEntries(doc *CVRFDocument, sourceKey string)
 		if vuln.CVE == "" {
 			continue
 		}
-		kb, kbURL := c.findKBInRemediations(vuln.Remediations)
+		kbByProduct := c.buildKBByProduct(vuln.Remediations)
 		affected := c.AffectedProductsForVuln(vuln, productMap, cpeMap)
 		severity := c.extractMSRCSeverity(vuln.Threats)
 		score := c.extractCVSSScore(vuln.CVSSScoreSets)
 		summary := strings.TrimSpace(vuln.Title.Value)
 
+		firstKB, firstKBURL := "", ""
 		for i := range affected {
-			if affected[i].FixedIn == "" && kb != "" {
-				affected[i].FixedIn = kb
+			ref, ok := kbByProduct[affected[i].ProductID]
+			if !ok {
+				// No per-product remediation: only a single remediation for the
+				// whole CVE is unambiguous enough to apply to every product.
+				// Multiple remediations without ProductID must not be smeared
+				// across all products (that is how Mac/other-platform KBs
+				// ended up attached to Windows products).
+				kb, kbURL, fixedBuild := c.uniqueFallbackKB(vuln.Remediations)
+				if kb != "" {
+					ref = msrcKBRef{kb: kb, url: kbURL, fixedBuild: fixedBuild}
+					ok = true
+				}
+			}
+			if ok {
+				affected[i].FixedIn = ref.kb
+				affected[i].KBURL = ref.url
+				if ref.fixedBuild != "" {
+					affected[i].CpeVer = ref.fixedBuild
+				}
+				if firstKB == "" {
+					firstKB, firstKBURL = ref.kb, ref.url
+				}
 			}
 		}
 
@@ -180,9 +201,9 @@ func (c *MSRCClient) parseCVRFToFeedEntries(doc *CVRFDocument, sourceKey string)
 			Source:      "msrc",
 			SourceKey:   sourceKey,
 			CVEID:       vuln.CVE,
-			CVEURL:      kbURL,
+			CVEURL:      firstKBURL,
 			Affected:    affectedJSON,
-			FixedKB:     kb,
+			FixedKB:     firstKB,
 			Severity:    severity,
 			CVSSScore:   score,
 			Summary:     summary,
@@ -194,14 +215,54 @@ func (c *MSRCClient) parseCVRFToFeedEntries(doc *CVRFDocument, sourceKey string)
 	return entries
 }
 
-func (c *MSRCClient) findKBInRemediations(remediations []CVRFRemediation) (string, string) {
+type msrcKBRef struct {
+	kb         string
+	url        string
+	fixedBuild string
+}
+
+// buildKBByProduct maps CVRF remediation ProductIDs to the KB article and URL
+// declared for that product. Remediations without ProductID are ignored here
+// and handled by uniqueFallbackKB.
+func (c *MSRCClient) buildKBByProduct(remediations []CVRFRemediation) map[string]msrcKBRef {
+	out := make(map[string]msrcKBRef)
+	for _, r := range remediations {
+		matched := kbRegex.FindStringSubmatch(r.URL)
+		if len(matched) < 2 {
+			continue
+		}
+		ref := msrcKBRef{
+			kb:         "KB" + matched[1],
+			url:        strings.TrimSpace(r.URL),
+			fixedBuild: strings.TrimSpace(r.FixedBuild),
+		}
+		for _, pid := range r.ProductID {
+			if pid != "" {
+				out[pid] = ref
+			}
+		}
+	}
+	return out
+}
+
+// uniqueFallbackKB returns the KB of the only remediation when the CVE has
+// exactly one remediation; with multiple remediations the mapping is
+// ambiguous and no fallback is applied.
+func (c *MSRCClient) uniqueFallbackKB(remediations []CVRFRemediation) (string, string, string) {
+	if len(remediations) != 1 {
+		return "", "", ""
+	}
+	return c.findKBInRemediations(remediations)
+}
+
+func (c *MSRCClient) findKBInRemediations(remediations []CVRFRemediation) (string, string, string) {
 	for _, r := range remediations {
 		matched := kbRegex.FindStringSubmatch(r.URL)
 		if len(matched) >= 2 {
-			return "KB" + matched[1], r.URL
+			return "KB" + matched[1], r.URL, strings.TrimSpace(r.FixedBuild)
 		}
 	}
-	return "", ""
+	return "", "", ""
 }
 
 func (c *MSRCClient) extractMSRCSeverity(threats []CVRFThreat) string {

@@ -85,6 +85,7 @@ func (s *RESTServer) generatePatchTasks(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 500, err.Error())
 		return
 	}
+	kbMeta := loadKBMetadata(r.Context(), s.store, recs)
 
 	created := 0
 	var tasks []store.PatchTask
@@ -105,8 +106,20 @@ func (s *RESTServer) generatePatchTasks(w http.ResponseWriter, r *http.Request) 
 		if len(cves) == 0 {
 			continue
 		}
+		if rec.FixType == "kb" {
+			enrichKBLinks(rec.KBs, kbMeta)
+			if len(rec.KBs) > 0 {
+				if m, ok := kbMeta[rec.KBs[0].Kb]; ok {
+					rec.PatchURL = bestPatchURL(m)
+					rec.PatchSHA256 = m.DownloadSHA256
+				}
+				if rec.PatchURL == "" {
+					rec.PatchURL = rec.KBs[0].PatchURL
+				}
+			}
+		}
 		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,
-			rec.FixedVersion, rec.AssetName, rec.ReferenceURL,
+			rec.FixedVersion, rec.AssetName, rec.PatchURL, rec.PatchSHA256,
 			agent.OSType, agent.OSVersion)
 		if err != nil {
 			writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())

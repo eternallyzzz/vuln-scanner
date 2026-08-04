@@ -29,6 +29,10 @@ type Loader struct {
 	redhatMu sync.Mutex
 }
 
+// msrcParseVersion is bumped whenever the CVRF parsing/matching semantics
+// change so the MSRC feed is rebuilt once on the next server start.
+const msrcParseVersion = "3"
+
 func NewLoader(feed *FeedManager, st *store.Store, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient) *Loader {
 	return &Loader{feed: feed, store: st, msrc: msrc, nvd: nvd, osv: osv}
 }
@@ -121,6 +125,9 @@ func (l *Loader) RefreshAllOSV(ctx context.Context, agents []AgentSnapshotSummar
 }
 
 func (l *Loader) LoadMSRCAll(ctx context.Context) error {
+	if err := l.EnsureMSRCParseVersion(ctx); err != nil {
+		return fmt.Errorf("ensure msrc parse version: %w", err)
+	}
 	updates, err := l.msrc.FetchUpdates(ctx)
 	if err != nil {
 		return fmt.Errorf("msrc fetch updates: %w", err)
@@ -313,6 +320,100 @@ func (l *Loader) loadMSRCMonth(ctx context.Context, monthKey string, updates []M
 		total += len(entries)
 	}
 	return total
+}
+
+// EnsureMSRCParseVersion forces a full MSRC re-fetch when the parser version
+// has changed; old rows are removed so SourceMonthExists no longer skips
+// already-loaded months.
+func (l *Loader) EnsureMSRCParseVersion(ctx context.Context) error {
+	cur, err := l.store.GetMeta(ctx, "msrc_parse_version")
+	if err != nil {
+		return err
+	}
+	if cur == msrcParseVersion {
+		return nil
+	}
+	if err := l.feed.DeleteAllBySource(ctx, "msrc"); err != nil {
+		return err
+	}
+	return l.store.SetMeta(ctx, "msrc_parse_version", msrcParseVersion)
+}
+
+// SyncKBMetadata rebuilds kb_metadata from the per-product KB assignments in
+// the MSRC feed. Verification statuses are preserved by the upsert.
+func (l *Loader) SyncKBMetadata(ctx context.Context) error {
+	infos, err := l.feed.ListMSRCKBs(ctx)
+	if err != nil {
+		return fmt.Errorf("list msrc kbs: %w", err)
+	}
+	type kbAgg struct {
+		family  string
+		title   string
+		support string
+		catalog string
+	}
+	byKB := make(map[string]*kbAgg)
+	for _, info := range infos {
+		a := byKB[info.KB]
+		if a == nil {
+			a = &kbAgg{}
+			byKB[info.KB] = a
+		}
+		if a.title == "" {
+			a.title = info.ProductName
+		}
+		if info.KBURL != "" {
+			if strings.Contains(strings.ToLower(info.KBURL), "catalog.update.microsoft.com") {
+				if a.catalog == "" {
+					a.catalog = info.KBURL
+				}
+			} else if a.support == "" {
+				a.support = info.KBURL
+			}
+		}
+		if a.family == "" || a.family == "other" {
+			if isMSRCWindowsFamilyProduct(info.ProductName) {
+				a.family = "windows"
+			} else if a.family == "" {
+				a.family = "other"
+			}
+		}
+	}
+	for kb, a := range byKB {
+		if num := extractKBNumber(kb); num > 0 && a.support == "" {
+			a.support = fmt.Sprintf("https://support.microsoft.com/help/%d", num)
+		}
+		if a.catalog == "" {
+			a.catalog = "https://www.catalog.update.microsoft.com/Search.aspx?q=" + kb
+		}
+		if err := l.store.UpsertKBMetadata(ctx, store.KBMetadata{
+			KB:            kb,
+			Title:         a.title,
+			ProductFamily: a.family,
+			SupportURL:    a.support,
+			CatalogURL:    a.catalog,
+		}); err != nil {
+			slog.Warn("loader: upsert kb metadata failed", "kb", kb, "error", err)
+		}
+	}
+	slog.Info("loader: kb metadata synced", "count", len(byKB))
+	return nil
+}
+
+// isMSRCWindowsFamilyProduct reports whether a KB's affected product belongs
+// to the Windows ecosystem (OS, .NET, Office, VS, ...) rather than a foreign
+// platform such as Mac/Android/iOS/Linux/Azure/Surface.
+func isMSRCWindowsFamilyProduct(productName string) bool {
+	lower := strings.ToLower(productName)
+	for _, token := range []string{
+		"mac", "android", "ios", "ipados", "tvos", "watchos",
+		"linux", "mariner", "azure", "xbox", "hololens", "surface", "chrome",
+	} {
+		if strings.Contains(lower, token) {
+			return false
+		}
+	}
+	return true
 }
 
 func groupMSRCByMonth(updates []MSRCUpdate) map[string][]MSRCUpdate {

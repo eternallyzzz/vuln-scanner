@@ -1,31 +1,38 @@
 package server
 
 import (
-	"regexp"
+	"context"
+	"fmt"
 	"strings"
 
 	"vuln-scanner/internal/store"
 )
 
-var kbInURLLink = regexp.MustCompile(`KB(\d+)`)
-
-// msrcLinks returns the MSRC Update Guide link for a CVE or ADV advisory
-// (stable and always resolvable) plus a support.microsoft.com help page for
-// the KB. The catalog search page is not used because it does not render
-// results for direct links.
-func msrcLinks(cveID, storedURL string) (advisoryURL, patchURL string) {
+// advisoryURLFor returns the stable MSRC Update Guide URL for a CVE or ADV
+// advisory; unknown ID formats keep the stored URL.
+func advisoryURLFor(cveID, storedURL string) string {
 	switch {
 	case strings.HasPrefix(cveID, "CVE-"):
-		advisoryURL = "https://msrc.microsoft.com/update-guide/vulnerability/" + cveID
+		return "https://msrc.microsoft.com/update-guide/vulnerability/" + cveID
 	case strings.HasPrefix(cveID, "ADV"):
-		advisoryURL = "https://msrc.microsoft.com/update-guide/advisory/" + cveID
+		return "https://msrc.microsoft.com/update-guide/advisory/" + cveID
 	default:
-		advisoryURL = storedURL
+		return storedURL
 	}
-	if m := kbInURLLink.FindStringSubmatch(storedURL); m != nil {
-		patchURL = "https://support.microsoft.com/help/" + m[1]
+}
+
+// catalogURLForKB builds the Update Catalog search link for a KB article.
+func catalogURLForKB(kb string) string {
+	digits := 0
+	for _, c := range kb {
+		if c >= '0' && c <= '9' {
+			digits = digits*10 + int(c-'0')
+		}
 	}
-	return advisoryURL, patchURL
+	if digits == 0 {
+		return ""
+	}
+	return fmt.Sprintf("https://www.catalog.update.microsoft.com/Search.aspx?q=KB%d", digits)
 }
 
 // enrichAdvisoryURLs adds the MSRC Update Guide link to msrc vulnerability
@@ -35,29 +42,93 @@ func enrichAdvisoryURLs(results []store.CVEResult) {
 		if results[i].Source != "msrc" {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(results[i].CVEID, "CVE-"):
-			results[i].AdvisoryURL = "https://msrc.microsoft.com/update-guide/vulnerability/" + results[i].CVEID
-		case strings.HasPrefix(results[i].CVEID, "ADV"):
-			results[i].AdvisoryURL = "https://msrc.microsoft.com/update-guide/advisory/" + results[i].CVEID
-		}
+		results[i].AdvisoryURL = advisoryURLFor(results[i].CVEID, results[i].KBURL)
 	}
 }
 
-// enrichKBLinks fills per-KB reference and patch links for KB recommendations:
-// the reference points to the Update Guide of the first CVE, the patch link to
-// the support.microsoft.com help page of the KB.
-func enrichKBLinks(kbs []store.KBPatchRecommendation) {
+// enrichKBLinks fills per-KB links from kb_metadata: an MSRC Update Guide
+// reference, the verified support.microsoft.com help page when available, and
+// the Update Catalog search link as fallback.
+func enrichKBLinks(kbs []store.KBPatchRecommendation, meta map[string]store.KBMetadata) {
 	for i := range kbs {
 		cveID := ""
 		if len(kbs[i].CVEIDs) > 0 {
 			cveID = kbs[i].CVEIDs[0]
 		}
-		ref, patch := msrcLinks(cveID, kbs[i].Kb)
+		adv := advisoryURLFor(cveID, "")
 		if cveID == "" {
-			ref = ""
+			adv = ""
 		}
-		kbs[i].ReferenceURL = ref
-		kbs[i].PatchURL = patch
+		kbs[i].ReferenceURL = adv
+
+		m := meta[kbs[i].Kb]
+		kbs[i].Links = nil
+		if adv != "" {
+			kbs[i].Links = append(kbs[i].Links, store.PatchLink{
+				Type: "advisory", URL: adv, Verified: true,
+			})
+		}
+		if m.SupportURL != "" {
+			kbs[i].Links = append(kbs[i].Links, store.PatchLink{
+				Type: "support", URL: m.SupportURL, Verified: m.Status == "ok",
+			})
+		}
+		if m.DownloadURL != "" {
+			kbs[i].Links = append(kbs[i].Links, store.PatchLink{
+				Type: "download", URL: m.DownloadURL, Verified: m.DownloadSHA256 != "",
+			})
+		}
+		catalog := m.CatalogURL
+		if catalog == "" {
+			catalog = catalogURLForKB(kbs[i].Kb)
+		}
+		if catalog != "" {
+			kbs[i].Links = append(kbs[i].Links, store.PatchLink{
+				Type: "catalog", URL: catalog,
+			})
+		}
+		kbs[i].PatchURL = bestPatchURL(m)
+		if kbs[i].PatchURL == "" {
+			kbs[i].PatchURL = catalog
+		}
 	}
+}
+
+// bestPatchURL picks the most actionable patch link: a resolved direct
+// download first, then a verified support page, then the Update Catalog
+// search link.
+func bestPatchURL(m store.KBMetadata) string {
+	if m.DownloadURL != "" {
+		return m.DownloadURL
+	}
+	if m.Status == "ok" && m.SupportURL != "" {
+		return m.SupportURL
+	}
+	if m.CatalogURL != "" {
+		return m.CatalogURL
+	}
+	return m.SupportURL
+}
+
+// loadKBMetadata loads link metadata for every KB referenced by the
+// recommendations in one query.
+func loadKBMetadata(ctx context.Context, st *store.Store, recs []store.FixRecommendation) map[string]store.KBMetadata {
+	var kbs []string
+	seen := make(map[string]bool)
+	for _, r := range recs {
+		for _, k := range r.KBs {
+			if k.Kb != "" && !seen[k.Kb] {
+				seen[k.Kb] = true
+				kbs = append(kbs, k.Kb)
+			}
+		}
+	}
+	if len(kbs) == 0 {
+		return nil
+	}
+	m, err := st.GetKBMetadataMap(ctx, kbs)
+	if err != nil {
+		return nil
+	}
+	return m
 }

@@ -14,7 +14,7 @@ import (
 	"vuln-scanner/internal/collector/sca"
 )
 
-func platformCollector() collector.Collector {
+func platformCollector(_ bool, _ int) collector.Collector {
 	var inner collector.Collector
 	rel := linuxinfo.ReadOSRelease()
 	switch strings.ToLower(rel.ID) {

@@ -3,7 +3,9 @@
 package windows
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,16 +16,48 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"vuln-scanner/internal/collector"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-type Collector struct{}
+type Collector struct {
+	// WUAEnabled controls whether the WUA/WSUS update facts collector runs
+	// during SystemInfo. Disabling it simulates an unreachable update source.
+	WUAEnabled bool
+	// WUATimeout bounds the WUA/WSUS PowerShell collection. The default is
+	// 60s because Windows Update searches can take longer than 30s on hosts
+	// with a large update history or a slow update service.
+	WUATimeout time.Duration
+}
 
 func New() *Collector {
-	return &Collector{}
+	return &Collector{WUAEnabled: true, WUATimeout: 60 * time.Second}
+}
+
+// SetWUAEnabled toggles the WUA/WSUS fact collector. Linux collectors and
+// non-Windows builds do not expose this option.
+func (c *Collector) SetWUAEnabled(enabled bool) {
+	c.WUAEnabled = enabled
+}
+
+// SetWUATimeout sets the WUA/WSUS collection timeout in seconds. Non-positive
+// values keep the default.
+func (c *Collector) SetWUATimeout(seconds int) {
+	if seconds <= 0 {
+		c.WUATimeout = 60 * time.Second
+		return
+	}
+	c.WUATimeout = time.Duration(seconds) * time.Second
+}
+
+func (c *Collector) wuaTimeout() time.Duration {
+	if c.WUATimeout <= 0 {
+		return 60 * time.Second
+	}
+	return c.WUATimeout
 }
 
 func (c *Collector) CollectPackages(ctx context.Context) ([]collector.Asset, error) {
@@ -233,6 +267,125 @@ func (c *Collector) collectWUAHotfixes(ctx context.Context) []collector.Asset {
 	return assets
 }
 
+const wuaCollectionScript = `
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+function Out-WUAFacts {
+  param($Updates, $State)
+  $rows = @()
+  foreach ($u in $Updates) {
+    $kb = ''
+    try {
+      $ids = @($u.KBArticleIDs)
+      if ($ids.Count -gt 0) { $kb = [string]$ids[0] }
+    } catch {}
+    if (-not $kb) {
+      $m = [regex]::Match([string]$u.Title, 'KB\d+')
+      if ($m.Success) { $kb = $m.Value }
+    }
+    if (-not $kb) { continue }
+    $sev = ''
+    if ($u.PSObject.Properties.Name -contains 'Severity') { $sev = [string]$u.Severity }
+    $reboot = $false
+    if ($u.PSObject.Properties.Name -contains 'InstallationBehavior') {
+      $reboot = ($u.InstallationBehavior.RebootBehavior -ne 0)
+    }
+    $rows += [PSCustomObject]@{
+      kb = $kb
+      title = [string]$u.Title
+      state = $State
+      severity = $sev
+      reboot_required = [bool]$reboot
+    }
+  }
+  return $rows
+}
+try {
+  $session = New-Object -ComObject Microsoft.Update.Session
+  $searcher = $session.CreateUpdateSearcher()
+  $pending = @()
+  $search = $searcher.Search("IsInstalled=0 and Type='Software'")
+  foreach ($u in $search.Updates) { $pending += $u }
+  $installed = @()
+  $total = $searcher.GetTotalHistoryCount()
+  if ($total -gt 0) {
+    $history = $searcher.QueryHistory(0, $total)
+    foreach ($h in $history) {
+      if ($h.ResultCode -eq 2) { $installed += $h }
+    }
+  }
+  $facts = @(Out-WUAFacts $pending 'pending')
+  $facts = @($facts) + @(Out-WUAFacts $installed 'installed')
+  if ($facts.Count -eq 0) { '[]' } else { $facts | ConvertTo-Json -Compress -Depth 4 }
+} catch {
+  [PSCustomObject]@{ error = $_.Exception.Message } | ConvertTo-Json -Compress
+}
+`
+
+// CollectWUAUpdates queries the local Windows Update Agent for applicable
+// (pending) and installed software updates. Failures are reported through
+// UpdateSourceStatus so the caller can fall back to local inference without
+// treating the collection as a fatal error.
+func (c *Collector) CollectWUAUpdates(ctx context.Context) ([]collector.UpdateFact, collector.UpdateSourceStatus) {
+	now := time.Now()
+	status := collector.UpdateSourceStatus{
+		SourceReachable: false,
+		LastCheckedAt:   now,
+	}
+	if !c.WUAEnabled {
+		status.Error = "disabled by config"
+		return nil, status
+	}
+
+	timeout := c.wuaTimeout()
+	out, err := collector.RunCombinedTimeoutWith(timeout, "powershell",
+		"-NoProfile", "-EncodedCommand", encodePSCommand(wuaCollectionScript))
+	if err != nil {
+		status.Error = err.Error() + ": " + strings.TrimSpace(string(out))
+		if len(status.Error) > 1024 {
+			status.Error = status.Error[:1024]
+		}
+		return nil, status
+	}
+
+	facts, err := ParseWUAUpdates(out, wuaSourceName(), now)
+	if err != nil {
+		status.Error = err.Error()
+		return nil, status
+	}
+	status.SourceReachable = true
+	status.LastCheckedAt = time.Now()
+	return facts, status
+}
+
+// encodePSCommand encodes a PowerShell script as a UTF-16LE Base64 blob so
+// embedded quotes and $variables survive the Windows command-line quoting
+// rules untouched.
+func encodePSCommand(script string) string {
+	units := utf16.Encode([]rune(script))
+	var buf bytes.Buffer
+	buf.Grow(len(units) * 2)
+	for _, u := range units {
+		buf.WriteByte(byte(u))
+		buf.WriteByte(byte(u >> 8))
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
+// wuaSourceName identifies whether the local WUA is pointed at a WSUS server
+// by group policy; otherwise the source is plain Windows Update.
+func wuaSourceName() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate`, registry.QUERY_VALUE)
+	if err == nil {
+		defer k.Close()
+		if server, _, _ := k.GetStringValue("WUServer"); strings.TrimSpace(server) != "" {
+			return "wsus"
+		}
+	}
+	return "wua"
+}
+
 func dedupHotfixes(assets []collector.Asset) []collector.Asset {
 	seen := make(map[string]bool)
 	var result []collector.Asset
@@ -290,6 +443,9 @@ func (c *Collector) SystemInfo(ctx context.Context) (collector.SystemInfo, error
 		DiskEncryption:     getDiskEncryption(),
 		Antivirus:          getAntivirus(),
 	}
+	updateFacts, updateStatus := c.CollectWUAUpdates(ctx)
+	info.UpdateFacts = updateFacts
+	info.UpdateSourceStatus = &updateStatus
 	applyWindowsCaps(&info)
 
 	return info, nil
@@ -641,10 +797,10 @@ func windowsVersion() string {
 
 	current, _, _ := k.GetStringValue("CurrentVersion")
 	build, _, _ := k.GetStringValue("CurrentBuildNumber")
-	ubr, _, _ := k.GetStringValue("UBR")
+	ubr, _, _ := k.GetIntegerValue("UBR")
 
-	if current != "" && build != "" && ubr != "" {
-		return current + "." + build + "." + ubr
+	if current != "" && build != "" && ubr > 0 {
+		return current + "." + build + "." + strconv.Itoa(int(ubr))
 	}
 	if current != "" && build != "" {
 		return current + "." + build

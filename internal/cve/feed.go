@@ -39,6 +39,7 @@ type AffectedProduct struct {
 	MinVer    string `json:"min_ver,omitempty"`
 	MaxVer    string `json:"max_ver,omitempty"`
 	FixedIn   string `json:"fixed_in,omitempty"`
+	KBURL     string `json:"kb_url,omitempty"`
 	FixState  string `json:"fix_state,omitempty"`
 	ProductID string `json:"product_id,omitempty"`
 	Ecosystem string `json:"ecosystem,omitempty"`
@@ -107,6 +108,43 @@ func (f *FeedManager) QueryByKB(ctx context.Context, kbArticle string) ([]FeedEn
 	}
 	defer rows.Close()
 	return scanFeedRows(rows)
+}
+
+// MSRCKBInfo is one (KB, product, URL) triple extracted from the affected
+// products of MSRC feed rows; it is the source for kb_metadata.
+type MSRCKBInfo struct {
+	KB          string
+	ProductName string
+	KBURL       string
+}
+
+// ListMSRCKBs returns the distinct per-product KB assignments from the MSRC
+// feed, including the product name and remediation URL each KB came from.
+func (f *FeedManager) ListMSRCKBs(ctx context.Context) ([]MSRCKBInfo, error) {
+	rows, err := f.pool.Query(ctx, `
+		SELECT DISTINCT a->>'fixed_in' AS kb, a->>'name' AS product_name, a->>'kb_url' AS kb_url
+		FROM cve_feed, jsonb_array_elements(cve_feed.affected) AS a
+		WHERE source='msrc'
+		  AND jsonb_typeof(cve_feed.affected) = 'array'
+		  AND a->>'fixed_in' IS NOT NULL AND a->>'fixed_in' <> ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MSRCKBInfo
+	for rows.Next() {
+		var info MSRCKBInfo
+		var kbURL *string
+		if err := rows.Scan(&info.KB, &info.ProductName, &kbURL); err != nil {
+			return nil, err
+		}
+		if kbURL != nil {
+			info.KBURL = *kbURL
+		}
+		out = append(out, info)
+	}
+	return out, rows.Err()
 }
 
 func (f *FeedManager) QueryBySourceKey(ctx context.Context, source, sourceKey string) ([]FeedEntry, error) {
@@ -241,6 +279,11 @@ func (f *FeedManager) DeleteBySourceKey(ctx context.Context, source, sourceKey s
 	return err
 }
 
+func (f *FeedManager) DeleteAllBySource(ctx context.Context, source string) error {
+	_, err := f.pool.Exec(ctx, `DELETE FROM cve_feed WHERE source=$1`, source)
+	return err
+}
+
 func (f *FeedManager) HasFreshEntries(ctx context.Context, source string, name string) (bool, error) {
 	var exists bool
 	err := f.pool.QueryRow(ctx, `
@@ -270,7 +313,9 @@ func scanFeedRows(rows pgx.Rows) ([]FeedEntry, error) {
 	return entries, nil
 }
 
-func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, assetVersions map[string]string, installedKBs map[string]bool, agentOS, agentVersion string) ([]MatchedCVE, error) {
+func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, msrcNames []string,
+	assetVersions, msrcVersions map[string]string, installedKBs map[string]bool,
+	agentOS, agentVersion, agentArch, osAssetName string) ([]MatchedCVE, error) {
 	if len(softwareNames) == 0 {
 		return nil, nil
 	}
@@ -279,7 +324,8 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, a
 	seen := make(map[string]bool)
 
 	for _, source := range []string{"debian", "msrc", "redhat", "nvd", "osv"} {
-		matches := f.matchByName(ctx, source, softwareNames, assetVersions, installedKBs, agentOS, agentVersion)
+		matches := f.matchByName(ctx, source, softwareNames, msrcNames,
+			assetVersions, msrcVersions, installedKBs, agentOS, agentVersion, agentArch, osAssetName)
 		for _, m := range matches {
 			key := m.CVEID + "|" + m.AssetName
 			if !seen[key] {
@@ -292,9 +338,21 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, a
 	return allMatched, nil
 }
 
-func (f *FeedManager) matchByName(ctx context.Context, source string, names []string, assetVersions map[string]string, installedKBs map[string]bool, agentOS, agentVersion string) []MatchedCVE {
+func (f *FeedManager) matchByName(ctx context.Context, source string, names, msrcNames []string,
+	assetVersions, msrcVersions map[string]string, installedKBs map[string]bool,
+	agentOS, agentVersion, agentArch, osAssetName string) []MatchedCVE {
 	if len(names) == 0 {
 		return nil
+	}
+
+	// MSRC must only be matched against Windows OS/package assets. SCA names
+	// (npm/go-mod/pypi/... directories) are excluded here to stop arbitrary
+	// directory names from producing Windows patch recommendations.
+	queryNames := names
+	queryVersions := assetVersions
+	if source == "msrc" && len(msrcNames) > 0 {
+		queryNames = msrcNames
+		queryVersions = msrcVersions
 	}
 
 	queryKBs := make([]string, 0, len(installedKBs))
@@ -302,7 +360,7 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 		queryKBs = append(queryKBs, kb)
 	}
 
-	searchNames := dedupStrings(names)
+	searchNames := dedupStrings(queryNames)
 
 	rows, err := f.pool.Query(ctx, `
 		SELECT e.cve_id, e.cve_url, e.affected, e.fixed_kb, e.fixed_ver,
@@ -320,7 +378,7 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 			e.cvss_score DESC NULLS LAST,
 			e.cve_id ASC,
 			e.id ASC
-		LIMIT 5000
+		LIMIT CASE WHEN $1 = 'msrc' THEN 20000 ELSE 5000 END
 	`, source, searchNames, queryKBs)
 	if err != nil {
 		slog.Error("matchByName query failed", "error", err, "names", len(names))
@@ -328,12 +386,12 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 	}
 	defer rows.Close()
 
-	lowerNames := make(map[string]bool, len(names))
-	for _, n := range names {
+	lowerNames := make(map[string]bool, len(queryNames))
+	for _, n := range queryNames {
 		lowerNames[strings.ToLower(n)] = true
 	}
 
-	agentCPEIndex := buildAgentCPEIndex(names, assetVersions)
+	agentCPEIndex := buildAgentCPEIndex(queryNames, queryVersions)
 
 	var results []MatchedCVE
 	for rows.Next() {
@@ -343,16 +401,6 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 			continue
 		}
 
-		status := "active"
-		kb := ""
-		kbURL := ""
-		if e.Source == "msrc" {
-			kb = e.FixedKB
-			kbURL = e.CVEURL
-			if e.FixedKB != "" && installedKBs != nil && isKBFixed(e.FixedKB, installedKBs) {
-				status = "fixed"
-			}
-		}
 		if e.Source == "redhat" {
 			results = append(results, matchRedHatEntry(&e, agentOS, agentVersion,
 				names, assetVersions, lowerNames)...)
@@ -368,10 +416,22 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 			if !cpeMatches(ap, e.Source, agentCPEIndex, lowerNames) {
 				continue
 			}
-			if !isRelevantProduct(ap, e.Source, agentOS, agentVersion, lowerNames) {
+			if !isRelevantProduct(ap, e.Source, agentOS, agentVersion, agentArch, lowerNames) {
 				continue
 			}
-			installedVer := findInstalledVersionEco(ap.Name, ap.Ecosystem, assetVersions)
+			status := "active"
+			kb, kbURL := "", ""
+			if e.Source == "msrc" {
+				// Per-product KB from the CVRF remediation mapping; the
+				// fallback e.FixedKB must not be smeared over products that
+				// have their own remediation (or none).
+				kb = ap.FixedIn
+				kbURL = ap.KBURL
+				if kb != "" && installedKBs != nil && isKBFixed(kb, installedKBs) {
+					status = "fixed"
+				}
+			}
+			installedVer := findInstalledVersionEco(ap.Name, ap.Ecosystem, queryVersions)
 			if e.Source != "msrc" && e.Source != "debian" {
 				hasRange := ap.MinVer != "" || ap.MaxVer != "" || ap.FixedIn != ""
 				if !hasRange {
@@ -405,16 +465,26 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 					}
 				}
 			}
-			fixVer := firstNonEmpty(e.FixedKB, e.FixedVer)
+			fixVer := ""
+			if e.Source == "msrc" {
+				fixVer = ap.FixedIn
+			} else {
+				fixVer = firstNonEmpty(e.FixedKB, e.FixedVer)
+			}
 			if fixVer == "" && e.Source != "msrc" {
 				fixVer = firstNonEmpty(ap.FixedIn, ap.MaxVer)
 			}
-			assetName := resolveAssetName(e.Source, ap, agentCPEIndex, assetVersions)
+			assetName := resolveAssetName(e.Source, ap, agentCPEIndex, queryVersions, osAssetName)
 			assetLower := strings.ToLower(assetName)
-			for _, n := range names {
+			for _, n := range queryNames {
 				if strings.ToLower(n) == assetLower {
 					assetName = n
 					break
+				}
+			}
+			if installedVer == "" {
+				if v, ok := queryVersions[strings.ToLower(assetName)]; ok {
+					installedVer = v
 				}
 			}
 
@@ -425,6 +495,8 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 				FixedVersion: fixVer,
 				KBArticle:    kb,
 				KBURL:        kbURL,
+				CpeVer:       ap.CpeVer,
+				OSProduct:    e.Source == "msrc" && isMSRCOSProductName(ap.Name),
 				Severity:     e.Severity,
 				CVSSScore:    e.CVSSScore,
 				Summary:      e.Summary,
@@ -436,7 +508,7 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names []st
 	return results
 }
 
-func resolveAssetName(source string, ap AffectedProduct, agentCPEIndex, assetVersions map[string]string) string {
+func resolveAssetName(source string, ap AffectedProduct, agentCPEIndex, assetVersions map[string]string, osAssetName string) string {
 	// Exact package-name matches always win (e.g. "musl" must not resolve to
 	// "musl-utils" just because the latter contains the former).
 	lower := strings.ToLower(ap.Name)
@@ -454,6 +526,9 @@ func resolveAssetName(source string, ap AffectedProduct, agentCPEIndex, assetVer
 					strings.Contains(lower, " for ") && !strings.Contains(lower, "server"))
 			}
 			if isOS {
+				if osAssetName != "" {
+					return osAssetName
+				}
 				for _, name := range sortedMapKeys(assetVersions) {
 					lower := strings.ToLower(name)
 					if strings.HasPrefix(lower, "windows ") {
@@ -737,6 +812,85 @@ func nameMatches(affectedName string, lowerNames map[string]bool) bool {
 	return false
 }
 
+// isMSRCOSProductName reports whether an MSRC affected product is a Windows
+// OS entry (e.g. "Windows 10 Version 1809 for x64-based Systems", "Windows
+// Server 2019"). Such entries are matched against the agent OS itself rather
+// than an installed software name.
+func isMSRCOSProductName(productName string) bool {
+	lower := strings.ToLower(productName)
+	if !strings.HasPrefix(lower, "windows ") {
+		return false
+	}
+	// Hardware-lab/toolkit products are not the operating system even though
+	// they start with "Windows " (HLK, ADK, WDK, PE add-on).
+	for _, toolkit := range []string{" hlk", " adk", " wdk", "pe add-on", "driver kit"} {
+		if strings.Contains(lower, toolkit) {
+			return false
+		}
+	}
+	return strings.Contains(lower, " version ") || strings.Contains(lower, " for ") ||
+		strings.Contains(lower, " server")
+}
+
+// msrcPlatformTokens are product-name words that describe the target platform
+// or hardware rather than the software family. They are removed before the
+// installed-asset token comparison so "for Mac"/"for Android" suffixes cannot
+// leak into the family tokens.
+var msrcPlatformTokens = map[string]bool{
+	"mac": true, "android": true, "ios": true, "ipados": true, "tvos": true,
+	"watchos": true, "linux": true, "chrome": true, "chromebook": true,
+	"azure": true, "xbox": true, "hololens": true, "surface": true,
+	"mariner": true, "based": true, "systems": true, "system": true,
+	"32": true, "64": true, "bit": true, "x64": true, "x86": true,
+	"arm64": true, "version": true, "edition": true, "for": true,
+}
+
+// msrcFamilyTokens are global stopwords that are meaningful product-family
+// tokens inside MSRC product names (Remote Desktop, Visual Studio, .NET
+// Framework/Runtime, Microsoft Office, ...).
+var msrcFamilyTokens = map[string]bool{
+	"remote": true, "desktop": true, "studio": true, "visual": true,
+	"office": true, "framework": true, "runtime": true, "client": true,
+	"server": true, "tools": true,
+}
+
+// msrcNameMatches requires every distinctive token of the affected MSRC
+// product to appear inside a single installed asset name. Unlike
+// nameMatches it never accepts a single shared word (e.g. "windows").
+func msrcNameMatches(affectedName string, lowerNames map[string]bool) bool {
+	words := splitWords(strings.ToLower(affectedName))
+	var distinctive []string
+	for _, w := range words {
+		if len(w) < 3 || msrcPlatformTokens[w] || (stopWords[w] && !msrcFamilyTokens[w]) {
+			continue
+		}
+		distinctive = append(distinctive, w)
+	}
+	// A single shared word is not enough for MSRC (e.g. "windows" or
+	// "office"); require at least two distinctive family tokens inside one
+	// installed asset name.
+	if len(distinctive) < 2 {
+		return false
+	}
+	for name := range lowerNames {
+		nameSet := make(map[string]bool)
+		for _, w := range splitWords(name) {
+			nameSet[w] = true
+		}
+		all := true
+		for _, w := range distinctive {
+			if !nameSet[w] {
+				all = false
+				break
+			}
+		}
+		if all {
+			return true
+		}
+	}
+	return false
+}
+
 var wordSeps = func(r rune) bool {
 	return r == '_' || r == '-' || r == ':' || r == '/' || r == '.' || r == ' ' || r == '(' || r == ')'
 }
@@ -799,11 +953,11 @@ func firstNonEmpty(a, b string) string {
 
 var winVersionPattern = regexp.MustCompile(`[Vv]ersion\s+(\d{2}H\d|\d{4})`)
 
-func isRelevantProduct(ap AffectedProduct, source, agentOS, agentVersion string, lowerNames map[string]bool) bool {
+func isRelevantProduct(ap AffectedProduct, source, agentOS, agentVersion, agentArch string, lowerNames map[string]bool) bool {
 	lower := strings.ToLower(agentOS)
 
 	if source == "msrc" {
-		return isRelevantMSRCProduct(ap.Name, lower, agentVersion, lowerNames)
+		return isRelevantMSRCProduct(ap, lower, agentVersion, agentArch, lowerNames)
 	}
 	if source == "nvd" {
 		return isRelevantNVDProduct(ap, lower, agentVersion, lowerNames)
@@ -893,104 +1047,174 @@ func osvEcosystemMajor(eco string) string {
 	return after
 }
 
-func isRelevantMSRCProduct(productName, agentOSLower, agentVersion string, lowerNames map[string]bool) bool {
-	lower := strings.ToLower(productName)
+func isRelevantMSRCProduct(ap AffectedProduct, agentOSLower, agentVersion, agentArch string, lowerNames map[string]bool) bool {
+	lower := strings.ToLower(ap.Name)
 
-	if strings.Contains(lower, "mac os") || strings.Contains(lower, "macos") ||
-		strings.Contains(lower, "android") || strings.Contains(lower, "ios") {
-		return false
-	}
-	if strings.Contains(lower, "linux") && !strings.Contains(agentOSLower, "linux") {
-		return false
-	}
-	if strings.Contains(lower, "mariner") {
-		return false
-	}
-
-	isWindowsAgent := strings.Contains(agentOSLower, "windows")
-	if !isWindowsAgent {
-		return false
-	}
-
-	if strings.Contains(lower, "windows rt") || strings.Contains(lower, "windows phone") {
-		return false
-	}
-	if strings.Contains(lower, "windows xp") || strings.Contains(lower, "windows vista") {
-		return false
-	}
-	if strings.Contains(lower, "windows 7") || strings.Contains(lower, "windows 8") || strings.Contains(lower, "windows 8.1") {
+	// Non-Windows platforms and non-PC hardware never apply to a Windows
+	// agent. Exact installed-software presence is enforced separately by
+	// cpeMatches/msrcNameMatches; this layer rejects the platform outright.
+	if strings.Contains(lower, "for mac") || strings.Contains(lower, "mac os") ||
+		strings.Contains(lower, "macos") || strings.Contains(lower, "for android") ||
+		strings.Contains(lower, "android") || strings.Contains(lower, "for ios") ||
+		strings.Contains(lower, "ios") || strings.Contains(lower, "ipados") ||
+		strings.Contains(lower, "tvos") || strings.Contains(lower, "watchos") ||
+		strings.Contains(lower, "chrome os") || strings.Contains(lower, "chromebook") ||
+		strings.Contains(lower, "mariner") || strings.Contains(lower, "azure") ||
+		strings.Contains(lower, "xbox") || strings.Contains(lower, "hololens") ||
+		strings.Contains(lower, "surface") || strings.Contains(lower, "linux") {
 		return false
 	}
 
-	if strings.Contains(lower, "server 2008") || strings.Contains(lower, "server 2012") {
+	// Windows testing toolkits (HLK/ADK/WDK/PE add-on) are not the OS; they
+	// must only match when the exact tool is installed, never via the OS
+	// family or an OS-typed CPE.
+	if strings.Contains(lower, " hlk") || strings.Contains(lower, " adk") ||
+		strings.Contains(lower, " wdk") || strings.Contains(lower, "pe add-on") ||
+		strings.Contains(lower, "driver kit") {
 		return false
 	}
 
-	matches := winVersionPattern.FindStringSubmatch(productName)
+	if !strings.Contains(agentOSLower, "windows") {
+		return false
+	}
+
+	// EOL families and platforms this agent cannot run on.
+	if strings.Contains(lower, "windows rt") || strings.Contains(lower, "windows phone") ||
+		strings.Contains(lower, "windows xp") || strings.Contains(lower, "windows vista") ||
+		strings.Contains(lower, "windows 7") || strings.Contains(lower, "windows 8") ||
+		strings.Contains(lower, "windows 8.1") || strings.Contains(lower, "server 2008") ||
+		strings.Contains(lower, "server 2012") {
+		return false
+	}
+
+	// Family gating: a Windows 10 product must never match a Windows 11
+	// agent and vice versa. This also rejects versionless entries such as
+	// "Windows 10 for x64-based Systems" on Windows 11 hosts.
+	isWin10 := strings.Contains(agentOSLower, "windows 10")
+	isWin11 := strings.Contains(agentOSLower, "windows 11")
+	if strings.Contains(lower, "windows 10") && !isWin10 {
+		return false
+	}
+	if strings.Contains(lower, "windows 11") && !isWin11 {
+		return false
+	}
+
+	// Versionless entries are the RTM release of the family:
+	// "Windows 10 for x64-based Systems" = Windows 10 1507 (build 10240),
+	// "Windows 11 for x64-based Systems" = Windows 11 21H2 (build 22000).
+	// They must never match a newer release, otherwise the wrong KB is
+	// recommended (e.g. the Dec-2021 21H2 KB on a 22H2 machine).
+	if strings.Contains(lower, "windows 11 for") && !agentBuildInRange(agentVersion, 22000, 22620) {
+		return false
+	}
+	if strings.Contains(lower, "windows 10 for") && !agentBuildInRange(agentVersion, 10240, 10240) {
+		return false
+	}
+
+	matches := winVersionPattern.FindStringSubmatch(ap.Name)
 	if len(matches) >= 2 {
-		cveVersion := strings.ToUpper(matches[1])
-		switch cveVersion {
-		case "24H2":
-			return agentBuildGE(agentVersion, 26100)
-		case "23H2":
-			return agentBuildGE(agentVersion, 22631)
-		case "22H2":
-			return agentBuildGE(agentVersion, 22621)
-		case "21H2":
-			return agentBuildInRange(agentVersion, 19044, 22000) || agentBuildGE(agentVersion, 22000)
-		case "21H1":
-			return agentBuildInRange(agentVersion, 19043, 19043)
-		case "20H2":
-			return agentBuildInRange(agentVersion, 19042, 19042)
-		case "2004":
-			return agentBuildInRange(agentVersion, 19041, 19041)
-		case "1909":
-			return agentBuildInRange(agentVersion, 18363, 18363)
-		case "1903":
-			return agentBuildInRange(agentVersion, 18362, 18362)
-		case "1809":
-			return agentBuildInRange(agentVersion, 17763, 17763)
-		case "1803":
-			return agentBuildInRange(agentVersion, 17134, 17134)
-		case "1709":
-			return agentBuildInRange(agentVersion, 16299, 16299)
-		case "1703":
-			return agentBuildInRange(agentVersion, 15063, 15063)
-		case "1607":
-			return agentBuildInRange(agentVersion, 14393, 14393)
-		case "1511":
-			return agentBuildInRange(agentVersion, 10586, 10586)
-		default:
-			n, _ := strconv.Atoi(cveVersion)
-			if n >= 2000 {
-				return agentBuildGE(agentVersion, n)
-			}
+		if !msrcVersionMatches(matches[1], isWin10, isWin11, agentVersion) {
+			return false
 		}
-		return false
-	}
-
-	if strings.Contains(lower, "server 2016") {
-		return agentBuildInRange(agentVersion, 14393, 14393)
-	}
-	if strings.Contains(lower, "server 2019") {
-		return agentBuildInRange(agentVersion, 17763, 17763)
-	}
-	if strings.Contains(lower, "server 2022") || strings.Contains(lower, "server 2025") {
-		return agentBuildInRange(agentVersion, 20348, 20349) || agentBuildGE(agentVersion, 26000)
-	}
-
-	if strings.Contains(lower, "windows server") {
-		return agentBuildInRange(agentVersion, 20348, 20349) || agentBuildGE(agentVersion, 26000)
+	} else if strings.Contains(lower, "server 2016") {
+		if !agentBuildInRange(agentVersion, 14393, 14393) {
+			return false
+		}
+	} else if strings.Contains(lower, "server 2019") {
+		if !agentBuildInRange(agentVersion, 17763, 17763) {
+			return false
+		}
+	} else if strings.Contains(lower, "server 2022") || strings.Contains(lower, "server 2025") {
+		if !agentBuildInRange(agentVersion, 20348, 20349) && !agentBuildGE(agentVersion, 26000) {
+			return false
+		}
+	} else if strings.Contains(lower, "windows server") {
+		if !agentBuildInRange(agentVersion, 20348, 20349) && !agentBuildGE(agentVersion, 26000) {
+			return false
+		}
 	}
 
 	if strings.Contains(lower, "edgehtml") {
 		return false
 	}
-
 	if strings.Contains(lower, "internet explorer") && !containsAnyInNames(lowerNames, "internet explorer") {
 		return false
 	}
 
+	return msrcArchCompatible(ap, agentArch)
+}
+
+// msrcVersionMatches maps an MSRC release label (22H2/21H2/1809/...) to the
+// concrete Windows build ranges, keeping Windows 10 and Windows 11 releases
+// apart (21H2/22H2 exist on both families with different builds).
+func msrcVersionMatches(label string, isWin10, isWin11 bool, agentVersion string) bool {
+	switch strings.ToUpper(label) {
+	case "24H2":
+		return agentBuildGE(agentVersion, 26100)
+	case "23H2":
+		return agentBuildInRange(agentVersion, 22631, 26099)
+	case "22H2":
+		if isWin11 {
+			return agentBuildInRange(agentVersion, 22621, 22630)
+		}
+		if isWin10 {
+			return agentBuildInRange(agentVersion, 19045, 19045)
+		}
+		return false
+	case "21H2":
+		if isWin11 {
+			return agentBuildInRange(agentVersion, 22000, 22620)
+		}
+		if isWin10 {
+			return agentBuildInRange(agentVersion, 19044, 19044)
+		}
+		return false
+	case "21H1":
+		return agentBuildInRange(agentVersion, 19043, 19043)
+	case "20H2":
+		return agentBuildInRange(agentVersion, 19042, 19042)
+	case "2004":
+		return agentBuildInRange(agentVersion, 19041, 19041)
+	case "1909":
+		return agentBuildInRange(agentVersion, 18363, 18363)
+	case "1903":
+		return agentBuildInRange(agentVersion, 18362, 18362)
+	case "1809":
+		return agentBuildInRange(agentVersion, 17763, 17763)
+	case "1803":
+		return agentBuildInRange(agentVersion, 17134, 17134)
+	case "1709":
+		return agentBuildInRange(agentVersion, 16299, 16299)
+	case "1703":
+		return agentBuildInRange(agentVersion, 15063, 15063)
+	case "1607":
+		return agentBuildInRange(agentVersion, 14393, 14393)
+	case "1511":
+		return agentBuildInRange(agentVersion, 10586, 10586)
+	default:
+		n, _ := strconv.Atoi(label)
+		return n >= 2000 && agentBuildGE(agentVersion, n)
+	}
+}
+
+// msrcArchCompatible gates architecture-specific MSRC products. With an
+// unknown agent architecture we stay conservative: ARM64/32-bit-specific
+// entries are rejected because they cannot be confirmed, x64 entries are
+// allowed since x64 is the dominant Windows agent platform.
+func msrcArchCompatible(ap AffectedProduct, agentArch string) bool {
+	nameLower := strings.ToLower(ap.Name)
+	cpeArch := extractCPEArch(ap.CPE)
+	isARM := cpeArch == "arm64" || strings.Contains(nameLower, "arm64")
+	isX86 := cpeArch == "x86" || extractCPETargetPlatform(ap.CPE) == "x86" ||
+		strings.Contains(nameLower, "32-bit") || strings.Contains(nameLower, "x86-based")
+	if isARM {
+		return strings.Contains(strings.ToLower(agentArch), "arm") ||
+			strings.Contains(strings.ToLower(agentArch), "aarch64")
+	}
+	if isX86 {
+		a := strings.ToLower(agentArch)
+		return strings.Contains(a, "386") || (strings.Contains(a, "x86") && !strings.Contains(a, "64"))
+	}
 	return true
 }
 
@@ -1129,12 +1353,6 @@ func cpeMatches(ap AffectedProduct, source string, agentCPEIndex map[string]stri
 			if cpeProduct == "" {
 				return false
 			}
-			if extractCPEArch(ap.CPE) == "arm64" {
-				return false
-			}
-			if extractCPETargetPlatform(ap.CPE) == "x86" {
-				return false
-			}
 			if strings.Contains(cpeProduct, "mac") || strings.Contains(strings.ToLower(ap.Name), "mac") {
 				return false
 			}
@@ -1151,7 +1369,14 @@ func cpeMatches(ap AffectedProduct, source string, agentCPEIndex map[string]stri
 			agentVer := agentCPEIndex[matchedKey]
 			return cpeVersionCompatible(ap.CpeVer, agentVer, matchedKey, agentCPEIndex)
 		}
-		return nameMatches(ap.Name, lowerNames)
+		// OS products without CPE are gated by isRelevantMSRCProduct; other
+		// products must match the installed asset name strictly (all
+		// distinctive tokens inside one asset), never via a single shared
+		// word such as "windows".
+		if isMSRCOSProductName(ap.Name) {
+			return true
+		}
+		return msrcNameMatches(ap.Name, lowerNames)
 	}
 
 	if source == "nvd" {

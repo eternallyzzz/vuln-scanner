@@ -1,6 +1,9 @@
 package collector
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Asset struct {
 	Name        string `json:"name"`
@@ -145,47 +148,69 @@ type RuntimeInfo struct {
 	State string `json:"state,omitempty"`
 }
 
+// UpdateFact is one Windows update observed through WUA/WSUS: either an
+// applicable-but-not-installed (pending) update or an installed update.
+type UpdateFact struct {
+	KB             string    `json:"kb"`
+	Title          string    `json:"title,omitempty"`
+	State          string    `json:"state"` // installed | pending
+	Severity       string    `json:"severity,omitempty"`
+	RebootRequired bool      `json:"reboot_required,omitempty"`
+	Source         string    `json:"source"` // wua | wsus | mu
+	CollectedAt    time.Time `json:"collected_at,omitempty"`
+}
+
+// UpdateSourceStatus reports whether the WUA update source was reachable
+// during the last collection and, if not, why.
+type UpdateSourceStatus struct {
+	SourceReachable bool      `json:"source_reachable"`
+	LastCheckedAt   time.Time `json:"last_checked_at,omitempty"`
+	Error           string    `json:"error,omitempty"`
+}
+
 type SystemInfo struct {
-	Hostname           string             `json:"hostname"`
-	OS                 string             `json:"os"`
-	Version            string             `json:"version"`
-	Arch               string             `json:"arch"`
-	MachineID          string             `json:"machine_id"`
-	SystemManufacturer string             `json:"system_manufacturer,omitempty"`
-	SystemModel        string             `json:"system_model,omitempty"`
-	SystemSerial       string             `json:"system_serial,omitempty"`
-	BIOSVersion        string             `json:"bios_version,omitempty"`
-	BIOSDate           string             `json:"bios_date,omitempty"`
-	KernelVersion      string             `json:"kernel_version,omitempty"`
-	UptimeSeconds      int64              `json:"uptime_seconds,omitempty"`
-	BootTime           string             `json:"boot_time,omitempty"`
-	Timezone           string             `json:"timezone,omitempty"`
-	OSDomain           string             `json:"os_domain,omitempty"`
-	CPU                []CPUSpec          `json:"cpu,omitempty"`
-	GPU                []GPUSpec          `json:"gpu,omitempty"`
-	Motherboard        *MotherboardSpec   `json:"motherboard,omitempty"`
-	MemoryMB           int64              `json:"memory_mb,omitempty"`
-	MemoryModules      []MemoryModule     `json:"memory_modules,omitempty"`
-	NetInterfaces      []NetInterfaceSpec `json:"net_interfaces,omitempty"`
-	OpenPorts          []PortInfo         `json:"open_ports,omitempty"`
-	Processes          []ProcessInfo      `json:"processes,omitempty"`
-	Storage            []StorageSpec      `json:"storage,omitempty"`
-	Services           []ServiceInfo      `json:"services,omitempty"`
-	StartupItems       []StartupItem      `json:"startup_items,omitempty"`
-	ScheduledTasks     []ScheduledTask    `json:"scheduled_tasks,omitempty"`
-	Routes             []RouteInfo        `json:"routes,omitempty"`
-	FirewallRules      []FirewallRule     `json:"firewall_rules,omitempty"`
-	Neighbors          []NeighborInfo     `json:"neighbors,omitempty"`
-	Certificates       []CertificateInfo  `json:"certificates,omitempty"`
-	Accounts           []AccountInfo      `json:"accounts,omitempty"`
-	SSHKeys            []SSHKeyInfo       `json:"ssh_keys,omitempty"`
-	Runtimes           []RuntimeInfo      `json:"runtimes,omitempty"`
-	TPMEnabled         bool               `json:"tpm_enabled,omitempty"`
-	DiskEncryption     string             `json:"disk_encryption,omitempty"`
-	Antivirus          string             `json:"antivirus,omitempty"`
-	SELinux            string             `json:"selinux,omitempty"`
-	AppArmor           string             `json:"apparmor,omitempty"`
-	Truncated          []string           `json:"truncated,omitempty"`
+	Hostname           string              `json:"hostname"`
+	OS                 string              `json:"os"`
+	Version            string              `json:"version"`
+	Arch               string              `json:"arch"`
+	MachineID          string              `json:"machine_id"`
+	SystemManufacturer string              `json:"system_manufacturer,omitempty"`
+	SystemModel        string              `json:"system_model,omitempty"`
+	SystemSerial       string              `json:"system_serial,omitempty"`
+	BIOSVersion        string              `json:"bios_version,omitempty"`
+	BIOSDate           string              `json:"bios_date,omitempty"`
+	KernelVersion      string              `json:"kernel_version,omitempty"`
+	UptimeSeconds      int64               `json:"uptime_seconds,omitempty"`
+	BootTime           string              `json:"boot_time,omitempty"`
+	Timezone           string              `json:"timezone,omitempty"`
+	OSDomain           string              `json:"os_domain,omitempty"`
+	CPU                []CPUSpec           `json:"cpu,omitempty"`
+	GPU                []GPUSpec           `json:"gpu,omitempty"`
+	Motherboard        *MotherboardSpec    `json:"motherboard,omitempty"`
+	MemoryMB           int64               `json:"memory_mb,omitempty"`
+	MemoryModules      []MemoryModule      `json:"memory_modules,omitempty"`
+	NetInterfaces      []NetInterfaceSpec  `json:"net_interfaces,omitempty"`
+	OpenPorts          []PortInfo          `json:"open_ports,omitempty"`
+	Processes          []ProcessInfo       `json:"processes,omitempty"`
+	Storage            []StorageSpec       `json:"storage,omitempty"`
+	Services           []ServiceInfo       `json:"services,omitempty"`
+	StartupItems       []StartupItem       `json:"startup_items,omitempty"`
+	ScheduledTasks     []ScheduledTask     `json:"scheduled_tasks,omitempty"`
+	Routes             []RouteInfo         `json:"routes,omitempty"`
+	FirewallRules      []FirewallRule      `json:"firewall_rules,omitempty"`
+	Neighbors          []NeighborInfo      `json:"neighbors,omitempty"`
+	Certificates       []CertificateInfo   `json:"certificates,omitempty"`
+	Accounts           []AccountInfo       `json:"accounts,omitempty"`
+	SSHKeys            []SSHKeyInfo        `json:"ssh_keys,omitempty"`
+	Runtimes           []RuntimeInfo       `json:"runtimes,omitempty"`
+	TPMEnabled         bool                `json:"tpm_enabled,omitempty"`
+	DiskEncryption     string              `json:"disk_encryption,omitempty"`
+	Antivirus          string              `json:"antivirus,omitempty"`
+	SELinux            string              `json:"selinux,omitempty"`
+	AppArmor           string              `json:"apparmor,omitempty"`
+	Truncated          []string            `json:"truncated,omitempty"`
+	UpdateFacts        []UpdateFact        `json:"update_facts,omitempty"`
+	UpdateSourceStatus *UpdateSourceStatus `json:"update_source_status,omitempty"`
 }
 
 type Collector interface {

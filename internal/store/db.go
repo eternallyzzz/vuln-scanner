@@ -39,30 +39,31 @@ type AssetSnapshot struct {
 }
 
 type CVEResult struct {
-	ID               int64     `json:"id"`
-	AgentID          string    `json:"agent_id"`
-	CVEID            string    `json:"cve_id"`
-	AssetName        string    `json:"asset_name"`
-	AssetVersion     string    `json:"asset_version"`
-	FixedVersion     string    `json:"fixed_version,omitempty"`
-	FixState         string    `json:"fix_state,omitempty"`
-	KBArticle        string    `json:"kb_article,omitempty"`
-	KBURL            string    `json:"kb_url,omitempty"`
-	AdvisoryURL      string    `json:"advisory_url,omitempty"`
-	Severity         string    `json:"severity"`
-	CVSSScore        float64   `json:"cvss_score"`
-	Summary          string    `json:"summary"`
-	Source           string    `json:"source"`
-	Status           string    `json:"status"`
-	DetectedAt       time.Time `json:"detected_at"`
-	CanonicalCVEID   string    `json:"canonical_cve_id,omitempty"`
-	EPSSScore        float64   `json:"epss_score,omitempty"`
-	EPSSPercentile   float64   `json:"epss_percentile,omitempty"`
-	KEV              bool      `json:"kev,omitempty"`
-	ExposureScore    float64   `json:"exposure_score,omitempty"`
-	AssetCriticality float64   `json:"asset_criticality,omitempty"`
-	RiskScore        float64   `json:"risk_score,omitempty"`
-	RiskLevel        string    `json:"risk_level,omitempty"`
+	ID                 int64     `json:"id"`
+	AgentID            string    `json:"agent_id"`
+	CVEID              string    `json:"cve_id"`
+	AssetName          string    `json:"asset_name"`
+	AssetVersion       string    `json:"asset_version"`
+	FixedVersion       string    `json:"fixed_version,omitempty"`
+	FixState           string    `json:"fix_state,omitempty"`
+	KBArticle          string    `json:"kb_article,omitempty"`
+	KBURL              string    `json:"kb_url,omitempty"`
+	VerificationSource string    `json:"verification_source,omitempty"`
+	AdvisoryURL        string    `json:"advisory_url,omitempty"`
+	Severity           string    `json:"severity"`
+	CVSSScore          float64   `json:"cvss_score"`
+	Summary            string    `json:"summary"`
+	Source             string    `json:"source"`
+	Status             string    `json:"status"`
+	DetectedAt         time.Time `json:"detected_at"`
+	CanonicalCVEID     string    `json:"canonical_cve_id,omitempty"`
+	EPSSScore          float64   `json:"epss_score,omitempty"`
+	EPSSPercentile     float64   `json:"epss_percentile,omitempty"`
+	KEV                bool      `json:"kev,omitempty"`
+	ExposureScore      float64   `json:"exposure_score,omitempty"`
+	AssetCriticality   float64   `json:"asset_criticality,omitempty"`
+	RiskScore          float64   `json:"risk_score,omitempty"`
+	RiskLevel          string    `json:"risk_level,omitempty"`
 }
 
 type AnalysisLog struct {

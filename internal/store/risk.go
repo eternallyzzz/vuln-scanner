@@ -521,6 +521,44 @@ func (s *Store) SLAHours(ctx context.Context) (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// OverdueCVE is one active vulnerability whose SLA deadline has passed.
+type OverdueCVE struct {
+	AgentID   string
+	CVEID     string
+	AssetName string
+	Severity  string
+	CVSSScore float64
+	DueAt     time.Time
+}
+
+// OverdueCVEs returns the active CVEs past their SLA deadline, using the same
+// detected_at + max_remediation_hours rule as the risk summary.
+func (s *Store) OverdueCVEs(ctx context.Context) ([]OverdueCVE, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT cr.agent_id, cr.cve_id, cr.asset_name, cr.severity, cr.cvss_score,
+			cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') AS due_at
+		FROM cve_results cr
+		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled
+		WHERE cr.status='active'
+		  AND cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') < NOW()
+		ORDER BY due_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OverdueCVE
+	for rows.Next() {
+		var o OverdueCVE
+		if err := rows.Scan(&o.AgentID, &o.CVEID, &o.AssetName, &o.Severity,
+			&o.CVSSScore, &o.DueAt); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // RiskExportCSV renders the top risk rows as CSV bytes.
 func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
 	rows, err := s.RiskTop(ctx, 100000, "", false)
@@ -657,9 +695,9 @@ func (s *Store) IsExempt(ctx context.Context, agentID, assetName, cveID string) 
 		SELECT EXISTS(
 			SELECT 1 FROM vulnerability_exceptions
 			WHERE revoked_at IS NULL AND expires_at > NOW()
-				AND cve_id=$1 AND (asset_key='' OR asset_key=$2)
+				AND cve_id=$1 AND (asset_key='' OR asset_key=$2 OR asset_key=$3)
 		)
-	`, cveID, assetKey).Scan(&exists)
+	`, cveID, assetKey, assetName).Scan(&exists)
 	return exists, err
 }
 

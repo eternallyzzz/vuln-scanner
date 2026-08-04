@@ -10,8 +10,10 @@ import (
 	colWindows "vuln-scanner/internal/collector/windows"
 )
 
-func platformCollector() collector.Collector {
+func platformCollector(wuaEnabled bool, wuaTimeoutSeconds int) collector.Collector {
 	inner := colWindows.New()
+	inner.SetWUAEnabled(wuaEnabled)
+	inner.SetWUATimeout(wuaTimeoutSeconds)
 	scanDirs := []string{}
 	if home, err := os.UserHomeDir(); err == nil {
 		scanDirs = append(scanDirs, home)

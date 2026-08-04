@@ -1,0 +1,2 @@
+ALTER TABLE kb_metadata ADD COLUMN IF NOT EXISTS download_sha256 TEXT NOT NULL DEFAULT '';
+ALTER TABLE kb_metadata ADD COLUMN IF NOT EXISTS download_resolved_at TIMESTAMPTZ;

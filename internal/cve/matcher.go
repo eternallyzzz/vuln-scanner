@@ -46,12 +46,24 @@ func (m *Matcher) matchWindows(ctx context.Context, agentID string, assets []Ass
 
 	searchNames := append(translatedNames, rawNames...)
 	assetVersions := buildAssetVersions(ctx, assets, m.store, "windows")
-	agentOS, agentVer := getAgentOSInfo(ctx, m.store, agentID)
-	matched, err := m.feed.MatchAssets(ctx, searchNames, assetVersions, installedKBs, agentOS, agentVer)
+	msrcNames, msrcVersions, osAssetName := msrcScopeAssets(assets)
+	agentOS, agentVer, agentArch := getAgentOSInfo(ctx, m.store, agentID)
+	if family := msrcFamilyToken(agentOS); family != "" {
+		// MSRC OS products are named like "Windows 11 Version 22H2 for
+		// x64-based Systems", which never contains the installed OS asset
+		// name ("Windows 11 Pro 22H2"). The family token makes those rows
+		// reach the Go-side version/architecture filter.
+		msrcNames = append(msrcNames, family)
+	}
+	matched, err := m.feed.MatchAssets(ctx, searchNames, msrcNames,
+		assetVersions, msrcVersions, installedKBs, agentOS, agentVer, agentArch, osAssetName)
 	if err != nil {
 		return nil, err
 	}
-	matched = m.enrichVersionStatus(matched, assets, installedKBs)
+	matched = m.enrichVersionStatus(matched, assets, installedKBs, agentVer)
+	updateFacts, _ := m.store.GetAgentUpdateFacts(ctx, agentID)
+	updateStatus, _ := m.store.GetAgentUpdateStatus(ctx, agentID)
+	matched = applyWUAVerification(matched, updateFacts, updateStatus)
 	return matched, nil
 }
 
@@ -97,15 +109,60 @@ func (m *Matcher) matchLinux(ctx context.Context, agentID string, assets []Asset
 	rawNames, _ := extractSoftwareNames(ctx, m.store, assets, "linux")
 
 	assetVersions := buildAssetVersions(ctx, assets, m.store, "linux")
-	agentOS, agentVer := getAgentOSInfo(ctx, m.store, agentID)
-	matched, err := m.feed.MatchAssets(ctx, rawNames, assetVersions, nil, agentOS, agentVer)
+	agentOS, agentVer, agentArch := getAgentOSInfo(ctx, m.store, agentID)
+	matched, err := m.feed.MatchAssets(ctx, rawNames, nil, assetVersions, nil, nil, agentOS, agentVer, agentArch, "")
 	if err != nil {
 		return nil, err
 	}
 	return matched, nil
 }
 
-func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatch, installedKBs map[string]bool) []MatchedCVE {
+// msrcScopeAssets keeps only Windows OS and installed-package assets for MSRC
+// matching. SCA artifacts (npm/go-mod/pypi/maven directories) and hotfix rows
+// are excluded: hotfixes are already passed as installedKBs.
+func msrcScopeAssets(assets []AssetToMatch) ([]string, map[string]string, string) {
+	versions := make(map[string]string)
+	var names []string
+	osAssetName := ""
+	for _, a := range assets {
+		switch strings.ToLower(a.Format) {
+		case "os":
+			osAssetName = a.Name
+			fallthrough
+		case "win":
+		default:
+			continue
+		}
+		if a.Name == "" {
+			continue
+		}
+		names = append(names, a.Name)
+		if a.Version != "" {
+			mergeAssetVersion(versions, strings.ToLower(trimAssetName(a.Name)), a.Version)
+		}
+	}
+	return dedupStrings(names), versions, osAssetName
+}
+
+// msrcFamilyToken derives the Windows family token of an agent OS so MSRC OS
+// product rows ("Windows 11 Version 22H2 ...") can be pre-filtered by SQL.
+func msrcFamilyToken(agentOS string) string {
+	lower := strings.ToLower(agentOS)
+	switch {
+	case strings.Contains(lower, "windows server"):
+		return "Windows Server"
+	case strings.Contains(lower, "windows 11"):
+		return "Windows 11"
+	case strings.Contains(lower, "windows 10"):
+		return "Windows 10"
+	case strings.Contains(lower, "windows"):
+		return "Windows"
+	}
+	return ""
+}
+
+func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatch,
+	installedKBs map[string]bool, agentVersion string) []MatchedCVE {
 	assetMap := make(map[string]string)
 	for _, a := range assets {
 		if a.Name != "" {
@@ -121,6 +178,17 @@ func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatc
 			if installedKBs[results[i].KBArticle] {
 				results[i].MatchStatus = "fixed"
 				results[i].FixedVersion = results[i].KBArticle
+			}
+		}
+		if results[i].Source == "msrc" && results[i].OSProduct &&
+			results[i].CpeVer != "" && msrcOSFixedByBuild(agentVersion, results[i].CpeVer) {
+			results[i].MatchStatus = "fixed"
+			if results[i].FixedVersion == "" {
+				if results[i].KBArticle != "" {
+					results[i].FixedVersion = results[i].KBArticle
+				} else {
+					results[i].FixedVersion = results[i].CpeVer
+				}
 			}
 		}
 		if results[i].AssetVersion == "" {
@@ -243,29 +311,34 @@ func (m *Matcher) SaveResults(ctx context.Context, agentID string, results []Mat
 		if status == "" {
 			status = "active"
 		}
+		verification := r.VerificationSource
+		if verification == "" {
+			verification = "local"
+		}
 		entries = append(entries, &store.CVEResult{
-			AgentID:      agentID,
-			CVEID:        r.CVEID,
-			AssetName:    r.AssetName,
-			AssetVersion: r.AssetVersion,
-			FixedVersion: r.FixedVersion,
-			FixState:     r.FixState,
-			KBArticle:    r.KBArticle,
-			KBURL:        r.KBURL,
-			Severity:     r.Severity,
-			CVSSScore:    r.CVSSScore,
-			Summary:      r.Summary,
-			Source:       r.Source,
-			Status:       status,
+			AgentID:            agentID,
+			CVEID:              r.CVEID,
+			AssetName:          r.AssetName,
+			AssetVersion:       r.AssetVersion,
+			FixedVersion:       r.FixedVersion,
+			FixState:           r.FixState,
+			KBArticle:          r.KBArticle,
+			KBURL:              r.KBURL,
+			VerificationSource: verification,
+			Severity:           r.Severity,
+			CVSSScore:          r.CVSSScore,
+			Summary:            r.Summary,
+			Source:             r.Source,
+			Status:             status,
 		})
 	}
 	return m.store.BulkUpsertCVEResults(ctx, entries)
 }
 
-func getAgentOSInfo(ctx context.Context, s *store.Store, agentID string) (string, string) {
+func getAgentOSInfo(ctx context.Context, s *store.Store, agentID string) (string, string, string) {
 	agent, err := s.GetAgent(ctx, agentID)
 	if err != nil || agent == nil {
-		return "", ""
+		return "", "", ""
 	}
-	return agent.OSType, agent.OSVersion
+	return agent.OSType, agent.OSVersion, agent.Arch
 }

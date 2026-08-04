@@ -154,6 +154,24 @@ message SystemInfo {
   string selinux = 38;
   string apparmor = 39;
   repeated string truncated = 40;
+  repeated UpdateFact update_facts = 41;
+  UpdateSourceStatus update_source_status = 42;
+}
+
+message UpdateFact {
+  string kb = 1;
+  string title = 2;
+  string state = 3; // installed | pending
+  string severity = 4;
+  bool reboot_required = 5;
+  string source = 6; // wua | wsus | mu
+  string collected_at = 7;
+}
+
+message UpdateSourceStatus {
+  bool source_reachable = 1;
+  string last_checked_at = 2;
+  string error = 3;
 }
 
 message CPUSpec {

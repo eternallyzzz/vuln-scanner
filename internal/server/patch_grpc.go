@@ -77,6 +77,12 @@ func (s *AgentGRPCServer) ReportPatchTask(ctx context.Context, req *pb.ReportPat
 	}
 	slog.Info("patch task reported", "task_id", req.GetTaskId(),
 		"agent_id", agentID, "status", req.GetStatus(), "exit_code", req.GetExitCode())
+	if req.GetStatus() == "success" {
+		// Close the loop: a successful patch invalidates the current CVE
+		// snapshot, so re-match this agent immediately (risk recalc and
+		// alert evaluation run inside the match pipeline).
+		go s.worker.TriggerMatch(agentID)
+	}
 	return &pb.ReportPatchTaskResponse{Ok: true}, nil
 }
 

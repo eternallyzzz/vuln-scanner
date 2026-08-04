@@ -205,6 +205,20 @@ func (s *AgentGRPCServer) SyncInventory(ctx context.Context, req *pb.SyncInvento
 		if err := s.store.SaveHostSystemInfo(ctx, info); err != nil {
 			slog.Warn("host system info save failed", "agent_id", agentID, "error", err)
 		}
+		updateFacts := updateFactsFromPB(req.GetSystemInfo().GetUpdateFacts())
+		updateStatus := updateSourceStatusFromPB(req.GetSystemInfo().GetUpdateSourceStatus())
+		slog.Info("agent update facts received",
+			"agent_id", agentID,
+			"facts", len(updateFacts),
+			"status_reported", updateStatus != nil)
+		if err := s.store.ReplaceAgentUpdateFacts(ctx, agentID, updateFacts); err != nil {
+			slog.Warn("agent update facts save failed", "agent_id", agentID, "error", err)
+		}
+		if updateStatus != nil {
+			if err := s.store.UpsertAgentUpdateStatus(ctx, agentID, *updateStatus); err != nil {
+				slog.Warn("agent update status save failed", "agent_id", agentID, "error", err)
+			}
+		}
 	}
 
 	for _, a := range req.GetAssets() {
@@ -354,6 +368,47 @@ func hostSystemInfoFromPB(in *pb.SystemInfo) *store.HostSystemInfo {
 		})
 	}
 	return info
+}
+
+func updateFactsFromPB(items []*pb.UpdateFact) []collector.UpdateFact {
+	var out []collector.UpdateFact
+	for _, f := range items {
+		if f == nil || f.GetKb() == "" {
+			continue
+		}
+		out = append(out, collector.UpdateFact{
+			KB:             f.GetKb(),
+			Title:          f.GetTitle(),
+			State:          f.GetState(),
+			Severity:       f.GetSeverity(),
+			RebootRequired: f.GetRebootRequired(),
+			Source:         f.GetSource(),
+			CollectedAt:    parseRFC3339(f.GetCollectedAt()),
+		})
+	}
+	return out
+}
+
+func updateSourceStatusFromPB(in *pb.UpdateSourceStatus) *collector.UpdateSourceStatus {
+	if in == nil {
+		return nil
+	}
+	return &collector.UpdateSourceStatus{
+		SourceReachable: in.GetSourceReachable(),
+		LastCheckedAt:   parseRFC3339(in.GetLastCheckedAt()),
+		Error:           in.GetError(),
+	}
+}
+
+func parseRFC3339(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // mergeIncremental merges a set of changed assets into the agent's stored

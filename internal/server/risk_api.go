@@ -162,6 +162,25 @@ func (s *RESTServer) updateSLAPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, policy)
 }
 
+// checkSLA manually triggers one overdue scan and returns its counts.
+func (s *RESTServer) checkSLA(w http.ResponseWriter, r *http.Request) {
+	if s.worker == nil || s.worker.alerts == nil {
+		writeError(w, 400, "alerting is not configured")
+		return
+	}
+	res, err := s.worker.alerts.CheckSLA(r.Context())
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"status":   "sla_check_completed",
+		"created":  res.Created,
+		"updated":  res.Updated,
+		"resolved": res.Resolved,
+	})
+}
+
 func (s *RESTServer) refreshIntel(w http.ResponseWriter, r *http.Request) {
 	if s.worker == nil {
 		writeError(w, 500, "worker unavailable")

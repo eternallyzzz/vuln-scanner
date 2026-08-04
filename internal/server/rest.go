@@ -74,6 +74,8 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Get("/agents/{id}/vulns/{cveId}", s.getAgentVulnDetail)
 		r.Get("/agents/{id}/report", s.getAgentReport)
 		r.Get("/agents/{id}/system-info", s.getAgentSystemInfo)
+		r.Get("/agents/{id}/update-facts", s.getAgentUpdateFacts)
+		r.Get("/agents/{id}/update-status", s.getAgentUpdateStatus)
 		r.Get("/agents/{id}/install-command", s.getInstallCommand)
 		r.Get("/agents/{id}/recommendations", s.getRecommendations)
 		r.Post("/agents/{id}/patch-tasks/generate", s.generatePatchTasks)
@@ -121,6 +123,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/trigger-match", s.triggerMatch)
 		r.Post("/admin/refresh-feeds", s.refreshFeeds)
 		r.Post("/admin/refresh-intel", s.refreshIntel)
+		r.Post("/admin/check-sla", s.checkSLA)
 		r.Post("/admin/reconcile-cmdb", s.reconcileAllCMDB)
 		r.Post("/admin/reconcile-cmdb/{agentId}", s.reconcileAgentCMDB)
 		r.Get("/scan-policies", s.listScanPolicies)
@@ -534,14 +537,24 @@ func (s *RESTServer) getRecommendations(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 404, "agent not found")
 		return
 	}
+	kbMeta := loadKBMetadata(r.Context(), s.store, recs)
 	for i := range recs {
 		rec := &recs[i]
 		if rec.FixType == "kb" {
-			rec.ReferenceURL, rec.PatchURL = msrcLinks(rec.ExampleCVE, rec.ReferenceURL)
-			enrichKBLinks(rec.KBs)
+			rec.ReferenceURL = advisoryURLFor(rec.ExampleCVE, rec.ReferenceURL)
+			enrichKBLinks(rec.KBs, kbMeta)
+			if len(rec.KBs) > 0 {
+				if m, ok := kbMeta[rec.KBs[0].Kb]; ok {
+					rec.PatchURL = bestPatchURL(m)
+					rec.PatchSHA256 = m.DownloadSHA256
+				}
+				if rec.PatchURL == "" {
+					rec.PatchURL = rec.KBs[0].PatchURL
+				}
+			}
 		}
 		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,
-			rec.FixedVersion, rec.AssetName, rec.ReferenceURL,
+			rec.FixedVersion, rec.AssetName, rec.PatchURL, rec.PatchSHA256,
 			agent.OSType, agent.OSVersion)
 		if err == nil && cmd.Deployable {
 			rec.Deployable = true

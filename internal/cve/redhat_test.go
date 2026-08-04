@@ -460,46 +460,46 @@ func TestRPMReleaseMajor(t *testing.T) {
 
 func TestOSVRPMEntryMajorFilter(t *testing.T) {
 	ap := AffectedProduct{Name: "curl", Ecosystem: "Rocky Linux", FixedIn: "0:8.12.1-2.el10_1.2"}
-	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", nil) {
+	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("el10 advisory must not match a Rocky 9 host")
 	}
 	ap.Ecosystem = "Rocky Linux:10"
-	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", nil) {
+	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("Rocky Linux:10 ecosystem must not match a Rocky 9 host")
 	}
 	ap.Ecosystem = "Rocky Linux:9"
-	if !isRelevantProduct(ap, "osv", "rocky linux", "9.2", nil) {
+	if !isRelevantProduct(ap, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("Rocky Linux:9 ecosystem must match a Rocky 9 host")
 	}
 	ap.Ecosystem = "Rocky Linux"
 	ap.FixedIn = "0:7.76.1-23.el9_2.6"
-	if !isRelevantProduct(ap, "osv", "rocky linux", "9.2", nil) {
+	if !isRelevantProduct(ap, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("el9 advisory must match a Rocky 9 host")
 	}
 	// Debian entries are not rpm-scoped and must stay unaffected.
 	deb := AffectedProduct{Name: "openssl", Ecosystem: "Debian:12", FixedIn: "3.0.11-1~deb12u2"}
-	if !isRelevantProduct(deb, "osv", "debian gnu/linux", "12", nil) {
+	if !isRelevantProduct(deb, "osv", "debian gnu/linux", "12", "", nil) {
 		t.Fatal("debian osv entry must still match a debian host")
 	}
-	if isRelevantProduct(deb, "osv", "rocky linux", "9.2", nil) {
+	if isRelevantProduct(deb, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("debian osv entry must not match a rocky host")
 	}
 }
 
 func TestOSVAlpineEntryVersionFilter(t *testing.T) {
 	ap := AffectedProduct{Name: "openssl", Ecosystem: "Alpine:v3.17", FixedIn: "1.1.1q-r1"}
-	if !isRelevantProduct(ap, "osv", "alpine linux", "3.17.3", nil) {
+	if !isRelevantProduct(ap, "osv", "alpine linux", "3.17.3", "", nil) {
 		t.Fatal("Alpine:v3.17 entry must match an Alpine 3.17 host")
 	}
-	if isRelevantProduct(ap, "osv", "alpine linux", "3.23.3", nil) {
+	if isRelevantProduct(ap, "osv", "alpine linux", "3.23.3", "", nil) {
 		t.Fatal("Alpine:v3.17 entry must not match an Alpine 3.23 host")
 	}
-	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", nil) {
+	if isRelevantProduct(ap, "osv", "rocky linux", "9.2", "", nil) {
 		t.Fatal("Alpine entry must not match a rocky host")
 	}
 	// Plain "Alpine" ecosystem (no version) still matches any Alpine host.
 	plain := AffectedProduct{Name: "openssl", Ecosystem: "Alpine", FixedIn: "1.1.1q-r1"}
-	if !isRelevantProduct(plain, "osv", "alpine linux", "3.23.3", nil) {
+	if !isRelevantProduct(plain, "osv", "alpine linux", "3.23.3", "", nil) {
 		t.Fatal("plain Alpine entry must match an Alpine host")
 	}
 }

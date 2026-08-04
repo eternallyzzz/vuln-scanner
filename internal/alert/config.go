@@ -22,6 +22,7 @@ type Config struct {
 	SMTP                    *SMTPConfig `mapstructure:"smtp"`
 	DeliveryIntervalSeconds int         `mapstructure:"delivery_interval_seconds"`
 	MaxAttempts             int         `mapstructure:"max_attempts"`
+	SLACheckIntervalMinutes int         `mapstructure:"sla_check_interval_minutes"`
 }
 
 func (c *Config) ChannelNames() []string {
@@ -44,6 +45,9 @@ func (c *Config) Validate() error {
 	}
 	if c.MaxAttempts < 1 {
 		return fmt.Errorf("alerting.max_attempts must be >= 1")
+	}
+	if c.SLACheckIntervalMinutes < 0 {
+		return fmt.Errorf("alerting.sla_check_interval_minutes must be >= 0")
 	}
 	if c.SMTP != nil && c.SMTP.Host != "" {
 		if c.SMTP.Port <= 0 {

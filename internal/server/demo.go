@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"vuln-scanner/internal/collector"
 	"vuln-scanner/internal/store"
 )
 
@@ -68,4 +69,38 @@ func (s *RESTServer) getAgentSystemInfo(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, 200, info)
+}
+
+// getAgentUpdateFacts returns the latest WUA/WSUS update facts for one agent.
+func (s *RESTServer) getAgentUpdateFacts(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	facts, err := s.store.GetAgentUpdateFacts(r.Context(), id)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if facts == nil {
+		facts = []collector.UpdateFact{}
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"agent_id":     id,
+		"update_facts": facts,
+	})
+}
+
+// getAgentUpdateStatus returns the latest WUA/WSUS reachability record.
+func (s *RESTServer) getAgentUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	status, err := s.store.GetAgentUpdateStatus(r.Context(), id)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if status == nil {
+		status = &collector.UpdateSourceStatus{SourceReachable: false, Error: "not reported"}
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"agent_id":      id,
+		"update_status": status,
+	})
 }

@@ -6,35 +6,27 @@ import (
 	"vuln-scanner/internal/store"
 )
 
-func TestMsrcLinks(t *testing.T) {
-	catalog := "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5008218"
-	adv, patch := msrcLinks("CVE-2021-43893", catalog)
-	if adv != "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-43893" {
-		t.Fatalf("advisory URL wrong: %q", adv)
+func TestAdvisoryURLFor(t *testing.T) {
+	if got := advisoryURLFor("CVE-2021-43893", "https://example.com/x"); got !=
+		"https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-43893" {
+		t.Fatalf("CVE advisory URL wrong: %q", got)
 	}
-	if patch != "https://support.microsoft.com/help/5008218" {
-		t.Fatalf("patch URL must be the support help page, got %q", patch)
+	if got := advisoryURLFor("ADV180012", "https://example.com/x"); got !=
+		"https://msrc.microsoft.com/update-guide/advisory/ADV180012" {
+		t.Fatalf("ADV advisory URL wrong: %q", got)
 	}
+	if got := advisoryURLFor("SOME-OTHER-ID", "https://example.com/x"); got != "https://example.com/x" {
+		t.Fatalf("fallback advisory URL wrong: %q", got)
+	}
+}
 
-	// Advisory IDs get the Update Guide advisory page plus the KB help page.
-	adv, patch = msrcLinks("ADV180012", "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB4467708")
-	if adv != "https://msrc.microsoft.com/update-guide/advisory/ADV180012" {
-		t.Fatalf("ADV advisory URL wrong: %q", adv)
+func TestCatalogURLForKB(t *testing.T) {
+	if got := catalogURLForKB("KB5008218"); got !=
+		"https://www.catalog.update.microsoft.com/Search.aspx?q=KB5008218" {
+		t.Fatalf("catalog URL wrong: %q", got)
 	}
-	if patch != "https://support.microsoft.com/help/4467708" {
-		t.Fatalf("ADV patch URL wrong: %q", patch)
-	}
-
-	// KB extracted from a bare KB value also works.
-	_, patch = msrcLinks("CVE-2021-43893", "KB5008218")
-	if patch != "https://support.microsoft.com/help/5008218" {
-		t.Fatalf("bare KB patch URL wrong: %q", patch)
-	}
-
-	// Unknown IDs keep the stored URL; no KB means no patch URL.
-	adv, patch = msrcLinks("SOME-OTHER-ID", "https://example.com/x")
-	if adv != "https://example.com/x" || patch != "" {
-		t.Fatalf("fallback wrong: adv=%q patch=%q", adv, patch)
+	if got := catalogURLForKB("no-kb"); got != "" {
+		t.Fatalf("non-KB must produce no URL, got %q", got)
 	}
 }
 
@@ -61,17 +53,57 @@ func TestEnrichKBLinks(t *testing.T) {
 		{Kb: "KB5008218", CVEIDs: []string{"CVE-2021-43893", "CVE-2021-43883"}},
 		{Kb: "KB4565489", CVEIDs: nil},
 	}
-	enrichKBLinks(kbs)
+	meta := map[string]store.KBMetadata{
+		"KB5008218": {
+			KB: "KB5008218", ProductFamily: "windows",
+			SupportURL:     "https://support.microsoft.com/help/5008218",
+			CatalogURL:     "https://www.catalog.update.microsoft.com/Search.aspx?q=KB5008218",
+			DownloadURL:    "https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5008218-x64.msu",
+			DownloadSHA256: "S28F+jYcZfOWxmbJegW2u45MQRo=",
+			Status:         "ok",
+		},
+	}
+	enrichKBLinks(kbs, meta)
+
 	if kbs[0].ReferenceURL != "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2021-43893" {
 		t.Fatalf("first CVE reference wrong: %q", kbs[0].ReferenceURL)
 	}
-	if kbs[0].PatchURL != "https://support.microsoft.com/help/5008218" {
-		t.Fatalf("patch URL wrong: %q", kbs[0].PatchURL)
+	if kbs[0].PatchURL != "https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5008218-x64.msu" {
+		t.Fatalf("resolved download must be the primary patch URL, got %q", kbs[0].PatchURL)
+	}
+	if len(kbs[0].Links) != 4 {
+		t.Fatalf("expected advisory+support+download+catalog links, got %d", len(kbs[0].Links))
+	}
+	if kbs[0].Links[2].Type != "download" || !kbs[0].Links[2].Verified {
+		t.Fatalf("download link must be present and verified: %+v", kbs[0].Links)
 	}
 	if kbs[1].ReferenceURL != "" {
 		t.Fatalf("empty CVE list must leave reference empty, got %q", kbs[1].ReferenceURL)
 	}
-	if kbs[1].PatchURL != "https://support.microsoft.com/help/4565489" {
-		t.Fatalf("KB help URL wrong: %q", kbs[1].PatchURL)
+	if kbs[1].PatchURL != "https://www.catalog.update.microsoft.com/Search.aspx?q=KB4565489" {
+		t.Fatalf("unverified KB must fall back to catalog, got %q", kbs[1].PatchURL)
+	}
+}
+
+func TestBestPatchURLBrokenSupportFallsBack(t *testing.T) {
+	m := store.KBMetadata{
+		SupportURL: "https://support.microsoft.com/help/4512507",
+		CatalogURL: "https://www.catalog.update.microsoft.com/Search.aspx?q=KB4512507",
+		Status:     "broken",
+	}
+	if got := bestPatchURL(m); got != m.CatalogURL {
+		t.Fatalf("broken support link must not be primary, got %q", got)
+	}
+}
+
+func TestBestPatchURLDownloadWins(t *testing.T) {
+	m := store.KBMetadata{
+		SupportURL:  "https://support.microsoft.com/help/5018427",
+		CatalogURL:  "https://www.catalog.update.microsoft.com/Search.aspx?q=KB5018427",
+		DownloadURL: "https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5018427-x64.msu",
+		Status:      "ok",
+	}
+	if got := bestPatchURL(m); got != m.DownloadURL {
+		t.Fatalf("download must win over support, got %q", got)
 	}
 }

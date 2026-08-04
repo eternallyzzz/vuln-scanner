@@ -362,7 +362,32 @@ func systemInfoToPb(s collector.SystemInfo) *pb.SystemInfo {
 			Name: v.Name, Type: v.Type, State: v.State,
 		})
 	}
+	for _, f := range s.UpdateFacts {
+		out.UpdateFacts = append(out.UpdateFacts, &pb.UpdateFact{
+			Kb:             f.KB,
+			Title:          f.Title,
+			State:          f.State,
+			Severity:       f.Severity,
+			RebootRequired: f.RebootRequired,
+			Source:         f.Source,
+			CollectedAt:    formatTimeOrEmpty(f.CollectedAt),
+		})
+	}
+	if s.UpdateSourceStatus != nil {
+		out.UpdateSourceStatus = &pb.UpdateSourceStatus{
+			SourceReachable: s.UpdateSourceStatus.SourceReachable,
+			LastCheckedAt:   formatTimeOrEmpty(s.UpdateSourceStatus.LastCheckedAt),
+			Error:           s.UpdateSourceStatus.Error,
+		}
+	}
 	return out
+}
+
+func formatTimeOrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // assetSyncKey identifies an inventory entry across sync cycles. Name alone is

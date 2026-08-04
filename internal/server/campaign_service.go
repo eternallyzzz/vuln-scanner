@@ -132,6 +132,7 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 		if len(recs) == 0 {
 			continue
 		}
+		kbMeta := loadKBMetadata(ctx, st, recs)
 		var metaMap map[string]store.AssetMeta
 		if needMeta {
 			metaMap, err = st.AssetMetaByAgent(ctx, ag.ID)
@@ -146,6 +147,18 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 			continue
 		}
 		for _, rec := range recs {
+			if rec.FixType == "kb" {
+				enrichKBLinks(rec.KBs, kbMeta)
+				if len(rec.KBs) > 0 {
+					if m, ok := kbMeta[rec.KBs[0].Kb]; ok {
+						rec.PatchURL = bestPatchURL(m)
+						rec.PatchSHA256 = m.DownloadSHA256
+					}
+					if rec.PatchURL == "" {
+						rec.PatchURL = rec.KBs[0].PatchURL
+					}
+				}
+			}
 			meta := store.AssetMeta{}
 			if metaMap != nil {
 				meta = metaMap[rec.AssetName]
@@ -158,7 +171,7 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 				continue
 			}
 			cmd, err := patch.BuildCommandForAgent(patchCfg, rec.FixType, rec.FixedVersion,
-				rec.AssetName, rec.ReferenceURL, ag.OSType, ag.OSVersion)
+				rec.AssetName, rec.PatchURL, rec.PatchSHA256, ag.OSType, ag.OSVersion)
 			if err != nil {
 				buildErrors = append(buildErrors, fmt.Sprintf("%s/%s: %v", ag.ID, rec.AssetName, err))
 				continue

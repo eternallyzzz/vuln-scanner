@@ -86,13 +86,13 @@ func TestFindMatchingKeyDeterministicShortest(t *testing.T) {
 func TestResolveAssetNameExactWins(t *testing.T) {
 	versions := map[string]string{"musl": "1.2.5-r21", "musl-utils": "1.2.5-r21"}
 	ap := AffectedProduct{Name: "musl", Ecosystem: "Alpine:v3.23"}
-	if got := resolveAssetName("osv", ap, nil, versions); got != "musl" {
+	if got := resolveAssetName("osv", ap, nil, versions, ""); got != "musl" {
 		t.Fatalf("exact package name must win, got %q", got)
 	}
 	// The containment heuristic still resolves short names when no exact match.
 	ap2 := AffectedProduct{Name: "git"}
 	versions2 := map[string]string{"git-scm": "2.45.1"}
-	if got := resolveAssetName("osv", ap2, nil, versions2); got != "git-scm" {
+	if got := resolveAssetName("osv", ap2, nil, versions2, ""); got != "git-scm" {
 		t.Fatalf("containment fallback broken, got %q", got)
 	}
 }
@@ -100,21 +100,21 @@ func TestResolveAssetNameExactWins(t *testing.T) {
 func TestIsRelevantProductUbuntuScoping(t *testing.T) {
 	names := map[string]bool{"openssl": true}
 	ap := AffectedProduct{Name: "openssl", Ecosystem: "Ubuntu:22.04:LTS", FixedIn: "3.0.2-0ubuntu1.18"}
-	if !isRelevantProduct(ap, "osv", "Ubuntu 22.04.5 LTS", "22.04.5", names) {
+	if !isRelevantProduct(ap, "osv", "Ubuntu 22.04.5 LTS", "22.04.5", "", names) {
 		t.Fatal("22.04 agent must accept Ubuntu:22.04:LTS record")
 	}
-	if isRelevantProduct(ap, "osv", "Ubuntu 24.04.2 LTS", "24.04.2", names) {
+	if isRelevantProduct(ap, "osv", "Ubuntu 24.04.2 LTS", "24.04.2", "", names) {
 		t.Fatal("24.04 agent must not accept Ubuntu:22.04:LTS record")
 	}
-	if isRelevantProduct(ap, "osv", "Debian GNU/Linux", "12", names) {
+	if isRelevantProduct(ap, "osv", "Debian GNU/Linux", "12", "", names) {
 		t.Fatal("Debian agent must not accept an Ubuntu record")
 	}
 
 	ap2 := AffectedProduct{Name: "openssl", Ecosystem: "Ubuntu:24.10", FixedIn: "3.3.2-1ubuntu1"}
-	if !isRelevantProduct(ap2, "osv", "Ubuntu 24.10", "24.10", names) {
+	if !isRelevantProduct(ap2, "osv", "Ubuntu 24.10", "24.10", "", names) {
 		t.Fatal("24.10 agent must accept Ubuntu:24.10 record")
 	}
-	if isRelevantProduct(ap2, "osv", "Ubuntu 22.04.5 LTS", "22.04.5", names) {
+	if isRelevantProduct(ap2, "osv", "Ubuntu 22.04.5 LTS", "22.04.5", "", names) {
 		t.Fatal("22.04 agent must not accept Ubuntu:24.10 record")
 	}
 }

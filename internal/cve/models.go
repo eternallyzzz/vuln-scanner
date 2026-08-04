@@ -63,18 +63,21 @@ type AssetToMatch struct {
 }
 
 type MatchedCVE struct {
-	CVEID        string  `json:"cve_id"`
-	AssetName    string  `json:"asset_name"`
-	AssetVersion string  `json:"asset_version"`
-	FixedVersion string  `json:"fixed_version,omitempty"`
-	FixState     string  `json:"fix_state,omitempty"`
-	KBArticle    string  `json:"kb_article,omitempty"`
-	KBURL        string  `json:"kb_url,omitempty"`
-	Severity     string  `json:"severity"`
-	CVSSScore    float64 `json:"cvss_score"`
-	Summary      string  `json:"summary"`
-	Source       string  `json:"source"`
-	MatchStatus  string  `json:"match_status"`
+	CVEID              string  `json:"cve_id"`
+	AssetName          string  `json:"asset_name"`
+	AssetVersion       string  `json:"asset_version"`
+	FixedVersion       string  `json:"fixed_version,omitempty"`
+	FixState           string  `json:"fix_state,omitempty"`
+	KBArticle          string  `json:"kb_article,omitempty"`
+	KBURL              string  `json:"kb_url,omitempty"`
+	CpeVer             string  `json:"cpe_ver,omitempty"`
+	OSProduct          bool    `json:"os_product,omitempty"`
+	VerificationSource string  `json:"verification_source,omitempty"`
+	Severity           string  `json:"severity"`
+	CVSSScore          float64 `json:"cvss_score"`
+	Summary            string  `json:"summary"`
+	Source             string  `json:"source"`
+	MatchStatus        string  `json:"match_status"`
 }
 
 type MSRCUpdate struct {
@@ -156,6 +159,7 @@ type CVRFRemediation struct {
 	URL         string       `json:"URL"`
 	ProductID   []string     `json:"ProductID"`
 	Type        int          `json:"Type"`
+	FixedBuild  string       `json:"FixedBuild"`
 }
 
 type CVRFStatus struct {

@@ -53,8 +53,8 @@ func main() {
 	}
 }
 
-func newCollector() collector.Collector {
-	return platformCollector()
+func newCollector(cfg *agent.Config) collector.Collector {
+	return platformCollector(cfg.Agent.WUAEnabled, cfg.Agent.WUATimeoutSeconds)
 }
 
 func dumpAssets(assets []collector.Asset, sys collector.SystemInfo, path string) error {
@@ -123,7 +123,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	dumpPath, _ := cmd.Flags().GetString("dump-assets")
 	if dumpPath != "" {
-		col := newCollector()
+		col := newCollector(cfg)
 		assets, sys, err := collector.All(ctx, col)
 		if err != nil {
 			return fmt.Errorf("collection: %w", err)
@@ -142,7 +142,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("auth: %w", err)
 	}
 
-	col := newCollector()
+	col := newCollector(cfg)
 	sched := agent.NewScheduler(cfg, client, col)
 
 	once, _ := cmd.Flags().GetBool("once")

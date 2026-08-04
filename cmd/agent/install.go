@@ -58,6 +58,8 @@ func registerAgent(ctx context.Context, serverURL, code string) (*agent.Config, 
 	cfg.Server.Addr = result.GRPCAddr
 	cfg.Agent.ID = result.AgentID
 	cfg.Agent.Hostname = hostname
+	cfg.Agent.WUAEnabled = true
+	cfg.Agent.WUATimeoutSeconds = 60
 
 	return cfg, nil
 }

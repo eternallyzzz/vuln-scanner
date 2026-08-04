@@ -10,10 +10,11 @@ import (
 var assetNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 
 var kbHostAllowlist = map[string]bool{
-	"download.microsoft.com":           true,
-	"catalog.s.download.microsoft.com": true,
-	"aka.ms":                           true,
-	"go.microsoft.com":                 true,
+	"download.microsoft.com":               true,
+	"catalog.s.download.microsoft.com":     true,
+	"catalog.s.download.windowsupdate.com": true,
+	"aka.ms":                               true,
+	"go.microsoft.com":                     true,
 }
 
 type Command struct {
@@ -34,18 +35,19 @@ const (
 // BuildCommand builds the remediation command for apt-based agents (the
 // default for all non-RPM platforms).
 func BuildCommand(cfg *Config, fixType, fixValue, assetName, patchURL string) (Command, error) {
-	return buildCommand(cfg, managerApt, fixType, fixValue, assetName, patchURL)
+	return buildCommand(cfg, managerApt, fixType, fixValue, assetName, patchURL, "")
 }
 
 // BuildCommandForAgent builds the remediation command using the package
 // manager implied by the agent OS (yum for RHEL 7, dnf for RHEL 8+ and
-// derivatives, apt otherwise).
-func BuildCommandForAgent(cfg *Config, fixType, fixValue, assetName, patchURL, agentOS, agentVersion string) (Command, error) {
+// derivatives, apt otherwise). patchSHA256 optionally pins the KB .msu
+// download before installation.
+func BuildCommandForAgent(cfg *Config, fixType, fixValue, assetName, patchURL, patchSHA256, agentOS, agentVersion string) (Command, error) {
 	return buildCommand(cfg, packageManagerForAgent(agentOS, agentVersion),
-		fixType, fixValue, assetName, patchURL)
+		fixType, fixValue, assetName, patchURL, patchSHA256)
 }
 
-func buildCommand(cfg *Config, manager pkgManager, fixType, fixValue, assetName, patchURL string) (Command, error) {
+func buildCommand(cfg *Config, manager pkgManager, fixType, fixValue, assetName, patchURL, patchSHA256 string) (Command, error) {
 	var c Command
 	switch fixType {
 	case "", "none":
@@ -83,9 +85,6 @@ func buildCommand(cfg *Config, manager pkgManager, fixType, fixValue, assetName,
 		}
 		c.Deployable = true
 	case "kb":
-		if !assetNameRe.MatchString(assetName) {
-			return c, fmt.Errorf("unsafe asset name %q", assetName)
-		}
 		u, err := url.Parse(patchURL)
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			c.Display = "manual download required: " + patchURL
@@ -95,9 +94,16 @@ func buildCommand(cfg *Config, manager pkgManager, fixType, fixValue, assetName,
 			c.Display = "manual download required (host not allowed): " + patchURL
 			return c, nil
 		}
-		script := fmt.Sprintf(`$p="$env:TEMP\vulnscan-kb.msu"; Invoke-WebRequest -Uri '%s' -OutFile $p; $proc=Start-Process wusa.exe -ArgumentList @($p,'/quiet','/norestart') -Wait -PassThru; Remove-Item $p -Force; exit $proc.ExitCode`, u.String())
+		// The KB script interpolates the URL and hash into single-quoted
+		// PowerShell strings; strip quotes from both to keep the argv safe.
+		cleanURL := strings.ReplaceAll(u.String(), "'", "")
+		cleanSHA := strings.ReplaceAll(patchSHA256, "'", "")
+		script := fmt.Sprintf(`$p="$env:TEMP\vulnscan-kb.msu"; Invoke-WebRequest -Uri '%s' -OutFile $p; if ('%s' -ne '') { $h=(Get-FileHash -Algorithm SHA256 $p).Hash; if ($h -ne '%s') { Remove-Item $p -Force; exit 2 } }; $proc=Start-Process wusa.exe -ArgumentList @($p,'/quiet','/norestart') -Wait -PassThru; Remove-Item $p -Force; exit $proc.ExitCode`, cleanURL, cleanSHA, cleanSHA)
 		c.ArgvLists = [][]string{{"powershell", "-NoProfile", "-Command", script}}
 		c.Display = "powershell: download " + u.String() + " and install via wusa /quiet /norestart"
+		if patchSHA256 != "" {
+			c.Display += " (sha256 verified)"
+		}
 		c.Deployable = true
 	default:
 		return c, fmt.Errorf("unknown fix_type %q", fixType)
