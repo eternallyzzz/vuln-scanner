@@ -1,0 +1,2 @@
+ALTER TABLE asset_changes ALTER COLUMN agent_id DROP NOT NULL;
+ALTER TABLE asset_changes ALTER COLUMN agent_id DROP DEFAULT;

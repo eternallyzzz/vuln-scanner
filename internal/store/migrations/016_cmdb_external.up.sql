@@ -1,0 +1,8 @@
+ALTER TABLE assets ALTER COLUMN agent_id DROP NOT NULL;
+ALTER TABLE assets ALTER COLUMN agent_id DROP DEFAULT;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'agent';
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS hostname TEXT NOT NULL DEFAULT '';
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_assets_source ON assets(source) WHERE source <> 'agent';
+CREATE INDEX IF NOT EXISTS idx_assets_hostname ON assets(hostname) WHERE hostname <> '';

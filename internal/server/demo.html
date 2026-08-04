@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VulnScanner 成果展示</title>
+<style>
+:root{
+  --bg:#0f1420; --panel:#171e2e; --panel2:#1d2638; --line:#2a3550;
+  --text:#e8ecf4; --muted:#93a0b8; --accent:#4f8cff;
+  --crit:#e5484d; --high:#f76b15; --med:#f5a524; --low:#46a758; --unk:#8d8d8d;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{background:var(--bg); color:var(--text); font:14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;}
+a{color:var(--accent); text-decoration:none;} a:hover{text-decoration:underline;}
+.topbar{position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  padding:10px 22px; background:rgba(15,20,32,.95); border-bottom:1px solid var(--line);}
+.brand{font-size:17px; font-weight:700; letter-spacing:.5px;}
+.topbar nav{display:flex; gap:14px; flex-wrap:wrap;}
+.topbar nav a{color:var(--muted);} .topbar nav a:hover{color:var(--text);}
+.controls{margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:12px;}
+button{background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:13px;}
+button:hover{filter:brightness(1.12);} button:disabled{opacity:.45; cursor:not-allowed;}
+input,select{padding:6px 9px; border-radius:6px; border:1px solid var(--line); background:var(--panel2); color:var(--text); font-size:13px;}
+#errbar{display:none; margin:12px 22px 0; padding:10px 14px; border-radius:8px; background:rgba(229,72,77,.14);
+  border:1px solid var(--crit); color:#ffb4b4;}
+main{max-width:1280px; margin:0 auto; padding:14px 22px 40px;}
+section{margin-top:26px;}
+section > h2{font-size:19px; border-left:4px solid var(--accent); padding-left:10px; margin-bottom:12px;}
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:16px;}
+.panel h3{font-size:15px; margin-bottom:10px; color:#c9d4ea;}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+@media (max-width:900px){ .grid2{grid-template-columns:1fr;} }
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px;}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px;}
+.card-title{font-size:12px; color:var(--muted);}
+.card-value{font-size:26px; font-weight:700; margin:4px 0 2px;}
+.card-sub{font-size:12px; color:var(--muted);}
+.hint{font-size:12px; color:var(--muted); margin-top:6px;}
+.kpis{font-size:15px; font-weight:600; margin-bottom:8px;}
+.bar-row{display:flex; align-items:center; gap:10px; margin:7px 0;}
+.bar-label{width:88px; flex:none; font-size:12px; color:var(--muted);}
+.bar-track{flex:1; height:14px; background:var(--panel2); border-radius:7px; overflow:hidden;}
+.bar-fill{height:100%; border-radius:7px;}
+.bar-val{width:44px; text-align:right; font-variant-numeric:tabular-nums;}
+table{width:100%; border-collapse:collapse; font-size:12.5px;}
+th,td{text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+th{color:var(--muted); font-weight:600; background:var(--panel2); position:sticky; top:0;}
+tr:hover td{background:rgba(255,255,255,.025);}
+.table-wrap{max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:8px;}
+.empty{color:var(--muted); text-align:center; padding:18px;}
+.badge{display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap;}
+.sv-critical{background:rgba(229,72,77,.18); color:#ff9b9e;}
+.sv-high{background:rgba(247,107,21,.18); color:#ffb27d;}
+.sv-medium{background:rgba(245,165,36,.18); color:#ffd58c;}
+.sv-low{background:rgba(70,167,88,.18); color:#8fe0a2;}
+.sv-unknown{background:rgba(141,141,141,.2); color:#c6c6c6;}
+.st-pending{background:rgba(79,140,255,.18); color:#a8c8ff;}
+.st-approved{background:rgba(70,167,88,.18); color:#8fe0a2;}
+.st-running{background:rgba(245,165,36,.18); color:#ffd58c;}
+.st-success,.st-resolved{background:rgba(70,167,88,.18); color:#8fe0a2;}
+.st-failed,.st-error{background:rgba(229,72,77,.18); color:#ff9b9e;}
+.st-open{background:rgba(247,107,21,.18); color:#ffb27d;}
+.st-ack{background:rgba(141,141,141,.2); color:#c6c6c6;}
+.st-cancelled,.st-canceled{background:rgba(141,141,141,.2); color:#c6c6c6;}
+.st-active,.ok{background:rgba(70,167,88,.18); color:#8fe0a2;}
+.pager{display:flex; align-items:center; gap:10px; margin-top:10px; color:var(--muted); font-size:12px;}
+.toolbar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;}
+.rec{border:1px solid var(--line); border-radius:8px; margin-bottom:8px; background:var(--panel2);}
+.rec summary{cursor:pointer; padding:9px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+.rec-asset{font-weight:700;}
+.rec-meta{color:var(--muted); font-size:12px;}
+.rec-action{margin-left:auto; color:var(--accent); font-size:12px;}
+.rec-body{padding:10px 12px 12px; border-top:1px solid var(--line);}
+.rec-links{display:flex; gap:14px; margin-bottom:8px; font-size:12px;}
+.kb{border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-top:8px; background:var(--panel);}
+.kb-head{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+.kb-name{font-weight:700; color:#bcd3ff;}
+.kb-links{margin-left:auto; font-size:12px;}
+.kb-cves{margin-top:8px;}
+.kb-cves summary{cursor:pointer; font-size:12px; color:var(--muted);}
+.chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;}
+.chip{background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:1px 8px; font-size:11.5px;}
+footer{max-width:1280px; margin:26px auto 0; padding:12px 22px; border-top:1px solid var(--line); color:var(--muted); font-size:12px;}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">VulnScanner 成果展示</div>
+  <nav>
+    <a href="#overview">总览</a>
+    <a href="#assets">资产/CMDB</a>
+    <a href="#vulns">漏洞</a>
+    <a href="#recs">修复闭环</a>
+    <a href="#risk">风险治理</a>
+    <a href="#caps">能力</a>
+  </nav>
+  <div class="controls">
+    <label><input type="checkbox" id="autoRefresh" checked> 自动刷新(60s)</label>
+    <button id="refreshBtn">刷新</button>
+    <span id="updatedAt"></span>
+  </div>
+</header>
+<div id="errbar"></div>
+<main>
+<section id="overview">
+  <h2>总览</h2>
+  <div id="summaryCards" class="cards"></div>
+  <div class="grid2">
+    <div class="panel"><h3>活跃漏洞 · 严重级别分布</h3><div id="sevBars"></div></div>
+    <div class="panel"><h3>活跃漏洞 · 数据源分布</h3><div id="sourceBars"></div></div>
+  </div>
+</section>
+
+<section id="assets">
+  <h2>资产与 CMDB</h2>
+  <div class="grid2">
+    <div class="panel"><h3>资产台账汇总</h3><div id="assetSummary"></div></div>
+    <div class="panel"><h3>CMDB 对账报告</h3><div id="cmdbReport"></div></div>
+  </div>
+  <div class="panel">
+    <h3>主机信息（当前 Agent：OS / 硬件 / 网卡 / 端口 / 进程）</h3>
+    <div id="hostInfo"></div>
+  </div>
+  <div class="panel">
+    <h3>资产列表</h3>
+    <div class="toolbar">
+      <input id="assetQ" placeholder="名称/主机名关键字" style="width:220px">
+      <select id="assetType">
+        <option value="">全部类型</option>
+        <option value="host">host</option>
+        <option value="software">software</option>
+        <option value="container">container</option>
+      </select>
+      <button id="assetSearchBtn">查询</button>
+      <span id="assetInfo" class="hint" style="margin:0"></span>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>名称</th><th>类型</th><th>版本</th><th>格式</th><th>来源</th><th>生命周期</th><th>主机</th><th>环境</th><th>最近上报</th>
+    </tr></thead><tbody id="assetBody"></tbody></table></div>
+    <div class="pager"><button id="assetPrev">上一页</button><button id="assetNext">下一页</button></div>
+  </div>
+</section>
+
+<section id="vulns">
+  <h2>漏洞明细</h2>
+  <div class="panel">
+    <div class="toolbar">
+      <select id="agentSel" style="min-width:240px"></select>
+      <select id="sevSel">
+        <option value="">全部严重级别</option>
+        <option value="CRITICAL">CRITICAL</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+      </select>
+      <span id="vulnInfo" class="hint" style="margin:0"></span>
+      <div class="pager" style="margin-left:auto; margin-top:0">
+        <button id="vulnPrev">上一页</button><button id="vulnNext">下一页</button>
+      </div>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>级别</th><th>CVE</th><th>摘要</th><th>资产</th><th>当前版本</th><th>CVSS</th><th>来源</th><th>状态</th><th>修复版本</th>
+    </tr></thead><tbody id="vulnBody"></tbody></table></div>
+  </div>
+  <div class="panel">
+    <h3>CVE 影响面搜索</h3>
+    <div class="toolbar">
+      <input id="cveSearch" placeholder="例如 CVE-2021-43893" style="width:260px">
+      <button id="cveSearchBtn">搜索</button>
+      <span id="searchInfo" class="hint" style="margin:0"></span>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>主机</th><th>Agent</th><th>资产</th><th>级别</th><th>来源</th><th>状态</th>
+    </tr></thead><tbody id="searchBody"></tbody></table></div>
+  </div>
+</section>
+
+<section id="recs">
+  <h2>修复建议与补丁闭环</h2>
+  <div class="panel">
+    <h3>修复建议（当前 Agent）</h3>
+    <div id="recList"></div>
+  </div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>补丁任务</h3>
+      <div id="taskStatus"></div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>ID</th><th>主机</th><th>资产</th><th>动作</th><th>修复值</th><th>状态</th><th>Campaign</th><th>命令</th><th>创建时间</th>
+      </tr></thead><tbody id="taskBody"></tbody></table></div>
+    </div>
+    <div class="panel">
+      <h3>最近 Open 告警</h3>
+      <div class="table-wrap"><table><thead><tr>
+        <th>ID</th><th>CVE</th><th>资产</th><th>级别</th><th>CVSS</th><th>主机</th><th>次数</th><th>最近触发</th><th>自动修复</th>
+      </tr></thead><tbody id="alertBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<section id="risk">
+  <h2>风险治理</h2>
+  <div id="riskCards" class="cards"></div>
+  <div class="grid2">
+    <div class="panel">
+      <h3>Top 风险（按 risk_score 排序）</h3>
+      <div class="table-wrap"><table><thead><tr>
+        <th>CVE</th><th>主机</th><th>资产</th><th>风险级</th><th>CVSS</th><th>EPSS</th><th>KEV</th><th>风险分</th><th>SLA</th><th>补丁</th>
+      </tr></thead><tbody id="riskTopBody"></tbody></table></div>
+    </div>
+    <div class="panel">
+      <h3>例外豁免（Risk Acceptance）</h3>
+      <form id="exceptionForm" class="toolbar" style="margin-bottom:10px">
+        <input id="exCve" placeholder="CVE-xxxx" style="width:140px">
+        <input id="exAsset" placeholder="asset_key 可空" style="width:130px">
+        <input id="exReason" placeholder="豁免原因" style="width:140px">
+        <input id="exExpires" type="datetime-local" style="width:170px">
+        <button type="submit">创建豁免</button>
+      </form>
+      <div class="table-wrap"><table><thead><tr>
+        <th>ID</th><th>CVE</th><th>资产</th><th>原因</th><th>到期</th><th>状态</th><th></th>
+      </tr></thead><tbody id="exceptionBody"></tbody></table></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h3>SLA 策略</h3><div id="slaBody"></div></div>
+    <div class="panel">
+      <h3>近 14 天趋势（canonical 去重口径）</h3>
+      <div class="table-wrap"><table><thead><tr><th>日期</th><th>Active</th><th>新增</th><th>修复</th></tr></thead><tbody id="trendBody"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<section id="caps">
+  <h2>平台能力</h2>
+  <div id="capCards" class="cards"></div>
+</section>
+</main>
+
+<footer>
+  测试展示页（/demo）：页面由服务端注入 API Key，仅用于成果演示与验收；生产环境如需对外暴露请另行加鉴权开关。
+</footer>
+
+<script>
+const API_KEY = "{{.APIKey}}";
+const API = "/api/v1";
+const state = {
+  agents: [], agentMap: {}, agentId: "",
+  vulnPage: 1, sev: "", assetOffset: 0, assetQ: "", assetType: "", autoTimer: null
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[c]));
+const trunc = (s, n) => { s = String(s ?? ""); return s.length > n ? s.slice(0, n) + "…" : s; };
+
+async function api(path) {
+  const res = await fetch(API + path, { headers: { "X-API-Key": API_KEY } });
+  if (!res.ok) {
+    let msg = "HTTP " + res.status;
+    try { const j = await res.json(); if (j.error) msg += " " + j.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(API + path, {
+    method: "POST",
+    headers: { "X-API-Key": API_KEY, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) {
+    let msg = "HTTP " + res.status;
+    try { const j = await res.json(); if (j.error) msg += " " + j.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function fmtTime(v) {
+  if (!v) return "-";
+  const d = new Date(v);
+  return isNaN(d) ? String(v) : d.toLocaleString("zh-CN", { hour12: false });
+}
+function sevBadge(s) { return `<span class="badge sv-${esc((s || "UNKNOWN").toLowerCase())}">${esc(s || "UNKNOWN")}</span>`; }
+function statusBadge(s) { return `<span class="badge st-${esc((s || "unknown").toLowerCase())}">${esc(s || "-")}</span>`; }
+function host(agentId) { const a = state.agentMap[agentId]; return a ? a.hostname : "-"; }
+function cveLink(id) {
+  const s = String(id || "");
+  if (/^CVE-\d{4}-\d{4,}$/.test(s)) {
+    return `<a target="_blank" rel="noopener" href="https://nvd.nist.gov/vuln/detail/${encodeURIComponent(s)}">${esc(s)}</a>`;
+  }
+  return esc(s || "-");
+}
+function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" class="empty">${esc(msg)}</td></tr>`; }
+function card(title, value, sub) {
+  return `<div class="card"><div class="card-title">${esc(title)}</div><div class="card-value">${esc(value)}</div><div class="card-sub">${esc(sub)}</div></div>`;
+}
+function errBanner(msg) {
+  const b = $("errbar");
+  b.textContent = msg;
+  b.style.display = "block";
+}
+
+function renderBars(id, counts, order, palette) {
+  const keys = order || Object.keys(counts || {});
+  const vals = keys.map((k) => counts[k] || 0);
+  const max = Math.max(1, ...vals);
+  const colors = palette || {
+    CRITICAL: "var(--crit)", HIGH: "var(--high)", MEDIUM: "var(--med)",
+    LOW: "var(--low)", UNKNOWN: "var(--unk)"
+  };
+  $(id).innerHTML = keys.map((k, i) =>
+    `<div class="bar-row"><span class="bar-label">${esc(k)}</span>` +
+    `<div class="bar-track"><div class="bar-fill" style="width:${(vals[i] / max * 100).toFixed(1)}%;background:${colors[k] || "var(--unk)"}"></div></div>` +
+    `<span class="bar-val">${vals[i]}</span></div>`
+  ).join("") || `<div class="hint">暂无数据</div>`;
+}
+
+const sourceColors = {
+  msrc: "#4f8cff", osv: "#46a758", nvd: "#f76b15", redhat: "#e5484d",
+  debian: "#f5a524", ubuntu: "#ff7847", alpine: "#22d3ee", container: "#a78bfa"
+};
+
+function renderAssetSummary(as) {
+  const rows = Object.entries(as.by_type || {}).map(([k, v]) =>
+    `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
+  const life = Object.entries(as.by_lifecycle || {}).map(([k, v]) => `${esc(k)} ${v}`).join(" · ");
+  $("assetSummary").innerHTML =
+    `<table class="mini"><tr><th>类型</th><th>数量</th></tr>${rows || emptyRow(2, "暂无资产")}</table>` +
+    `<div class="hint">生命周期：${esc(life || "-")}</div>`;
+}
+
+function renderCMDB(cm) {
+  const umE = cm.unmatched_external || [], umS = cm.unmatched_scanned || [];
+  $("cmdbReport").innerHTML =
+    `<div class="kpis">外部主机 ${cm.external_hosts || 0} · 扫描主机 ${cm.scanned_agents || 0} · 匹配 ${cm.matched || 0}</div>` +
+    `<div class="hint">未匹配外部：${esc(umE.join(", ") || "无")}</div>` +
+    `<div class="hint">未匹配扫描：${esc(umS.join(", ") || "无")}</div>`;
+}
+
+function renderTaskStatus(map) {
+  const items = Object.entries(map || {}).map(([k, v]) => `${esc(k)} ${v}`).join(" · ");
+  $("taskStatus").innerHTML = `<div class="kpis">${esc(items || "暂无任务")}</div>`;
+}
+
+async function loadSummary() {
+  try {
+    const d = await api("/demo-summary");
+    const a = d.agents || {}, as = d.assets || {}, c = d.cves || {}, al = d.alerts || {};
+    const p = d.patch || {}, cm = d.cmdb || {}, ct = d.container || {};
+    const taskTotal = Object.values(p.tasks_by_status || {}).reduce((x, y) => x + y, 0);
+    const typeLine = Object.entries(as.by_type || {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+    $("summaryCards").innerHTML =
+      card("受管主机", a.total || 0, (a.online || 0) + " 在线") +
+      card("资产总数", as.total || 0, esc(typeLine || "-")) +
+      card("活跃漏洞", c.active || 0, "已修复 " + (c.fixed || 0) + " · 共 " + (c.total || 0)) +
+      card("未处理告警", al.by_status ? (al.by_status.open || 0) : 0, "规则 " + (al.rules || 0) + " 条") +
+      card("补丁任务", taskTotal, "campaign " + (p.campaigns || 0) + " 个") +
+      card("容器扫描", ct.enabled ? ((ct.images_scanned || 0) + " 镜像") : "未启用",
+        ct.enabled ? ((ct.vulns_total || 0) + " 漏洞 · " + fmtTime(ct.last_run)) : "-");
+    renderBars("sevBars", c.by_severity, ["CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"]);
+    renderBars("sourceBars", c.by_source, null, sourceColors);
+    renderAssetSummary(as);
+    renderCMDB(cm);
+    renderTaskStatus(p.tasks_by_status);
+    $("updatedAt").textContent = "更新于 " + fmtTime(d.generated_at);
+  } catch (e) {
+    errBanner("总览加载失败：" + e.message);
+  }
+}
+
+async function loadAgents() {
+  const list = await api("/agents");
+  state.agents = list;
+  state.agentMap = {};
+  list.forEach((a) => { state.agentMap[a.id] = a; });
+  const sel = $("agentSel");
+  const prev = state.agentId || sel.value;
+  sel.innerHTML = list.map((a) =>
+    `<option value="${esc(a.id)}">${esc(a.hostname)} [${esc(a.os_type)}] ${a.status === "online" ? "●在线" : ""}</option>`
+  ).join("");
+  if (list.length) {
+    const want = prev && list.some((a) => a.id === prev) ? prev : list[0].id;
+    sel.value = want;
+    state.agentId = want;
+  }
+}
+
+async function loadVulns() {
+  if (!state.agentId) { $("vulnBody").innerHTML = emptyRow(9, "请先选择 Agent"); return; }
+  try {
+    const id = state.agentId, sev = $("sevSel").value, page = state.vulnPage;
+    const d = await api(`/agents/${encodeURIComponent(id)}/vulns?page_size=50&page=${page}&severity=${encodeURIComponent(sev)}`);
+    const rows = (d.vulnerabilities || []).map((v) =>
+      `<tr><td>${sevBadge(v.severity)}</td><td>${cveLink(v.cve_id)}</td>` +
+      `<td title="${esc(v.summary)}">${esc(trunc(v.summary, 80))}</td><td>${esc(v.asset_name)}</td>` +
+      `<td>${esc(v.asset_version || "-")}</td><td>${v.cvss_score ? v.cvss_score.toFixed(1) : "-"}</td>` +
+      `<td>${esc(v.source)}</td><td>${statusBadge(v.status)}</td><td>${esc(v.fixed_version || "-")}</td></tr>`
+    ).join("");
+    $("vulnBody").innerHTML = rows || emptyRow(9, "无匹配漏洞");
+    $("vulnInfo").textContent = "共 " + d.total + " 条 · 第 " + d.page + " 页";
+    $("vulnPrev").disabled = page <= 1;
+    $("vulnNext").disabled = page * 50 >= d.total;
+  } catch (e) {
+    $("vulnBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
+  }
+}
+
+function kbCard(k) {
+  const ids = k.cve_ids || [];
+  const chips = ids.map((id) => `<span class="chip">${cveLink(id)}</span>`).join("");
+  return `<div class="kb"><div class="kb-head">
+    <span class="kb-name">${esc(k.kb)}</span>
+    <span class="rec-meta">CVE ${k.cve_count || 0} · ${esc(k.max_severity || "-")} · CVSS ${k.max_cvss_score ? k.max_cvss_score.toFixed(1) : "-"}</span>
+    <span class="kb-links">
+      ${k.patch_url ? `<a target="_blank" rel="noopener" href="${esc(k.patch_url)}">补丁页</a>` : ""}
+      ${k.reference_url ? `<a target="_blank" rel="noopener" href="${esc(k.reference_url)}">MSRC 参考</a>` : ""}
+    </span>
+  </div><details class="kb-cves"><summary>显示 CVE 列表（${ids.length}）</summary>
+    <div class="chips">${chips || "无"}</div>
+  </details></div>`;
+}
+
+function recCard(r) {
+  const kbs = r.kbs || [];
+  const kbHtml = kbs.length ? kbs.map(kbCard).join("") :
+    `<div class="hint">${esc(r.fix_value || "无可用修复，建议升级或持续监控")}</div>`;
+  const links = [];
+  if (r.patch_url) links.push(`<a target="_blank" rel="noopener" href="${esc(r.patch_url)}">补丁页</a>`);
+  if (r.reference_url) links.push(`<a target="_blank" rel="noopener" href="${esc(r.reference_url)}">MSRC 参考</a>`);
+  return `<details class="rec"><summary>
+    <span class="rec-asset">${esc(r.asset_name)}</span>
+    ${sevBadge(r.risk)}
+    <span class="rec-meta">${esc(r.fix_type || "-")} · ${esc(r.fix_value || "-")} · CVE ${r.active_cves || 0} · CVSS ${r.max_cvss_score ? r.max_cvss_score.toFixed(1) : "-"}</span>
+    ${r.deployable ? '<span class="badge ok">可部署</span>' : ""}
+    <span class="rec-action">${esc(r.action || "")}</span>
+  </summary><div class="rec-body">
+    ${links.length ? `<div class="rec-links">${links.join(" ")}</div>` : ""}
+    ${kbHtml}
+  </div></details>`;
+}
+
+async function loadRecs() {
+  if (!state.agentId) { $("recList").innerHTML = `<div class="hint">请先选择 Agent</div>`; return; }
+  try {
+    const d = await api(`/agents/${encodeURIComponent(state.agentId)}/recommendations`);
+    const recs = (d.recommendations || []).slice(0, 60);
+    $("recList").innerHTML = recs.length ? recs.map(recCard).join("") :
+      `<div class="hint">暂无修复建议</div>`;
+  } catch (e) {
+    $("recList").innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+async function loadAlerts() {
+  try {
+    const d = await api("/alerts?status=open&limit=50");
+    const rows = (d.alerts || []).map((al) =>
+      `<tr><td>${al.id}</td><td>${cveLink(al.cve_id)}</td><td>${esc(al.asset_name)}</td>` +
+      `<td>${sevBadge(al.severity)}</td><td>${al.cvss_score ? al.cvss_score.toFixed(1) : "-"}</td>` +
+      `<td>${esc(host(al.agent_id))}</td><td>${al.occurrence_count || 0}</td>` +
+      `<td>${fmtTime(al.last_seen)}</td><td title="${esc(al.remediation_error)}">${esc(trunc(al.remediation_error, 30))}</td></tr>`
+    ).join("");
+    $("alertBody").innerHTML = rows || emptyRow(9, "暂无 open 告警");
+  } catch (e) {
+    $("alertBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
+  }
+}
+
+async function loadTasks() {
+  try {
+    const d = await api("/patch-tasks?limit=50");
+    const rows = (d.tasks || []).map((t) =>
+      `<tr><td>${t.id}</td><td>${esc(host(t.agent_id))}</td><td>${esc(t.asset_name)}</td>` +
+      `<td>${esc(t.action)}</td><td title="${esc(t.fix_value)}">${esc(trunc(t.fix_value, 24))}</td>` +
+      `<td>${statusBadge(t.status)}</td><td>${t.campaign_id || "-"}</td>` +
+      `<td title="${esc(t.command)}">${esc(trunc(t.command, 36))}</td><td>${fmtTime(t.created_at)}</td></tr>`
+    ).join("");
+    $("taskBody").innerHTML = rows || emptyRow(9, "暂无补丁任务");
+  } catch (e) {
+    $("taskBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
+  }
+}
+
+async function loadAssets() {
+  try {
+    const q = encodeURIComponent(state.assetQ), ty = encodeURIComponent(state.assetType), off = state.assetOffset;
+    const d = await api(`/assets?limit=50&offset=${off}&q=${q}&asset_type=${ty}`);
+    const rows = (d.assets || []).map((a) =>
+      `<tr><td>${esc(a.name)}</td><td>${esc(a.asset_type)}</td><td>${esc(a.version || "-")}</td>` +
+      `<td>${esc(a.format || "-")}</td><td>${esc(a.source)}</td><td>${esc(a.lifecycle)}</td>` +
+      `<td>${esc(host(a.agent_id))}</td><td>${esc(a.environment || "-")}</td><td>${fmtTime(a.last_seen)}</td></tr>`
+    ).join("");
+    $("assetBody").innerHTML = rows || emptyRow(9, "无匹配资产");
+    $("assetInfo").textContent = "共 " + d.total + " 条";
+    $("assetPrev").disabled = off <= 0;
+    $("assetNext").disabled = off + 50 >= d.total;
+  } catch (e) {
+    $("assetBody").innerHTML = emptyRow(9, "加载失败：" + e.message);
+  }
+}
+
+function fmtBytes(b) {
+  if (!b) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let v = b, u = 0;
+  while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
+  return v.toFixed(v >= 100 ? 0 : 1) + " " + units[u];
+}
+
+async function loadHostInfo() {
+  if (!state.agentId) { $("hostInfo").innerHTML = `<div class="hint">请先选择 Agent</div>`; return; }
+  try {
+    const d = await api(`/agents/${encodeURIComponent(state.agentId)}/system-info`);
+    const cpus = (d.cpu || []).map((c) => `${esc(c.name)} × ${c.cores || 1} 核`).join("<br>") || "-";
+    const gpus = (d.gpu || []).map((g) => esc(g.name + (g.driver ? " (" + g.driver + ")" : ""))).join("<br>") || "-";
+    const disks = (d.storage || []).map((s) =>
+      `${esc(s.name)} ${fmtBytes(s.size_bytes)}${s.mount ? " → " + esc(s.mount) : ""}${s.usage_percent ? " (" + s.usage_percent.toFixed(0) + "%)" : ""}`).join("<br>") || "-";
+    const memMods = (d.memory_modules || []).map((m) =>
+      `${esc(m.slot)} ${m.capacity_mb ? (m.capacity_mb / 1024).toFixed(0) + " GB" : "-"} ${esc(m.type || "")} ${esc(m.speed || "")}`).join("<br>") || "-";
+    const security = [
+      d.tpm_enabled ? "TPM" : "",
+      d.disk_encryption ? esc(d.disk_encryption) : "",
+      d.antivirus ? "杀软:" + esc(d.antivirus) : "",
+      d.selinux ? "SELinux:" + esc(d.selinux) : "",
+      d.apparmor ? "AppArmor:" + esc(d.apparmor) : ""
+    ].filter(Boolean).join(" · ");
+    const overview =
+      `<div class="kpis">${esc(d.os || "-")} ${esc(d.os_version || "")} · ${esc(d.arch || "-")} · 内存 ${d.memory_mb ? (d.memory_mb / 1024).toFixed(1) + " GB" : "-"} · 采集于 ${fmtTime(d.collected_at)}</div>` +
+      `<div class="hint">主机名：${esc(d.hostname || "-")} · 机器ID：${esc(d.machine_id || "-")} · 域：${esc(d.os_domain || "-")} · 时区：${esc(d.timezone || "-")}</div>` +
+      `<div class="hint">厂商/型号/序列号：${esc(d.system_manufacturer || "-")} / ${esc(d.system_model || "-")} / ${esc(d.system_serial || "-")}</div>` +
+      `<div class="hint">BIOS：${esc(d.bios_version || "-")} ${esc(d.bios_date || "")} · 内核：${esc(d.kernel_version || "-")} · 运行时长：${d.uptime_seconds ? (d.uptime_seconds / 86400).toFixed(1) + " 天" : "-"} · 启动：${esc(d.boot_time || "-")}</div>` +
+      (security ? `<div class="hint">安全状态：${security}</div>` : "") +
+      ((d.truncated || []).length ? `<div class="hint">已截断类别：${esc((d.truncated || []).join(", "))}</div>` : "");
+    const hw = `<div class="cards">
+      <div class="card"><div class="card-title">CPU</div><div class="card-sub">${cpus}</div></div>
+      <div class="card"><div class="card-title">GPU</div><div class="card-sub">${gpus}</div></div>
+      <div class="card"><div class="card-title">磁盘</div><div class="card-sub">${disks}</div></div>
+      <div class="card"><div class="card-title">内存条</div><div class="card-sub">${memMods}</div></div>
+      <div class="card"><div class="card-title">主板</div><div class="card-sub">${esc((d.motherboard && d.motherboard.manufacturer || "-") + " / " + (d.motherboard && d.motherboard.product || "-"))}</div></div>
+    </div>`;
+    const nics = (d.net_interfaces || []).map((n) =>
+      `<tr><td>${esc(n.name)}</td><td>${esc(n.mac || "-")}</td><td>${(n.addresses || []).map((a) => esc(a)).join("<br>") || "-"}</td><td>${esc((n.gateways || []).join(", ") || "-")}</td><td>${esc((n.dns || []).join(", ") || "-")}</td><td>${esc(n.link_speed || "-")}</td><td>${esc(n.driver || "-")}</td></tr>`
+    ).join("");
+    const ports = (d.open_ports || []).map((p) =>
+      `<tr><td>${esc(p.protocol || "-")}</td><td>${esc(p.address || "-")}</td><td>${p.port || "-"}</td><td>${esc(p.process || "-")}</td></tr>`
+    ).join("");
+    const procs = (d.processes || []).slice(0, 50).map((p) =>
+      `<tr><td>${p.pid || "-"}</td><td>${esc(p.name || "-")}</td><td>${esc(p.user || "-")}</td><td>${p.memory_mb ? p.memory_mb + " MB" : "-"}</td></tr>`
+    ).join("");
+    const section = (title, rows, headers, note) =>
+      `<details class="rec" open><summary>${esc(title)}（${(rows.match(/<tr>/g) || []).length}）</summary>` +
+      `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${rows || emptyRow(headers.length, "无数据")}</tbody></table></div>` +
+      (note ? `<div class="hint">${esc(note)}</div>` : "") + `</details>`;
+    const services = (d.services || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.state)}</td><td>${esc(v.start_type || "-")}</td><td>${esc(v.run_as || "-")}</td></tr>`).join("");
+    const tasks = (d.scheduled_tasks || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.status || "-")}</td><td>${esc(v.next_run || "-")}</td><td>${esc(v.command || "-")}</td></tr>`).join("");
+    const startups = (d.startup_items || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.command || "-")}</td><td>${esc(v.location || "-")}</td></tr>`).join("");
+    const routes = (d.routes || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.destination)}</td><td>${esc(v.gateway || "-")}</td><td>${esc(v.interface || "-")}</td><td>${esc(v.metric || "-")}</td></tr>`).join("");
+    const firewall = (d.firewall_rules || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.enabled || "-")}</td><td>${esc(v.direction || "-")}</td><td>${esc(v.action || "-")}</td><td>${esc(v.protocol || "-")}</td><td>${esc(v.local_port || "-")}</td><td>${esc(v.remote_ip || "-")}</td></tr>`).join("");
+    const neighbors = (d.neighbors || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.interface || "-")}</td><td>${esc(v.ip)}</td><td>${esc(v.mac || "-")}</td><td>${esc(v.state || "-")}</td></tr>`).join("");
+    const certs = (d.certificates || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.subject || "-")}</td><td>${esc(v.issuer || "-")}</td><td>${esc(v.serial || "-")}</td><td>${esc(v.not_before || "-")}</td><td>${esc(v.not_after || "-")}</td><td>${esc(v.store || "-")}</td></tr>`).join("");
+    const accounts = (d.accounts || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.domain || "-")}</td><td>${v.admin ? "是" : "否"}</td><td>${v.disabled ? "是" : "否"}</td><td>${esc(v.group || "-")}</td></tr>`).join("");
+    const sshKeys = (d.ssh_keys || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.user || "-")}</td><td>${esc(v.path || "-")}</td><td>${esc(v.type || "-")}</td><td>${esc(v.fingerprint || "-")}</td></tr>`).join("");
+    const runtimes = (d.runtimes || []).slice(0, 20).map((v) =>
+      `<tr><td>${esc(v.name)}</td><td>${esc(v.type || "-")}</td><td>${esc(v.state || "-")}</td></tr>`).join("");
+    $("hostInfo").innerHTML = overview + hw +
+      `<div class="table-wrap" style="margin-top:12px"><table><thead><tr>
+        <th>网卡</th><th>MAC</th><th>地址</th><th>网关</th><th>DNS</th><th>速率</th><th>驱动</th>
+      </tr></thead><tbody>${nics || emptyRow(7, "无网卡数据")}</tbody></table></div>` +
+      `<div class="table-wrap"><table><thead><tr>
+        <th>协议</th><th>监听地址</th><th>端口</th><th>进程</th>
+      </tr></thead><tbody>${ports || emptyRow(4, "无监听端口")}</tbody></table></div>` +
+      `<div class="table-wrap"><table><thead><tr>
+        <th>PID</th><th>进程</th><th>用户</th><th>内存</th>
+      </tr></thead><tbody>${procs || emptyRow(4, "无进程数据")}</tbody></table></div>` +
+      `<div class="hint">进程共 ${(d.processes || []).length} 个（展示内存最高的 50 个）</div>` +
+      section("服务", services, ["名称", "状态", "启动类型", "账户"], `共 ${(d.services || []).length} 个（展示前 20）`) +
+      section("计划任务", tasks, ["名称", "状态", "下次运行", "命令"], `共 ${(d.scheduled_tasks || []).length} 个`) +
+      section("启动项", startups, ["名称", "命令", "位置"], `共 ${(d.startup_items || []).length} 个`) +
+      section("路由", routes, ["目标", "网关", "接口", "度量"], `共 ${(d.routes || []).length} 条`) +
+      section("防火墙规则", firewall, ["名称", "启用", "方向", "动作", "协议", "本地端口", "远端IP"], `共 ${(d.firewall_rules || []).length} 条（展示前 20）`) +
+      section("邻居表", neighbors, ["接口", "IP", "MAC", "状态"], `共 ${(d.neighbors || []).length} 条`) +
+      section("证书", certs, ["主题", "颁发者", "序列号", "生效", "到期", "存储区"], `共 ${(d.certificates || []).length} 个（仅元数据，不含私钥）`) +
+      section("账户", accounts, ["名称", "域", "管理员", "禁用", "组"], `共 ${(d.accounts || []).length} 个`) +
+      section("SSH 公钥", sshKeys, ["用户", "路径", "类型", "指纹"], `共 ${(d.ssh_keys || []).length} 个（仅公钥指纹）`) +
+      section("运行时", runtimes, ["名称", "类型", "状态"], `共 ${(d.runtimes || []).length} 个`);
+  } catch (e) {
+    $("hostInfo").innerHTML = `<div class="hint">暂无主机遥测（${esc(e.message)}）</div>`;
+  }
+}
+
+async function loadRisk() {
+  try {
+    const s = await api("/risk/summary");
+    const bl = s.by_risk_level || {};
+    $("riskCards").innerHTML =
+      card("活跃漏洞", s.total_active || 0, "已修复 " + (s.total_fixed || 0) + " · 修复率 " + (s.fix_rate || 0) + "%") +
+      card("CRITICAL / HIGH", (bl.CRITICAL || 0) + " / " + (bl.HIGH || 0), "MEDIUM " + (bl.MEDIUM || 0) + " · LOW " + (bl.LOW || 0)) +
+      card("KEV 已知利用", s.kev_count || 0, "平均 EPSS " + (s.average_epss || 0).toFixed(4)) +
+      card("SLA 逾期", s.overdue || 0, "豁免 " + (s.exempted || 0) + " 条");
+  } catch (e) {
+    errBanner("风险汇总加载失败：" + e.message);
+  }
+  try {
+    const d = await api("/risk/top?limit=50");
+    $("riskTopBody").innerHTML = (d.rows || []).map((r) =>
+      `<tr><td>${cveLink(r.cve_id)}${r.canonical_cve_id && r.canonical_cve_id !== r.cve_id ? `<div class="hint">→ ${esc(r.canonical_cve_id)}</div>` : ""}</td>` +
+      `<td>${esc(r.hostname)}</td><td>${esc(r.asset_name)}</td><td>${sevBadge(r.risk_level)}</td>` +
+      `<td>${r.cvss_score ? r.cvss_score.toFixed(1) : "-"}</td><td>${r.epss_score ? r.epss_score.toFixed(4) : "-"}</td>` +
+      `<td>${r.kev ? '<span class="badge st-failed">KEV</span>' : "-"}</td><td><b>${r.risk_score.toFixed(1)}</b></td>` +
+      `<td>${r.overdue ? '<span class="badge st-failed">逾期</span>' : "-"}</td>` +
+      `<td>${r.patch_url ? `<a target="_blank" rel="noopener" href="${esc(r.patch_url)}">补丁</a>` : "-"}</td></tr>`
+    ).join("") || emptyRow(10, "暂无活跃风险");
+  } catch (e) {
+    $("riskTopBody").innerHTML = emptyRow(10, "加载失败：" + e.message);
+  }
+  try {
+    const d = await api("/exceptions");
+    $("exceptionBody").innerHTML = (d.exceptions || []).slice(0, 20).map((x) =>
+      `<tr><td>${x.id}</td><td>${esc(x.cve_id)}</td><td>${esc(x.asset_key || "-")}</td><td>${esc(x.reason)}</td><td>${fmtTime(x.expires_at)}</td>` +
+      `<td>${x.revoked_at ? '<span class="badge st-cancelled">已撤销</span>' : '<span class="badge ok">有效</span>'}</td>` +
+      `<td>${x.revoked_at ? "" : `<button data-revoke="${x.id}">撤销</button>`}</td></tr>`
+    ).join("") || emptyRow(7, "暂无豁免");
+    document.querySelectorAll("[data-revoke]").forEach((btn) => btn.addEventListener("click", async () => {
+      try { await apiPost(`/exceptions/${btn.dataset.revoke}/revoke`); loadRisk(); } catch (e) { errBanner(e.message); }
+    }));
+  } catch (e) {
+    $("exceptionBody").innerHTML = emptyRow(7, "加载失败：" + e.message);
+  }
+  try {
+    const d = await api("/sla-policies");
+    $("slaBody").innerHTML = `<table class="mini"><tr><th>级别</th><th>时限</th><th>状态</th></tr>` +
+      (d.policies || []).map((p) =>
+        `<tr><td>${esc(p.severity)}</td><td>${p.max_remediation_hours}h</td><td>${p.enabled ? "启用" : "停用"}</td></tr>`).join("") + `</table>`;
+  } catch (e) {
+    $("slaBody").innerHTML = `<div class="hint">加载失败：${esc(e.message)}</div>`;
+  }
+  try {
+    const d = await api("/reports/trend?days=14");
+    $("trendBody").innerHTML = (d.days || []).map((p) =>
+      `<tr><td>${esc(p.date)}</td><td>${p.active}</td><td>${p.new}</td><td>${p.fixed}</td></tr>`).join("") || emptyRow(4, "无数据");
+  } catch (e) {
+    $("trendBody").innerHTML = emptyRow(4, "加载失败：" + e.message);
+  }
+}
+
+async function runSearch() {
+  const cve = $("cveSearch").value.trim();
+  if (!cve) { $("searchBody").innerHTML = emptyRow(6, "请输入 CVE 编号"); return; }
+  try {
+    const d = await api("/search?cve=" + encodeURIComponent(cve));
+    const rows = (d.affected_agents || []).map((r) =>
+      `<tr><td>${esc(host(r.agent_id))}</td><td>${esc(r.agent_id)}</td><td>${esc(r.asset_name)}</td>` +
+      `<td>${sevBadge(r.severity)}</td><td>${esc(r.source)}</td><td>${statusBadge(r.status)}</td></tr>`
+    ).join("");
+    $("searchBody").innerHTML = rows || emptyRow(6, "该 CVE 未匹配到资产");
+    $("searchInfo").textContent = "匹配 " + (d.total || 0) + " 条";
+  } catch (e) {
+    $("searchBody").innerHTML = emptyRow(6, "搜索失败：" + e.message);
+  }
+}
+
+const CAPS = [
+  { t: "资产采集", d: "Windows / Linux（Debian·Alpine·RHEL·AlmaLinux）/ SCA（npm·go-mod·pypi·maven）/ 容器镜像（Trivy）/ 服务·计划任务·证书·账户·防火墙·硬件明细·安全状态" },
+  { t: "CVE 数据源", d: "MSRC · NVD · OSV（Ubuntu/Alpine/语言生态）· Debian Security Tracker · Red Hat Security Data（含未修复状态判定）" },
+  { t: "精确匹配", d: "apt/rpm/apk/win 版本比对 · 发行版隔离 · KB→CVE 明细 · 修复版本与官方补丁链接" },
+  { t: "告警", d: "规则引擎（severity/source/agent/asset/tag/env/min_cvss/冷却）· Webhook/SMTP 投递 · 自动修复触发" },
+  { t: "补丁闭环", d: "修复建议 → 补丁任务 → 审批 → dry-run/执行 → 结果回传 · campaign 批量 · 全量审计" },
+  { t: "CMDB 台账", d: "资产逻辑台账（逻辑键 + 关系 + 软退休）· 扫描对账 · 导入导出 · 变更历史" },
+  { t: "容器扫描", d: "Docker 镜像定期扫描 · 结果并入统一漏洞视图 · rebuild 修复建议" },
+  { t: "平台底座", d: "Server/Agent（gRPC + JWT）· REST（X-API-Key）· PostgreSQL · 迁移只增不改" }
+];
+function renderCaps() {
+  $("capCards").innerHTML = CAPS.map((c) =>
+    `<div class="card"><div class="card-title">${esc(c.t)}</div><div class="card-sub">${esc(c.d)}</div></div>`
+  ).join("");
+}
+
+function refreshAll() {
+  loadSummary(); loadVulns(); loadRecs(); loadAlerts(); loadTasks(); loadAssets(); loadHostInfo(); loadRisk();
+}
+function startAuto() {
+  if (state.autoTimer) clearInterval(state.autoTimer);
+  state.autoTimer = setInterval(() => {
+    if ($("autoRefresh").checked) refreshAll();
+  }, 60000);
+}
+
+window.addEventListener("DOMContentLoaded", async () => {
+  renderCaps();
+  try { await loadAgents(); } catch (e) { errBanner("Agent 列表加载失败：" + e.message); }
+  $("refreshBtn").addEventListener("click", refreshAll);
+  $("autoRefresh").addEventListener("change", startAuto);
+  $("agentSel").addEventListener("change", (e) => {
+    state.agentId = e.target.value;
+    state.vulnPage = 1;
+    loadVulns(); loadRecs(); loadHostInfo();
+  });
+  $("sevSel").addEventListener("change", () => { state.vulnPage = 1; loadVulns(); });
+  $("vulnPrev").addEventListener("click", () => { if (state.vulnPage > 1) { state.vulnPage--; loadVulns(); } });
+  $("vulnNext").addEventListener("click", () => { state.vulnPage++; loadVulns(); });
+  $("assetSearchBtn").addEventListener("click", () => {
+    state.assetQ = $("assetQ").value.trim();
+    state.assetType = $("assetType").value;
+    state.assetOffset = 0;
+    loadAssets();
+  });
+  $("assetQ").addEventListener("keydown", (e) => { if (e.key === "Enter") $("assetSearchBtn").click(); });
+  $("assetPrev").addEventListener("click", () => { state.assetOffset = Math.max(0, state.assetOffset - 50); loadAssets(); });
+  $("assetNext").addEventListener("click", () => { state.assetOffset += 50; loadAssets(); });
+  $("cveSearchBtn").addEventListener("click", runSearch);
+  $("cveSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") runSearch(); });
+  $("exceptionForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const expires = new Date($("exExpires").value);
+    if (isNaN(expires)) { errBanner("请选择豁免到期时间"); return; }
+    try {
+      await apiPost("/exceptions", {
+        cve_id: $("exCve").value.trim(),
+        asset_key: $("exAsset").value.trim(),
+        reason: $("exReason").value.trim(),
+        expires_at: expires.toISOString()
+      });
+      $("exCve").value = ""; $("exAsset").value = ""; $("exReason").value = "";
+      loadRisk();
+    } catch (err) {
+      errBanner("创建豁免失败：" + err.message);
+    }
+  });
+  await loadSummary(); await loadVulns(); await loadRecs(); await loadAlerts(); await loadTasks(); await loadAssets(); await loadHostInfo(); await loadRisk();
+  startAuto();
+});
+</script>
+</body>
+</html>
