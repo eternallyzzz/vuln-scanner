@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/knqyf263/go-cpe/common"
 	"github.com/knqyf263/go-cpe/naming"
 )
@@ -215,13 +213,24 @@ func (c *NVDClient) extractAffectedProducts(cve NVDCVE) []AffectedProduct {
 		if cpe.VersionStartIncluding != "" {
 			ap.MinVer = cpe.VersionStartIncluding
 		}
-		ap.MaxVer = cpe.VersionEndExcluding
+		if cpe.VersionStartExcluding != "" {
+			ap.MinVer = cpe.VersionStartExcluding
+			ap.MinExclusive = boolPtr(true)
+		}
 		if cpe.VersionEndIncluding != "" {
 			ap.MaxVer = cpe.VersionEndIncluding
+			ap.MaxInclusive = boolPtr(true)
+		}
+		if cpe.VersionEndExcluding != "" && cpe.VersionEndIncluding == "" {
+			ap.MaxVer = cpe.VersionEndExcluding
 		}
 		products = append(products, ap)
 	})
 	return products
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func walkNodes(configs json.RawMessage, fn func(NVDCPE)) {
@@ -305,16 +314,18 @@ func firstFixedVersion(products []AffectedProduct) string {
 }
 
 func (c *NVDClient) IsVersionAffected(entries []FeedEntry, version string) bool {
-	cleanV := cleanVersion(version)
+	if version == "" {
+		return false
+	}
 	for _, e := range entries {
 		var affected []AffectedProduct
 		json.Unmarshal(e.Affected, &affected)
 		for _, ap := range affected {
-			if ap.MaxVer != "" && cleanV != "" {
-				v := "v" + ap.MaxVer
-				if semver.Compare("v"+cleanV, v) <= 0 {
-					return true
-				}
+			if ap.MinVer == "" && ap.MaxVer == "" {
+				continue
+			}
+			if isVersionAffected(version, ap) {
+				return true
 			}
 		}
 	}

@@ -28,11 +28,18 @@ type Loader struct {
 	// redhatMu serializes RefreshRedHat runs so a startup preload and a
 	// manual refresh cannot duplicate the long package_state detail crawl.
 	redhatMu sync.Mutex
+	// nvdParseMu serializes the one-time NVD reparse when nvd_parse_version
+	// changes, so concurrent LoadNVDForSoftware calls cannot race deletion.
+	nvdParseMu sync.Mutex
 }
 
 // msrcParseVersion is bumped whenever the CVRF parsing/matching semantics
 // change so the MSRC feed is rebuilt once on the next server start.
 const msrcParseVersion = "3"
+
+// nvdParseVersion is bumped whenever NVD affected-product parsing semantics
+// change so existing rows are rebuilt once on the next server start.
+const nvdParseVersion = "1"
 
 func NewLoader(feed *FeedManager, st *store.Store, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient, cfg ...*Config) *Loader {
 	c := DefaultConfig()
@@ -331,6 +338,9 @@ func (l *Loader) LoadNVDForSoftware(ctx context.Context, name string) error {
 	if l.feed == nil {
 		return nil
 	}
+	if err := l.EnsureNVDParseVersion(ctx); err != nil {
+		slog.Warn("loader: ensure nvd parse version failed", "error", err)
+	}
 
 	stateKey := "kw:" + feedHash(name)
 	st, err := loadFeedState(ctx, l.store, "nvd", stateKey)
@@ -385,6 +395,32 @@ func (l *Loader) LoadNVDForSoftware(ctx context.Context, name string) error {
 	}
 	slog.Info("loader: nvd loaded for", "name", name, "cves", len(entries))
 	return nil
+}
+
+// EnsureNVDParseVersion forces a full NVD re-fetch when the parser version
+// has changed; old rows and cache state are removed so every software keyword
+// is rebuilt with the current affected-range semantics.
+func (l *Loader) EnsureNVDParseVersion(ctx context.Context) error {
+	if l.store == nil || l.feed == nil {
+		return nil
+	}
+	l.nvdParseMu.Lock()
+	defer l.nvdParseMu.Unlock()
+
+	cur, err := l.store.GetMeta(ctx, "nvd_parse_version")
+	if err != nil {
+		return err
+	}
+	if cur == nvdParseVersion {
+		return nil
+	}
+	if err := l.feed.DeleteAllBySource(ctx, "nvd"); err != nil {
+		return err
+	}
+	if err := l.store.DeleteMetaPrefix(ctx, "feed:nvd:"); err != nil {
+		return err
+	}
+	return l.store.SetMeta(ctx, "nvd_parse_version", nvdParseVersion)
 }
 
 func (l *Loader) loadMSRCMonth(ctx context.Context, monthKey string, updates []MSRCUpdate, force bool) int {

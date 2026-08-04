@@ -34,18 +34,23 @@ type FeedEntry struct {
 }
 
 type AffectedProduct struct {
-	Name      string `json:"name"`
-	Vendor    string `json:"vendor,omitempty"`
-	MinVer    string `json:"min_ver,omitempty"`
-	MaxVer    string `json:"max_ver,omitempty"`
-	FixedIn   string `json:"fixed_in,omitempty"`
-	KBURL     string `json:"kb_url,omitempty"`
-	FixState  string `json:"fix_state,omitempty"`
-	ProductID string `json:"product_id,omitempty"`
-	Ecosystem string `json:"ecosystem,omitempty"`
-	CPE       string `json:"cpe,omitempty"`
-	CpeVer    string `json:"cpe_ver,omitempty"`
-	Major     string `json:"major,omitempty"`
+	Name   string `json:"name"`
+	Vendor string `json:"vendor,omitempty"`
+	MinVer string `json:"min_ver,omitempty"`
+	MaxVer string `json:"max_ver,omitempty"`
+	// MinExclusive/MaxInclusive refine the range bounds. Nil keeps the
+	// legacy semantics: min inclusive, max exclusive. Newly parsed NVD CPEs
+	// set these explicitly when the source says otherwise.
+	MinExclusive *bool  `json:"min_exclusive,omitempty"`
+	MaxInclusive *bool  `json:"max_inclusive,omitempty"`
+	FixedIn      string `json:"fixed_in,omitempty"`
+	KBURL        string `json:"kb_url,omitempty"`
+	FixState     string `json:"fix_state,omitempty"`
+	ProductID    string `json:"product_id,omitempty"`
+	Ecosystem    string `json:"ecosystem,omitempty"`
+	CPE          string `json:"cpe,omitempty"`
+	CpeVer       string `json:"cpe_ver,omitempty"`
+	Major        string `json:"major,omitempty"`
 }
 
 type FeedManager struct {
@@ -440,7 +445,7 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names, msr
 				if installedVer == "" {
 					continue
 				}
-				if !isVersionAffected(installedVer, ap.MinVer, ap.MaxVer, ap.Ecosystem) {
+				if !isVersionAffected(installedVer, ap) {
 					continue
 				}
 				fixedVer := ap.FixedIn
@@ -636,147 +641,48 @@ func boundaryPrefix(s, prefix string) bool {
 	return !(next >= 'a' && next <= 'z' || next >= '0' && next <= '9')
 }
 
-func isVersionAffected(installed, minVer, maxVer string, ecosystem string) bool {
-	if isDpkgEcosystem(ecosystem) {
-		if minVer != "" && compareDpkgVersions(installed, minVer) < 0 {
+func isVersionAffected(installed string, ap AffectedProduct) bool {
+	minExclusive := ap.MinExclusive != nil && *ap.MinExclusive
+	maxInclusive := ap.MaxInclusive != nil && *ap.MaxInclusive
+
+	if ap.MinVer != "" {
+		cmp := compareVersionForEcosystem(installed, ap.MinVer, ap.Ecosystem)
+		if minExclusive {
+			if cmp <= 0 {
+				return false
+			}
+		} else if cmp < 0 {
 			return false
 		}
-		if maxVer != "" && compareDpkgVersions(installed, maxVer) >= 0 {
-			return false
-		}
-		return true
 	}
-	if isAPKEcosystem(ecosystem) {
-		if minVer != "" && apkVersionCompare(installed, minVer) < 0 {
+	if ap.MaxVer != "" {
+		cmp := compareVersionForEcosystem(installed, ap.MaxVer, ap.Ecosystem)
+		if maxInclusive {
+			if cmp > 0 {
+				return false
+			}
+		} else if cmp >= 0 {
 			return false
 		}
-		if maxVer != "" && apkVersionCompare(installed, maxVer) >= 0 {
-			return false
-		}
-		return true
-	}
-	if isRPMEcosystem(ecosystem) {
-		if minVer != "" && compareRPMVersions(installed, minVer) < 0 {
-			return false
-		}
-		if maxVer != "" && compareRPMVersions(installed, maxVer) >= 0 {
-			return false
-		}
-		return true
-	}
-	if minVer != "" && compareVersions(installed, minVer) < 0 {
-		return false
-	}
-	if maxVer != "" && compareVersions(installed, maxVer) >= 0 {
-		return false
 	}
 	return true
 }
 
-func compareVersions(a, b string) int {
-	if a == "" || b == "" {
-		return 0
+func compareVersionForEcosystem(a, b, ecosystem string) int {
+	switch {
+	case isDpkgEcosystem(ecosystem):
+		return compareDpkgVersions(a, b)
+	case isAPKEcosystem(ecosystem):
+		return apkVersionCompare(a, b)
+	case isRPMEcosystem(ecosystem):
+		return compareRPMVersions(a, b)
+	default:
+		return compareVersions(a, b)
 	}
-	a = cleanVersion(a)
-	b = cleanVersion(b)
-
-	aSegs := strings.Split(a, ".")
-	bSegs := strings.Split(b, ".")
-
-	for i := 0; i < len(aSegs) || i < len(bSegs); i++ {
-		var aNum, bNum int64
-
-		if i < len(aSegs) {
-			n, err := strconv.ParseInt(aSegs[i], 10, 64)
-			if err != nil {
-				return strings.Compare(a, b)
-			}
-			aNum = n
-		}
-		if i < len(bSegs) {
-			n, err := strconv.ParseInt(bSegs[i], 10, 64)
-			if err != nil {
-				return strings.Compare(a, b)
-			}
-			bNum = n
-		}
-
-		if aNum < bNum {
-			return -1
-		}
-		if aNum > bNum {
-			return 1
-		}
-	}
-	return 0
 }
 
 func isDpkgEcosystem(ecosystem string) bool {
 	return strings.HasPrefix(strings.ToLower(ecosystem), "debian") || strings.HasPrefix(strings.ToLower(ecosystem), "ubuntu")
-}
-
-func compareDpkgVersions(a, b string) int {
-	if a == "" || b == "" {
-		return 0
-	}
-	a = stripDpkgEpoch(a)
-	b = stripDpkgEpoch(b)
-
-	a = strings.ReplaceAll(a, "~", "\x00")
-	b = strings.ReplaceAll(b, "~", "\x00")
-
-	aSegs := splitDpkgSegments(a)
-	bSegs := splitDpkgSegments(b)
-
-	for i := 0; i < len(aSegs) || i < len(bSegs); i++ {
-		if i >= len(aSegs) {
-			return -1
-		}
-		if i >= len(bSegs) {
-			return 1
-		}
-		if cmp := compareDpkgSegment(aSegs[i], bSegs[i]); cmp != 0 {
-			return cmp
-		}
-	}
-	return 0
-}
-
-func stripDpkgEpoch(v string) string {
-	if idx := strings.IndexByte(v, ':'); idx > 0 {
-		return v[idx+1:]
-	}
-	return v
-}
-
-func splitDpkgSegments(v string) []string {
-	return strings.FieldsFunc(v, func(r rune) bool {
-		return r == '.' || r == '-' || r == '_' || r == '\x00'
-	})
-}
-
-func compareDpkgSegment(a, b string) int {
-	aNum, aErr := strconv.ParseInt(a, 10, 64)
-	bNum, bErr := strconv.ParseInt(b, 10, 64)
-
-	if aErr == nil && bErr == nil {
-		if aNum < bNum {
-			return -1
-		}
-		if aNum > bNum {
-			return 1
-		}
-		return 0
-	}
-
-	if aErr == nil {
-		return -1
-	}
-	if bErr == nil {
-		return 1
-	}
-
-	return strings.Compare(a, b)
 }
 
 func cleanVersion(v string) string {
