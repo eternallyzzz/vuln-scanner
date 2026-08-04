@@ -13,6 +13,17 @@ api_key: "sk-change-me"
 # 两者皆无则按 2 秒间隔限速（无需 key 也可用）。
 # cve:
 #   nvd_api_key: "${NVD_API_KEY}"
+#   # 数据源刷新与缓存（可选，默认值如下）
+#   msrc_refresh_minutes: 60
+#   nvd_refresh_hours: 3
+#   osv_refresh_hours: 6
+#   debian_refresh_hours: 6
+#   redhat_refresh_hours: 24
+#   msrc_ttl_hours: 720
+#   nvd_ttl_hours: 168
+#   osv_ttl_hours: 12
+#   debian_ttl_hours: 168
+#   redhat_ttl_hours: 24
 
 # LLM is optional. Uncomment to enable. api_key 支持 ${ENV} 展开。
 # llm:

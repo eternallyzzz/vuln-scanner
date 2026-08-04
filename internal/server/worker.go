@@ -19,6 +19,7 @@ type Worker struct {
 	match    *cve.Matcher
 	alerts   *alert.Service
 	patchCfg *patch.Config
+	feedCfg  *cve.Config
 
 	done             chan struct{}
 	matchCh          chan string
@@ -35,13 +36,18 @@ type Worker struct {
 	ready            chan struct{}
 }
 
-func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config) *Worker {
+func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
+	cfg := cve.DefaultConfig()
+	if len(feedCfg) > 0 && feedCfg[0] != nil {
+		cfg = feedCfg[0].Normalized()
+	}
 	w := &Worker{
 		store:         s,
 		loader:        loader,
 		match:         matcher,
 		alerts:        alerts,
 		patchCfg:      patchCfg,
+		feedCfg:       cfg,
 		done:          make(chan struct{}),
 		matchCh:       make(chan string, 64),
 		remediationCh: make(chan remediationRequest, 64),
@@ -144,11 +150,11 @@ func (w *Worker) feedLoop(ctx context.Context) {
 		}
 	}()
 
-	refreshTicker := time.NewTicker(1 * time.Hour)
-	nvdTicker := time.NewTicker(3 * time.Hour)
-	osvTicker := time.NewTicker(6 * time.Hour)
-	debianTicker := time.NewTicker(6 * time.Hour)
-	redhatTicker := time.NewTicker(24 * time.Hour)
+	refreshTicker := time.NewTicker(w.feedCfg.MSRCRefresh)
+	nvdTicker := time.NewTicker(w.feedCfg.NVDRefresh)
+	osvTicker := time.NewTicker(w.feedCfg.OSVRefresh)
+	debianTicker := time.NewTicker(w.feedCfg.DebianRefresh)
+	redhatTicker := time.NewTicker(w.feedCfg.RedHatRefresh)
 	intelTicker := time.NewTicker(24 * time.Hour)
 	kbLinkTicker := time.NewTicker(6 * time.Hour)
 	defer refreshTicker.Stop()
@@ -174,7 +180,6 @@ func (w *Worker) feedLoop(ctx context.Context) {
 			validateKBLinks(ctx, w.store)
 		case <-nvdTicker.C:
 			agents := w.collectAgentSummaries(ctx)
-			w.loader.RefreshExpiredNVD(ctx)
 			go w.loader.RefreshAllNVD(context.Background(), agents)
 		case <-osvTicker.C:
 			agents := w.collectAgentSummaries(ctx)

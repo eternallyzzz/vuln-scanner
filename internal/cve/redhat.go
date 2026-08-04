@@ -18,7 +18,6 @@ import (
 
 const (
 	redhatAPIBase   = "https://access.redhat.com/hydra/rest/securitydata"
-	redhatFeedURL   = redhatAPIBase + "/cve.json"
 	redhatCVEPage   = "https://access.redhat.com/security/cve/"
 	redhatStartDate = "2000-01-01"
 	redhatPageSize  = 1000
@@ -38,6 +37,8 @@ const (
 	// is considered fresh enough to skip re-fetching on a restart or refresh.
 	redhatEnrichTTL = 24 * time.Hour
 )
+
+var redhatFeedURL = redhatAPIBase + "/cve.json"
 
 // RedHatCVE is one record of the Red Hat Security Data API list endpoint.
 type RedHatCVE struct {
@@ -105,43 +106,78 @@ func NewRedHatClient() *RedHatClient {
 
 // FetchAll paginates through the full CVE list. Results are ordered by date.
 func (c *RedHatClient) FetchAll(ctx context.Context) ([]RedHatCVE, error) {
+	cves, _, _, err := c.FetchAllWithState(ctx, FeedState{})
+	return cves, err
+}
+
+// FetchAllWithState paginates through the full CVE list. The Cursor field of
+// st is used as the after= date; cached validators are sent with the first
+// page so an unchanged feed can be skipped with a single 304.
+func (c *RedHatClient) FetchAllWithState(ctx context.Context, st FeedState) ([]RedHatCVE, FeedState, bool, error) {
+	after := st.Cursor
+	if after == "" {
+		after = redhatStartDate
+	}
+	firstURL := fmt.Sprintf("%s?after=%s&per_page=%d&page=1",
+		redhatFeedURL, after, redhatPageSize)
+	body, status, next, err := conditionalGet(ctx, c.http, http.MethodGet,
+		firstURL, nil, map[string]string{
+			"Accept":     "application/json",
+			"User-Agent": "vuln-scanner/1.0",
+		}, st)
+	if err != nil {
+		return nil, next, false, err
+	}
+	if status == http.StatusNotModified {
+		return nil, next, true, nil
+	}
+	if status != http.StatusOK {
+		return nil, next, false, fmt.Errorf("redhat fetch page 1: status %d: %s", status, truncate(body, 200))
+	}
+
+	var page []RedHatCVE
+	if err := json.Unmarshal(body, &page); err != nil {
+		return nil, next, false, fmt.Errorf("redhat decode page 1: %w", err)
+	}
 	var all []RedHatCVE
-	for page := 1; page <= redhatMaxPages; page++ {
+	all = append(all, page...)
+	for pageNum := 2; len(page) == redhatPageSize && pageNum <= redhatMaxPages; pageNum++ {
 		u := fmt.Sprintf("%s?after=%s&per_page=%d&page=%d",
-			redhatFeedURL, redhatStartDate, redhatPageSize, page)
+			redhatFeedURL, after, redhatPageSize, pageNum)
 		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
-			return nil, err
+			return nil, next, false, err
 		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", "vuln-scanner/1.0")
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("redhat fetch page %d: %w", page, err)
+			return nil, next, false, fmt.Errorf("redhat fetch page %d: %w", pageNum, err)
 		}
 		body, readErr := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if readErr != nil {
-			return nil, fmt.Errorf("redhat read page %d: %w", page, readErr)
+			return nil, next, false, fmt.Errorf("redhat read page %d: %w", pageNum, readErr)
 		}
 		if resp.StatusCode != http.StatusOK {
-			msg := string(body)
-			if len(msg) > 200 {
-				msg = msg[:200]
-			}
-			return nil, fmt.Errorf("redhat fetch page %d: status %d: %s",
-				page, resp.StatusCode, msg)
+			return nil, next, false, fmt.Errorf("redhat fetch page %d: status %d: %s",
+				pageNum, resp.StatusCode, truncate(body, 200))
 		}
 		var pageData []RedHatCVE
 		if err := json.Unmarshal(body, &pageData); err != nil {
-			return nil, fmt.Errorf("redhat decode page %d: %w", page, err)
+			return nil, next, false, fmt.Errorf("redhat decode page %d: %w", pageNum, err)
 		}
 		all = append(all, pageData...)
-		if len(pageData) < redhatPageSize {
-			break
-		}
+		page = pageData
 	}
-	return all, nil
+	return all, next, false, nil
+}
+
+func truncate(b []byte, n int) string {
+	if len(b) > n {
+		return string(b[:n])
+	}
+	return string(b)
 }
 
 // FetchDetail fetches the per-CVE detail record including package_state.
@@ -293,9 +329,21 @@ func (l *Loader) RefreshRedHat(ctx context.Context, agents []AgentSnapshotSummar
 	slog.Info("loader: refreshing redhat feed", "majors", sortedKeys(majors))
 
 	client := NewRedHatClient()
-	cves, err := client.FetchAll(ctx)
+	st, err := loadFeedState(ctx, l.store, "redhat", "list")
 	if err != nil {
+		slog.Warn("loader: redhat state load failed", "error", err)
+	}
+	cves, next, notModified, err := client.FetchAllWithState(ctx, st)
+	if err != nil {
+		st.markError(err)
+		_ = saveFeedState(ctx, l.store, "redhat", "list", st)
 		slog.Warn("loader: redhat fetch failed", "error", err)
+		return
+	}
+	if notModified {
+		st.markSuccess(0)
+		_ = saveFeedState(ctx, l.store, "redhat", "list", st)
+		slog.Info("loader: redhat list unchanged, skipping")
 		return
 	}
 
@@ -303,6 +351,20 @@ func (l *Loader) RefreshRedHat(ctx context.Context, agents []AgentSnapshotSummar
 	// details for the CVEs we store plus recently disclosed CVEs. The crawl is
 	// rate-limited and aborts on WAF blocks, degrading to list-only entries.
 	now := time.Now().UTC()
+	var maxDate time.Time
+	for _, c := range cves {
+		pub := parseRedHatDate(c.PublicDate, now)
+		if pub.After(maxDate) {
+			maxDate = pub
+		}
+	}
+	if !maxDate.IsZero() {
+		next.Cursor = maxDate.AddDate(0, 0, -7).Format("2006-01-02")
+	}
+	next.markSuccess(len(cves))
+	if err := saveFeedState(ctx, l.store, "redhat", "list", next); err != nil {
+		slog.Warn("loader: redhat state save failed", "error", err)
+	}
 	enriched, err := l.feed.RedHatEnriched(ctx)
 	if err != nil {
 		enriched = nil
@@ -367,7 +429,7 @@ func (l *Loader) RefreshRedHat(ctx context.Context, agents []AgentSnapshotSummar
 				Summary:     c.BugzillaDescription,
 				PublishedAt: published,
 				FetchedAt:   now,
-				TTLSeconds:  24 * 3600,
+				TTLSeconds:  int(l.cfg.RedHatTTL.Seconds()),
 			})
 		}
 	}

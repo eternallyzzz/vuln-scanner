@@ -43,6 +43,13 @@ func (s *Store) SetMeta(ctx context.Context, key, value string) error {
 	return err
 }
 
+// DeleteMetaPrefix removes all feed_meta rows whose key starts with prefix.
+// It is used to invalidate cached feed state when a parser version changes.
+func (s *Store) DeleteMetaPrefix(ctx context.Context, prefix string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM feed_meta WHERE key LIKE $1 || '%'`, prefix)
+	return err
+}
+
 // UpsertKBMetadata records or refreshes link metadata for a KB. The
 // verification status is only set on first insert; later syncs must not
 // reset a verified/broken result.

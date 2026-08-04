@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const debianTrackerURL = "https://security-tracker.debian.org/tracker/data/json"
+var debianTrackerURL = "https://security-tracker.debian.org/tracker/data/json"
 
 type DebianTrackerClient struct {
 	http *http.Client
@@ -38,23 +38,29 @@ func NewDebianTrackerClient() *DebianTrackerClient {
 }
 
 func (c *DebianTrackerClient) FetchAll(ctx context.Context) (DebianTrackerData, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", debianTrackerURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
+	data, _, _, err := c.FetchAllWithState(ctx, FeedState{})
+	return data, err
+}
 
-	resp, err := c.http.Do(req)
+// FetchAllWithState fetches the full Debian tracker JSON conditionally. On a
+// 304 response data is nil and notModified is true.
+func (c *DebianTrackerClient) FetchAllWithState(ctx context.Context, st FeedState) (DebianTrackerData, FeedState, bool, error) {
+	body, status, next, err := conditionalGet(ctx, c.http, http.MethodGet,
+		debianTrackerURL, nil, map[string]string{"Accept": "application/json"}, st)
 	if err != nil {
-		return nil, fmt.Errorf("fetch debian tracker: %w", err)
+		return nil, next, false, err
 	}
-	defer resp.Body.Close()
-
+	if status == http.StatusNotModified {
+		return nil, next, true, nil
+	}
+	if status != http.StatusOK {
+		return nil, next, false, fmt.Errorf("fetch debian tracker: status %d", status)
+	}
 	var data DebianTrackerData
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("decode debian tracker: %w", err)
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, next, false, fmt.Errorf("decode debian tracker: %w", err)
 	}
-	return data, nil
+	return data, next, false, nil
 }
 
 func (l *Loader) RefreshDebianTracker(ctx context.Context, agents []AgentSnapshotSummary) {
@@ -66,9 +72,21 @@ func (l *Loader) RefreshDebianTracker(ctx context.Context, agents []AgentSnapsho
 	releaseName := debianReleaseName(agents)
 
 	client := NewDebianTrackerClient()
-	data, err := client.FetchAll(ctx)
+	st, err := loadFeedState(ctx, l.store, "debian", "tracker")
 	if err != nil {
+		slog.Warn("loader: debian state load failed", "error", err)
+	}
+	data, next, notModified, err := client.FetchAllWithState(ctx, st)
+	if err != nil {
+		st.markError(err)
+		_ = saveFeedState(ctx, l.store, "debian", "tracker", st)
 		slog.Warn("loader: debian tracker fetch failed", "error", err)
+		return
+	}
+	if notModified {
+		st.markSuccess(0)
+		_ = saveFeedState(ctx, l.store, "debian", "tracker", st)
+		slog.Info("loader: debian tracker unchanged, skipping")
 		return
 	}
 
@@ -126,7 +144,7 @@ func (l *Loader) RefreshDebianTracker(ctx context.Context, agents []AgentSnapsho
 				Summary:     vuln.Description,
 				PublishedAt: now,
 				FetchedAt:   now,
-				TTLSeconds:  7 * 24 * 3600,
+				TTLSeconds:  int(l.cfg.DebianTTL.Seconds()),
 			})
 			total++
 		}
@@ -134,9 +152,15 @@ func (l *Loader) RefreshDebianTracker(ctx context.Context, agents []AgentSnapsho
 
 	if len(entries) > 0 {
 		if err := l.feed.BatchUpsert(ctx, entries); err != nil {
+			next.markError(err)
+			_ = saveFeedState(ctx, l.store, "debian", "tracker", next)
 			slog.Warn("loader: debian tracker upsert failed", "error", err)
 			return
 		}
+	}
+	next.markSuccess(total)
+	if err := saveFeedState(ctx, l.store, "debian", "tracker", next); err != nil {
+		slog.Warn("loader: debian state save failed", "error", err)
 	}
 	slog.Info("loader: debian tracker refreshed", "cves", total, "matched_pkgs", matchedPkgs)
 }

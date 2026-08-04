@@ -73,7 +73,8 @@ func main() {
 	msrcClient := cve.NewMSRCClient()
 	nvdClient := cve.NewNVDClient(cfg.CVE.NVDAPIKey)
 	osvClient := cve.NewOSVClient()
-	loader := cve.NewLoader(feed, db, msrcClient, nvdClient, osvClient)
+	feedCfg := cfg.CVE.FeedConfig()
+	loader := cve.NewLoader(feed, db, msrcClient, nvdClient, osvClient, feedCfg)
 	matcher := cve.NewMatcher(db, loader, feed, nvdClient)
 
 	alertSvc, err := alert.NewService(db, cfg.Alerting)
@@ -87,7 +88,7 @@ func main() {
 		slog.Info("alerting disabled, not configured")
 	}
 
-	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch)
+	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch, feedCfg)
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
 	worker.Start(ctx)
 

@@ -15,7 +15,7 @@ import (
 	"github.com/knqyf263/go-cpe/naming"
 )
 
-const msrcBaseURL = "https://api.msrc.microsoft.com/cvrf/v3.0"
+var msrcBaseURL = "https://api.msrc.microsoft.com/cvrf/v3.0"
 
 var kbRegex = regexp.MustCompile(`[Kk][Bb](\d+)`)
 
@@ -33,29 +33,53 @@ func NewMSRCClient() *MSRCClient {
 }
 
 func (c *MSRCClient) FetchUpdates(ctx context.Context) ([]MSRCUpdate, error) {
-	var all []MSRCUpdate
-	nextURL := msrcBaseURL + "/updates"
+	updates, _, _, err := c.FetchUpdatesWithState(ctx, FeedState{})
+	return updates, err
+}
 
-	for nextURL != "" && len(all) < 5000 {
-		req, err := http.NewRequestWithContext(ctx, "GET", nextURL, nil)
+// FetchUpdatesWithState returns the MSRC update list. A 304 response leaves
+// updates nil and reports notModified=true so the loader can skip rebuilding
+// months that are already populated.
+func (c *MSRCClient) FetchUpdatesWithState(ctx context.Context, st FeedState) ([]MSRCUpdate, FeedState, bool, error) {
+	body, status, next, err := conditionalGet(ctx, c.http, http.MethodGet,
+		msrcBaseURL+"/updates", nil, map[string]string{"Accept": "application/json"}, st)
+	if err != nil {
+		return nil, next, false, err
+	}
+	if status == http.StatusNotModified {
+		return nil, next, true, nil
+	}
+	if status != http.StatusOK {
+		return nil, next, false, fmt.Errorf("msrc updates: status %d", status)
+	}
+
+	var result MSRCUpdatesResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, next, false, fmt.Errorf("decode updates: %w", err)
+	}
+	var all []MSRCUpdate
+	all = append(all, result.Value...)
+	pageURL := result.NextLink
+	for pageURL != "" && len(all) < 5000 {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 		if err != nil {
-			return all, err
+			return all, next, false, err
 		}
 		req.Header.Set("Accept", "application/json")
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return all, fmt.Errorf("fetch updates: %w", err)
+			return all, next, false, fmt.Errorf("fetch updates: %w", err)
 		}
 		var result MSRCUpdatesResponse
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 			resp.Body.Close()
-			return all, fmt.Errorf("decode updates: %w", err)
+			return all, next, false, fmt.Errorf("decode updates: %w", err)
 		}
 		resp.Body.Close()
 		all = append(all, result.Value...)
-		nextURL = result.NextLink
+		pageURL = result.NextLink
 	}
-	return all, nil
+	return all, next, false, nil
 }
 
 func (c *MSRCClient) FetchCVRF(ctx context.Context, cvrfURL string) (*CVRFDocument, error) {
@@ -88,6 +112,27 @@ func (c *MSRCClient) FetchCVRF(ctx context.Context, cvrfURL string) (*CVRFDocume
 	c.mu.Unlock()
 	slog.Info("cached CVRF", "title", doc.DocumentTitle.Value)
 	return &doc, nil
+}
+
+// FetchCVRFWithState fetches one CVRF document conditionally. A 304 returns
+// notModified=true and a nil document.
+func (c *MSRCClient) FetchCVRFWithState(ctx context.Context, cvrfURL string, st FeedState) (*CVRFDocument, FeedState, bool, error) {
+	body, status, next, err := conditionalGet(ctx, c.http, http.MethodGet,
+		cvrfURL, nil, map[string]string{"Accept": "application/json"}, st)
+	if err != nil {
+		return nil, next, false, err
+	}
+	if status == http.StatusNotModified {
+		return nil, next, true, nil
+	}
+	if status != http.StatusOK {
+		return nil, next, false, fmt.Errorf("msrc cvrf %s: status %d", cvrfURL, status)
+	}
+	var doc CVRFDocument
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, next, false, fmt.Errorf("json decode: %w", err)
+	}
+	return &doc, next, false, nil
 }
 
 func (c *MSRCClient) ParseMonthLabel(label string) string {

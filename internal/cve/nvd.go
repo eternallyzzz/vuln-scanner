@@ -17,7 +17,7 @@ import (
 	"github.com/knqyf263/go-cpe/naming"
 )
 
-const nvdBaseURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+var nvdBaseURL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 type NVDClient struct {
 	http    *http.Client
@@ -60,6 +60,20 @@ func (c *NVDClient) SearchByKeyword(ctx context.Context, keyword string) ([]Feed
 	params := url.Values{}
 	params.Set("keywordSearch", keyword)
 	params.Set("resultsPerPage", "50")
+	return c.fetchAllPages(ctx, params)
+}
+
+// SearchByKeywordSince returns only CVEs modified since the given time. It is
+// used for incremental refreshes after the first full keyword load.
+func (c *NVDClient) SearchByKeywordSince(ctx context.Context, keyword string, since time.Time) ([]FeedEntry, error) {
+	if since.IsZero() {
+		since = time.Now().Add(-24 * time.Hour)
+	}
+	params := url.Values{}
+	params.Set("keywordSearch", keyword)
+	params.Set("resultsPerPage", "50")
+	params.Set("lastModStartDate", since.UTC().Format(time.RFC3339))
+	params.Set("lastModEndDate", time.Now().UTC().Format(time.RFC3339))
 	return c.fetchAllPages(ctx, params)
 }
 
@@ -112,11 +126,11 @@ func (c *NVDClient) doRequest(ctx context.Context, reqURL string) ([]FeedEntry, 
 		c.minGap = c.minGap * 2
 		c.rateMu.Unlock()
 		slog.Warn("nvd rate limited", "status", resp.StatusCode, "gap", c.minGap)
-		return nil, 0, nil
+		return nil, 0, fmt.Errorf("nvd rate limited: status %d", resp.StatusCode)
 	}
 	if resp.StatusCode != 200 {
 		slog.Warn("nvd non-200", "status", resp.StatusCode, "url", reqURL[:min(len(reqURL), 120)])
-		return nil, 0, nil
+		return nil, 0, fmt.Errorf("nvd status %d: %s", resp.StatusCode, reqURL[:min(len(reqURL), 120)])
 	}
 
 	var result NVDResponse

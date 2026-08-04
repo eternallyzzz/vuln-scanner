@@ -43,7 +43,7 @@ type RangeEvent struct {
 }
 
 type QueryRequestV1 struct {
-	Version string      `json:"version"`
+	Version string      `json:"version,omitempty"`
 	Package PackageInfo `json:"package"`
 }
 

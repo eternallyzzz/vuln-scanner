@@ -24,6 +24,7 @@ type Loader struct {
 	msrc  *MSRCClient
 	nvd   *NVDClient
 	osv   *OSVClient
+	cfg   *Config
 	// redhatMu serializes RefreshRedHat runs so a startup preload and a
 	// manual refresh cannot duplicate the long package_state detail crawl.
 	redhatMu sync.Mutex
@@ -33,8 +34,12 @@ type Loader struct {
 // change so the MSRC feed is rebuilt once on the next server start.
 const msrcParseVersion = "3"
 
-func NewLoader(feed *FeedManager, st *store.Store, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient) *Loader {
-	return &Loader{feed: feed, store: st, msrc: msrc, nvd: nvd, osv: osv}
+func NewLoader(feed *FeedManager, st *store.Store, msrc *MSRCClient, nvd *NVDClient, osv *OSVClient, cfg ...*Config) *Loader {
+	c := DefaultConfig()
+	if len(cfg) > 0 && cfg[0] != nil {
+		c = cfg[0].Normalized()
+	}
+	return &Loader{feed: feed, store: st, msrc: msrc, nvd: nvd, osv: osv, cfg: c}
 }
 
 func (l *Loader) RefreshAllNVD(ctx context.Context, agents []AgentSnapshotSummary) {
@@ -64,73 +69,115 @@ func (l *Loader) RefreshAllNVD(ctx context.Context, agents []AgentSnapshotSummar
 }
 
 func (l *Loader) RefreshAllOSV(ctx context.Context, agents []AgentSnapshotSummary) {
-	pkgAssets := collectPackageAssets(agents)
+	pkgAssets := uniquePackageAssets(collectPackageAssets(agents))
 	if len(pkgAssets) == 0 {
 		return
 	}
-	slog.Info("loader: refreshing osv", "packages", len(pkgAssets))
-	sem := make(chan struct{}, 5)
-	var mu sync.Mutex
-	total := 0
-	var wg sync.WaitGroup
-
+	var toQuery []AssetToMatch
 	for _, a := range pkgAssets {
-		wg.Add(1)
-		go func(asset AssetToMatch) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			resp, err := l.osv.QuerySingle(ctx, asset)
-			if err != nil {
-				slog.Warn("loader: osv query failed", "pkg", asset.Name, "error", err)
-				return
-			}
-			now := time.Now().UTC()
-			var entries []*FeedEntry
-			for _, vuln := range resp.Vulns {
-				severity, score := extractOSVSeverity(vuln.Severity)
-				affected := parseOSVAffected(vuln.Affected)
-				if len(affected) == 0 {
-					affected = []AffectedProduct{{Name: asset.Name}}
-				}
-				affectedJSON, _ := json.Marshal(affected)
-				id := vuln.ID
-				if id == "" {
-					continue
-				}
-				entries = append(entries, &FeedEntry{
-					Source:      "osv",
-					SourceKey:   asset.Name + "@" + asset.Version + "/" + id,
-					CVEID:       id,
-					Affected:    affectedJSON,
-					Severity:    severity,
-					CVSSScore:   score,
-					Summary:     vuln.Details,
-					PublishedAt: vuln.Modified,
-					FetchedAt:   now,
-					TTLSeconds:  7 * 24 * 3600,
-				})
-			}
-			if len(entries) > 0 {
-				mu.Lock()
-				_ = l.feed.BatchUpsert(ctx, entries)
-				total += len(entries)
-				mu.Unlock()
-			}
-		}(a)
+		st, _ := loadFeedState(ctx, l.store, "osv", "pkg:"+feedHash(a.Name, a.Ecosystem))
+		if st.freshSince(l.cfg.OSVRefresh) {
+			continue
+		}
+		toQuery = append(toQuery, a)
 	}
-	wg.Wait()
-	slog.Info("loader: osv refresh done", "cves", total)
+	if len(toQuery) == 0 {
+		slog.Info("loader: osv all packages fresh, skipping", "packages", len(pkgAssets))
+		return
+	}
+	slog.Info("loader: refreshing osv", "packages", len(toQuery), "total", len(pkgAssets))
+
+	results, err := l.osv.QueryPackages(ctx, toQuery)
+	if err != nil {
+		slog.Warn("loader: osv package query failed", "error", err)
+	}
+
+	now := time.Now().UTC()
+	entriesByPkg := make(map[string][]*FeedEntry, len(toQuery))
+	for _, a := range toQuery {
+		key := osvPackageKey(a)
+		resp, ok := results[key]
+		if !ok {
+			st, _ := loadFeedState(ctx, l.store, "osv", "pkg:"+feedHash(a.Name, a.Ecosystem))
+			st.markError(fmt.Errorf("osv query returned no response for %s", key))
+			_ = saveFeedState(ctx, l.store, "osv", "pkg:"+feedHash(a.Name, a.Ecosystem), st)
+			continue
+		}
+		var entries []*FeedEntry
+		for _, vuln := range resp.Vulns {
+			severity, score := extractOSVSeverity(vuln.Severity)
+			affected := parseOSVAffected(vuln.Affected)
+			if len(affected) == 0 {
+				affected = []AffectedProduct{{Name: a.Name}}
+			}
+			affectedJSON, _ := json.Marshal(affected)
+			if vuln.ID == "" {
+				continue
+			}
+			entries = append(entries, &FeedEntry{
+				Source:      "osv",
+				SourceKey:   key + "/" + vuln.ID,
+				CVEID:       vuln.ID,
+				Affected:    affectedJSON,
+				Severity:    severity,
+				CVSSScore:   score,
+				Summary:     vuln.Details,
+				PublishedAt: vuln.Modified,
+				FetchedAt:   now,
+				TTLSeconds:  int(l.cfg.OSVTTL.Seconds()),
+			})
+		}
+		entriesByPkg[key] = entries
+	}
+
+	var allEntries []*FeedEntry
+	for _, entries := range entriesByPkg {
+		allEntries = append(allEntries, entries...)
+	}
+	upsertFailed := false
+	if len(allEntries) > 0 {
+		if err := l.feed.BatchUpsert(ctx, allEntries); err != nil {
+			upsertFailed = true
+			slog.Warn("loader: osv batch upsert failed", "error", err)
+		}
+	}
+	for _, a := range toQuery {
+		key := osvPackageKey(a)
+		stateKey := "pkg:" + feedHash(a.Name, a.Ecosystem)
+		st, _ := loadFeedState(ctx, l.store, "osv", stateKey)
+		if entries, ok := entriesByPkg[key]; ok && !upsertFailed {
+			st.markSuccess(len(entries))
+		} else if upsertFailed {
+			st.markError(fmt.Errorf("osv batch upsert failed"))
+		} else {
+			st.markError(fmt.Errorf("osv query returned no response for %s", key))
+		}
+		_ = saveFeedState(ctx, l.store, "osv", stateKey, st)
+	}
+
+	total := len(allEntries)
+	slog.Info("loader: osv refresh done", "cves", total, "packages", len(toQuery))
 }
 
 func (l *Loader) LoadMSRCAll(ctx context.Context) error {
-	if err := l.EnsureMSRCParseVersion(ctx); err != nil {
+	rebuilt, err := l.EnsureMSRCParseVersion(ctx)
+	if err != nil {
 		return fmt.Errorf("ensure msrc parse version: %w", err)
 	}
-	updates, err := l.msrc.FetchUpdates(ctx)
+	st := FeedState{}
+	if !rebuilt {
+		st, err = loadFeedState(ctx, l.store, "msrc", "updates")
+		if err != nil {
+			slog.Warn("loader: msrc updates state load failed", "error", err)
+		}
+	}
+	updates, next, notModified, err := l.msrc.FetchUpdatesWithState(ctx, st)
 	if err != nil {
 		return fmt.Errorf("msrc fetch updates: %w", err)
+	}
+	if notModified {
+		slog.Info("loader: msrc updates unchanged, skipping")
+		return nil
 	}
 
 	months := groupMSRCByMonth(updates)
@@ -158,7 +205,7 @@ func (l *Loader) LoadMSRCAll(ctx context.Context) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			n := l.loadMSRCMonth(ctx, key, upds)
+			n := l.loadMSRCMonth(ctx, key, upds, rebuilt)
 			mu.Lock()
 			total += n
 			mu.Unlock()
@@ -166,13 +213,25 @@ func (l *Loader) LoadMSRCAll(ctx context.Context) error {
 		}(monthKey, months[monthKey])
 	}
 	wg.Wait()
+	next.markSuccess(total)
+	if err := saveFeedState(ctx, l.store, "msrc", "updates", next); err != nil {
+		slog.Warn("loader: msrc updates state save failed", "error", err)
+	}
 	return nil
 }
 
 func (l *Loader) LoadMSRCHistorical(ctx context.Context) {
-	updates, err := l.msrc.FetchUpdates(ctx)
+	st, err := loadFeedState(ctx, l.store, "msrc", "updates")
+	if err != nil {
+		slog.Warn("loader: msrc updates state load failed", "error", err)
+	}
+	updates, next, notModified, err := l.msrc.FetchUpdatesWithState(ctx, st)
 	if err != nil {
 		slog.Error("loader: historical fetch failed", "error", err)
+		return
+	}
+	if notModified {
+		slog.Info("loader: msrc updates unchanged, skipping historical")
 		return
 	}
 	months := groupMSRCByMonth(updates)
@@ -197,7 +256,7 @@ func (l *Loader) LoadMSRCHistorical(ctx context.Context) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			n := l.loadMSRCMonth(ctx, key, upds)
+			n := l.loadMSRCMonth(ctx, key, upds, false)
 			mu.Lock()
 			total += n
 			mu.Unlock()
@@ -205,6 +264,10 @@ func (l *Loader) LoadMSRCHistorical(ctx context.Context) {
 		}(monthKey, months[monthKey])
 	}
 	wg.Wait()
+	next.markSuccess(total)
+	if err := saveFeedState(ctx, l.store, "msrc", "updates", next); err != nil {
+		slog.Warn("loader: msrc updates state save failed", "error", err)
+	}
 	slog.Info("loader: msrc historical all loaded", "total_cves", total)
 }
 
@@ -237,19 +300,27 @@ func recentMonthSet(n int) map[string]bool {
 }
 
 func (l *Loader) RefreshMSRCCurrent(ctx context.Context) error {
-	updates, err := l.msrc.FetchUpdates(ctx)
+	st, err := loadFeedState(ctx, l.store, "msrc", "updates")
+	if err != nil {
+		slog.Warn("loader: msrc updates state load failed", "error", err)
+	}
+	updates, next, notModified, err := l.msrc.FetchUpdatesWithState(ctx, st)
 	if err != nil {
 		return fmt.Errorf("msrc fetch updates: %w", err)
+	}
+	if notModified {
+		return nil
 	}
 	months := groupMSRCByMonth(updates)
 
 	current := currentMonthLabel()
 	if m, ok := months[current]; ok {
-		if err := l.feed.DeleteBySourceKey(ctx, "msrc", current); err != nil {
-			slog.Warn("loader: failed to delete old msrc current month", "month", current, "error", err)
-		}
-		n := l.loadMSRCMonth(ctx, current, m)
+		n := l.loadMSRCMonth(ctx, current, m, false)
 		slog.Info("loader: msrc current refreshed", "month", current, "cves", n)
+		next.markSuccess(n)
+		if err := saveFeedState(ctx, l.store, "msrc", "updates", next); err != nil {
+			slog.Warn("loader: msrc updates state save failed", "error", err)
+		}
 		return nil
 	}
 	slog.Info("loader: no current month data in msrc", "expected", current)
@@ -261,21 +332,39 @@ func (l *Loader) LoadNVDForSoftware(ctx context.Context, name string) error {
 		return nil
 	}
 
-	has, err := l.feed.HasFreshEntries(ctx, "nvd", name)
+	stateKey := "kw:" + feedHash(name)
+	st, err := loadFeedState(ctx, l.store, "nvd", stateKey)
 	if err != nil {
-		slog.Warn("loader: check nvd fresh failed", "name", name, "error", err)
+		slog.Warn("loader: nvd state load failed", "name", name, "error", err)
 	}
-	if has {
-		slog.Debug("loader: nvd already fresh for", "name", name)
+	if st.freshSince(l.cfg.NVDRefresh) {
+		slog.Debug("loader: nvd state fresh for", "name", name)
 		return nil
 	}
 
-	entries, err := l.nvd.SearchByKeyword(ctx, name)
+	var entries []FeedEntry
+	if st.Cursor != "" {
+		if since, perr := time.Parse(time.RFC3339, st.Cursor); perr == nil {
+			entries, err = l.nvd.SearchByKeywordSince(ctx, name, since.Add(-time.Hour))
+		} else {
+			slog.Warn("loader: nvd cursor parse failed, falling back to full search", "name", name, "error", perr)
+			entries, err = l.nvd.SearchByKeyword(ctx, name)
+		}
+	} else {
+		entries, err = l.nvd.SearchByKeyword(ctx, name)
+	}
 	if err != nil {
+		st.markError(err)
+		_ = saveFeedState(ctx, l.store, "nvd", stateKey, st)
 		slog.Warn("loader: nvd search failed for", "name", name, "error", err)
 		return nil
 	}
 	if len(entries) == 0 {
+		st.Cursor = time.Now().UTC().Format(time.RFC3339)
+		st.markSuccess(0)
+		if err := saveFeedState(ctx, l.store, "nvd", stateKey, st); err != nil {
+			slog.Warn("loader: nvd state save failed", "name", name, "error", err)
+		}
 		slog.Info("loader: nvd no results for", "name", name)
 		return nil
 	}
@@ -285,37 +374,54 @@ func (l *Loader) LoadNVDForSoftware(ctx context.Context, name string) error {
 		feedEntries[i] = &entries[i]
 	}
 	if err := l.feed.BatchUpsert(ctx, feedEntries); err != nil {
+		st.markError(err)
+		_ = saveFeedState(ctx, l.store, "nvd", stateKey, st)
 		return fmt.Errorf("batch upsert nvd: %w", err)
+	}
+	st.Cursor = time.Now().UTC().Format(time.RFC3339)
+	st.markSuccess(len(feedEntries))
+	if err := saveFeedState(ctx, l.store, "nvd", stateKey, st); err != nil {
+		slog.Warn("loader: nvd state save failed", "name", name, "error", err)
 	}
 	slog.Info("loader: nvd loaded for", "name", name, "cves", len(entries))
 	return nil
 }
 
-func (l *Loader) RefreshExpiredNVD(ctx context.Context) {
-	keys, err := l.feed.QueryExpired(ctx, "nvd")
-	if err != nil {
-		slog.Error("loader: query expired nvd failed", "error", err)
-		return
-	}
-	for _, key := range keys {
-		_ = l.feed.DeleteBySourceKey(ctx, "nvd", key)
-	}
-	if len(keys) > 0 {
-		slog.Info("loader: cleared expired nvd entries", "count", len(keys))
-	}
-}
-
-func (l *Loader) loadMSRCMonth(ctx context.Context, monthKey string, updates []MSRCUpdate) int {
+func (l *Loader) loadMSRCMonth(ctx context.Context, monthKey string, updates []MSRCUpdate, force bool) int {
 	total := 0
 	for _, u := range updates {
-		doc, err := l.msrc.FetchCVRF(ctx, u.CvrfURL)
+		stateKey := "cvrf:" + feedHash(u.CvrfURL)
+		st, err := loadFeedState(ctx, l.store, "msrc", stateKey)
 		if err != nil {
+			slog.Warn("loader: msrc cvrf state load failed", "url", u.CvrfURL, "error", err)
+		}
+		if force {
+			st.ETag = ""
+			st.LastModified = ""
+		}
+		doc, next, notModified, err := l.msrc.FetchCVRFWithState(ctx, u.CvrfURL, st)
+		if err != nil {
+			st.markError(err)
+			_ = saveFeedState(ctx, l.store, "msrc", stateKey, st)
 			slog.Warn("loader: msrc fetch cvrf failed", "url", u.CvrfURL, "error", err)
 			continue
 		}
+		if notModified {
+			continue
+		}
 		entries := l.msrc.parseCVRFToFeedEntries(doc, monthKey)
+		for _, e := range entries {
+			e.TTLSeconds = int(l.cfg.MSRCTTL.Seconds())
+		}
 		if err := l.feed.BatchUpsert(ctx, entries); err != nil {
+			st.markError(err)
+			_ = saveFeedState(ctx, l.store, "msrc", stateKey, st)
 			slog.Error("loader: batch upsert msrc failed", "month", monthKey, "error", err)
+			continue
+		}
+		next.markSuccess(len(entries))
+		if err := saveFeedState(ctx, l.store, "msrc", stateKey, next); err != nil {
+			slog.Warn("loader: msrc cvrf state save failed", "url", u.CvrfURL, "error", err)
 		}
 		total += len(entries)
 	}
@@ -325,18 +431,24 @@ func (l *Loader) loadMSRCMonth(ctx context.Context, monthKey string, updates []M
 // EnsureMSRCParseVersion forces a full MSRC re-fetch when the parser version
 // has changed; old rows are removed so SourceMonthExists no longer skips
 // already-loaded months.
-func (l *Loader) EnsureMSRCParseVersion(ctx context.Context) error {
+func (l *Loader) EnsureMSRCParseVersion(ctx context.Context) (bool, error) {
 	cur, err := l.store.GetMeta(ctx, "msrc_parse_version")
 	if err != nil {
-		return err
+		return false, err
 	}
 	if cur == msrcParseVersion {
-		return nil
+		return false, nil
 	}
 	if err := l.feed.DeleteAllBySource(ctx, "msrc"); err != nil {
-		return err
+		return false, err
 	}
-	return l.store.SetMeta(ctx, "msrc_parse_version", msrcParseVersion)
+	if err := l.store.DeleteMetaPrefix(ctx, "feed:msrc:"); err != nil {
+		return false, err
+	}
+	if err := l.store.SetMeta(ctx, "msrc_parse_version", msrcParseVersion); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // SyncKBMetadata rebuilds kb_metadata from the per-product KB assignments in
@@ -457,42 +569,6 @@ func keywordFromName(name string) string {
 	return name
 }
 
-func (l *Loader) loadOSV(ctx context.Context, assets []AssetToMatch) {
-	batches := batchAssets(assets, 100)
-	var allEntries []*FeedEntry
-	for _, batch := range batches {
-		resp, err := l.osv.QueryBatch(ctx, batch)
-		if err != nil {
-			slog.Warn("loader: osv batch failed", "error", err)
-			continue
-		}
-		now := time.Now().UTC()
-		for key, qr := range resp {
-			for _, vuln := range qr.Vulns {
-				severity, score := extractOSVSeverity(vuln.Severity)
-				affected := parseOSVAffected(vuln.Affected)
-				affectedJSON, _ := json.Marshal(affected)
-				allEntries = append(allEntries, &FeedEntry{
-					Source:      "osv",
-					SourceKey:   key + "/" + vuln.ID,
-					CVEID:       vuln.ID,
-					Affected:    affectedJSON,
-					Severity:    severity,
-					CVSSScore:   score,
-					Summary:     vuln.Summary,
-					PublishedAt: vuln.Modified,
-					FetchedAt:   now,
-					TTLSeconds:  7 * 24 * 3600,
-				})
-			}
-		}
-	}
-	if len(allEntries) > 0 {
-		_ = l.feed.BatchUpsert(ctx, allEntries)
-		slog.Info("loader: osv loaded", "cves", len(allEntries))
-	}
-}
-
 func parseOSVAffected(affected []Affected) []AffectedProduct {
 	var products []AffectedProduct
 	for _, a := range affected {
@@ -571,18 +647,6 @@ func parseCVSSVector(v string) float64 {
 	return -1
 }
 
-func batchAssets(assets []AssetToMatch, batchSize int) [][]AssetToMatch {
-	var batches [][]AssetToMatch
-	for i := 0; i < len(assets); i += batchSize {
-		end := i + batchSize
-		if end > len(assets) {
-			end = len(assets)
-		}
-		batches = append(batches, assets[i:end])
-	}
-	return batches
-}
-
 type AgentSnapshotSummary struct {
 	AgentID   string
 	OSType    string
@@ -629,6 +693,25 @@ func collectPackageAssets(agents []AgentSnapshotSummary) []AssetToMatch {
 		}
 	}
 	return result
+}
+
+// uniquePackageAssets collapses package assets to one query per
+// name@ecosystem so OSV is not queried once per installed version.
+func uniquePackageAssets(assets []AssetToMatch) []AssetToMatch {
+	seen := make(map[string]bool, len(assets))
+	out := make([]AssetToMatch, 0, len(assets))
+	for _, a := range assets {
+		if a.Ecosystem == "" {
+			a.Ecosystem = EcosystemForFormat(a.Format)
+		}
+		key := osvPackageKey(a)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, a)
+	}
+	return out
 }
 
 // OSVEcosystemForAgent maps an asset format and agent OS to the OSV ecosystem
