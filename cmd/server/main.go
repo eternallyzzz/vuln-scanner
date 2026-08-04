@@ -71,10 +71,10 @@ func main() {
 
 	feed := cve.NewFeedManager(db)
 	msrcClient := cve.NewMSRCClient()
-	nvdClient := cve.NewNVDClient()
+	nvdClient := cve.NewNVDClient(cfg.CVE.NVDAPIKey)
 	osvClient := cve.NewOSVClient()
 	loader := cve.NewLoader(feed, db, msrcClient, nvdClient, osvClient)
-	matcher := cve.NewMatcher(db, loader, feed)
+	matcher := cve.NewMatcher(db, loader, feed, nvdClient)
 
 	alertSvc, err := alert.NewService(db, cfg.Alerting)
 	if err != nil {

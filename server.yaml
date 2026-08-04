@@ -1,4 +1,6 @@
 # VulnScanner Server Configuration
+# 密钥支持 ${ENV} 展开，例如 api_key: "${API_KEY}"。
+# 所有占位符均为演示值，部署前必须改为自己的密钥（或使用环境变量）。
 
 grpc_addr: ":9090"
 http_addr: ":8080"
@@ -6,9 +8,15 @@ database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disa
 jwt_secret: "change-me-in-production"
 api_key: "sk-change-me"
 
-# LLM is optional. Uncomment to enable.
+# NVD 数据源（可选）。支持 nvd_api_key: "${NVD_API_KEY}" 形式；
+# 留空或未配置时自动回退到 NVD_API_KEY 环境变量。
+# 两者皆无则按 2 秒间隔限速（无需 key 也可用）。
+# cve:
+#   nvd_api_key: "${NVD_API_KEY}"
+
+# LLM is optional. Uncomment to enable. api_key 支持 ${ENV} 展开。
 # llm:
-#   provider: "openai"
+#   provider: "openai"            # openai | anthropic
 #   api_key: "${OPENAI_API_KEY}"
 #   model: "gpt-4o-mini"
 #   auto_analyze:

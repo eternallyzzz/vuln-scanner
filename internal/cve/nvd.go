@@ -27,10 +27,17 @@ type NVDClient struct {
 	minGap  time.Duration
 }
 
-func NewNVDClient() *NVDClient {
+func NewNVDClient(apiKey ...string) *NVDClient {
+	key := ""
+	if len(apiKey) > 0 {
+		key = apiKey[0]
+	}
+	if key == "" {
+		key = os.Getenv("NVD_API_KEY")
+	}
 	c := &NVDClient{
 		http:   &http.Client{Timeout: 60 * time.Second},
-		apiKey: os.Getenv("NVD_API_KEY"),
+		apiKey: key,
 		minGap: 1200 * time.Millisecond,
 	}
 	if c.apiKey != "" {

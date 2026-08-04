@@ -19,11 +19,15 @@ type Matcher struct {
 	fetchingNVD sync.Map
 }
 
-func NewMatcher(s *store.Store, loader *Loader, feed *FeedManager) *Matcher {
+func NewMatcher(s *store.Store, loader *Loader, feed *FeedManager, nvd ...*NVDClient) *Matcher {
+	n := NewNVDClient()
+	if len(nvd) > 0 && nvd[0] != nil {
+		n = nvd[0]
+	}
 	return &Matcher{
 		loader: loader,
 		feed:   feed,
-		nvd:    NewNVDClient(),
+		nvd:    n,
 		osv:    NewOSVClient(),
 		store:  s,
 	}
