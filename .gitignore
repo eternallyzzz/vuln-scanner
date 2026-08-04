@@ -35,8 +35,5 @@ coverage.html
 .env
 .env.local
 
-# Generated protobuf
-api/gen/
-
 # Agent local config
 .vuln-scanner/
