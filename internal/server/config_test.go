@@ -124,6 +124,40 @@ func TestLoadConfigReportingEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRemoteScanEnv(t *testing.T) {
+	t.Setenv("REMOTE_SCAN_ENABLED", "true")
+	t.Setenv("REMOTE_SCAN_MASTER_KEY", strings.Repeat("a", 64))
+	t.Setenv("REMOTE_SCAN_TIMEOUT_SECONDS", "45")
+	t.Setenv("REMOTE_SCAN_CONCURRENCY", "4")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RemoteScan == nil || !cfg.RemoteScan.Enabled {
+		t.Fatal("REMOTE_SCAN_ENABLED must enable remote scan")
+	}
+	if cfg.RemoteScan.TimeoutSeconds != 45 || cfg.RemoteScan.Concurrency != 4 {
+		t.Fatalf("remote scan env not applied: %+v", cfg.RemoteScan)
+	}
+	if cfg.RemoteScan.MasterKeyEnv != "REMOTE_SCAN_MASTER_KEY" {
+		t.Fatalf("master key env = %q", cfg.RemoteScan.MasterKeyEnv)
+	}
+}
+
+func TestLoadConfigRemoteScanRequiresMasterKey(t *testing.T) {
+	t.Setenv("REMOTE_SCAN_ENABLED", "true")
+	t.Setenv("REMOTE_SCAN_MASTER_KEY", "")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("enabled remote scan without master key must fail")
+	}
+
+	t.Setenv("REMOTE_SCAN_ENABLED", "false")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err != nil {
+		t.Fatalf("disabled remote scan without master key must pass: %v", err)
+	}
+}
+
 func TestLoadConfigReportingFromFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.yaml")
 	content := []byte(`

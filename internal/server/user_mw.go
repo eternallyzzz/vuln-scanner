@@ -95,6 +95,11 @@ func userCan(role, method, path string) bool {
 	if strings.HasPrefix(path, "/api/v1/audit-logs") {
 		return role == "admin"
 	}
+	// Credential management exposes sensitive remote-login material: only
+	// admins may read or mutate credentials.
+	if strings.HasPrefix(path, "/api/v1/remote/credentials") {
+		return role == "admin"
+	}
 	switch role {
 	case "admin":
 		return true
@@ -134,6 +139,7 @@ func operatorCan(method, path string) bool {
 		{http.MethodPut, "/api/v1/scan-policies/", ""},
 		{http.MethodPost, "/api/v1/container/scan", ""},
 		{http.MethodPost, "/api/v1/network/scan", ""},
+		{http.MethodPost, "/api/v1/remote/scan", ""},
 		{http.MethodPost, "/api/v1/assets/import", ""},
 		{http.MethodPost, "/api/v1/assets/bulk-meta", ""},
 		{http.MethodPut, "/api/v1/assets/", ""},

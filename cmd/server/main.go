@@ -123,6 +123,7 @@ func main() {
 
 	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch, feedCfg)
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
+	worker.ConfigureRemoteScanning(cfg.RemoteScan)
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP

@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"vuln-scanner/internal/alert"
 	"vuln-scanner/internal/patch"
+	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +31,7 @@ type RESTServer struct {
 	register  *RegisterHandler
 	worker    *Worker
 	alerts    *alert.Service
+	remoteCipher *remotescan.Cipher
 }
 
 type RegisterHandler struct {
@@ -38,7 +41,7 @@ type RegisterHandler struct {
 }
 
 func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker, alerts *alert.Service) *RESTServer {
-	return &RESTServer{
+	r := &RESTServer{
 		store:     s,
 		auth:      auth,
 		userAuth:  NewUserAuth(cfg.JWTSecret),
@@ -53,6 +56,16 @@ func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker,
 			srvURL: serverURL(cfg),
 		},
 	}
+	if cfg.RemoteScan != nil && cfg.RemoteScan.Enabled {
+		if raw := strings.TrimSpace(os.Getenv(cfg.RemoteScan.MasterKeyEnv)); raw != "" {
+			if key, err := remotescan.ParseMasterKey(raw); err == nil {
+				if cp, err := remotescan.NewCipher(key); err == nil {
+					r.remoteCipher = cp
+				}
+			}
+		}
+	}
+	return r
 }
 
 // serverURL returns the externally reachable server base URL used by
@@ -170,6 +183,13 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Get("/network/hosts", s.listNetworkHosts)
 		r.Get("/network/tasks", s.listNetworkScanTasks)
 		r.Post("/network/scan", s.createNetworkScan)
+		r.Get("/remote/credentials", s.listRemoteCredentials)
+		r.Post("/remote/credentials", s.createRemoteCredential)
+		r.Put("/remote/credentials/{credentialId}", s.updateRemoteCredential)
+		r.Delete("/remote/credentials/{credentialId}", s.deleteRemoteCredential)
+		r.Post("/remote/scan", s.createRemoteScan)
+		r.Get("/remote/tasks", s.listRemoteScanTasks)
+		r.Get("/remote/hosts", s.listRemoteHosts)
 		r.Post("/agents/{id}/scan", s.triggerAgentScan)
 		r.Post("/container/scan", s.triggerContainerScan)
 		r.Get("/container/status", s.containerStatus)

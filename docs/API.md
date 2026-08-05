@@ -82,6 +82,20 @@ curl -s -X POST http://SERVER:8080/api/v1/network/scan \
 
 # 查看发现的主机
 curl -s http://SERVER:8080/api/v1/network/hosts -H "X-API-Key: $API_KEY"
+
+# 创建远程凭据（admin；auth_type=key 且不传 private_key 时响应一次性返回 public_key）
+curl -s -X POST http://SERVER:8080/api/v1/remote/credentials \
+  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"name":"prod-linux","username":"scan","auth_type":"password","password":"..."}'
+
+# 下发远程 SSH 扫描（operator+；Server 直连目标，默认端口 22）
+curl -s -X POST http://SERVER:8080/api/v1/remote/scan \
+  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"credential_id":1,"targets":["192.168.10.21","192.168.10.22:2222"]}'
+
+# 查看远程扫描任务与已采集主机
+curl -s http://SERVER:8080/api/v1/remote/tasks -H "X-API-Key: $API_KEY"
+curl -s http://SERVER:8080/api/v1/remote/hosts -H "X-API-Key: $API_KEY"
 ```
 
 ## 维护约定

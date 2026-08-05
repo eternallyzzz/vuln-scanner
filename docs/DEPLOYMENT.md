@@ -53,6 +53,11 @@ curl http://localhost:8080/health
 | `LDAP_ROLE_GROUPS` | 空 | JSON 对象，如 `{"admin":["cn=admins,dc=example,dc=org"],"viewer":["viewers"]}` |
 | `LDAP_AUTO_PROVISION` | `false` | 首次登录自动创建本地用户 |
 | `LDAP_TIMEOUT_SECONDS` | `10` | LDAP 连接/请求超时 |
+| `REMOTE_SCAN_ENABLED` | `false` | 启用服务端凭据远程扫描（对应 `remote_scan.enabled`） |
+| `REMOTE_SCAN_MASTER_KEY` | 空 | AES-256 主密钥（hex/base64 32 字节），加密远程凭据；**仅环境变量，不落配置** |
+| `REMOTE_SCAN_MASTER_KEY_ENV` | `REMOTE_SCAN_MASTER_KEY` | 指定存放主密钥的环境变量名（默认直接用 `REMOTE_SCAN_MASTER_KEY`） |
+| `REMOTE_SCAN_TIMEOUT_SECONDS` | `30` | 单条远程命令超时 |
+| `REMOTE_SCAN_CONCURRENCY` | `8` | 并发扫描任务数（1-64） |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |

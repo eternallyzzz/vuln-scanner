@@ -1738,6 +1738,157 @@ paths:
                   task:
                     $ref: '#/components/schemas/NetworkScanTask'
         '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/remote/credentials:
+    get:
+      tags: [scanning]
+      summary: 远程凭据列表（仅 admin，隐藏密码）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 凭据列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RemoteCredential'
+    post:
+      tags: [scanning]
+      summary: 创建远程凭据（password/key）；key 不传私钥时服务生成密钥并返回公钥
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteCredentialInput'
+      responses:
+        '201':
+          description: 已创建，key 自生成时返回 public_key 仅一次
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/RemoteCredential'
+                  public_key: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '503':
+          description: 远程扫描未启用或主密钥未配置
+  /api/v1/remote/credentials/{credentialId}:
+    put:
+      tags: [scanning]
+      summary: 更新远程凭据/轮转密钥（仅 admin）
+      x-roles: [admin]
+      parameters:
+        - {name: credentialId, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteCredentialInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/RemoteCredential'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [scanning]
+      summary: 注销远程凭据（软删除，拒绝新任务）
+      x-roles: [admin]
+      parameters:
+        - {name: credentialId, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: 已注销
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/remote/scan:
+    post:
+      tags: [scanning]
+      summary: 创建远程 SSH 扫描任务，服务端直连目标采集
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoteScanRequest'
+      responses:
+        '201':
+          description: 任务已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RemoteScanTask'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/remote/tasks:
+    get:
+      tags: [scanning]
+      summary: 远程扫描任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RemoteScanTask'
+  /api/v1/remote/hosts:
+    get:
+      tags: [scanning]
+      summary: 远程扫描已收集主机列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 主机列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  hosts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RemoteHost'
   /api/v1/agents/{id}/scan:
     post:
       tags: [scanning]
@@ -2671,6 +2822,64 @@ components:
         ports:
           type: array
           items: {type: integer}
+    RemoteCredential:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        username: {type: string}
+        auth_type: {type: string, enum: [password, key]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+    RemoteCredentialInput:
+      type: object
+      required: [name, username, auth_type]
+      properties:
+        name: {type: string}
+        username: {type: string}
+        auth_type: {type: string, enum: [password, key]}
+        password: {type: string, description: password 类型必填；其余时非必}
+        private_key: {type: string, description: key 类型非必；不传时服务生成新密钥}
+        passphrase: {type: string}
+    RemoteScanRequest:
+      type: object
+      required: [credential_id, targets]
+      properties:
+        credential_id: {type: integer, format: int64}
+        targets:
+          type: array
+          items: {type: string, description: 'host[:port] or IP[:port], default port 22'}
+        port: {type: integer, default: 22}
+    RemoteScanTask:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        credential_id: {type: integer, format: int64}
+        address: {type: string}
+        status: {type: string, enum: [pending, running, done, failed]}
+        created_by: {type: string}
+        error: {type: string}
+        result_summary: {type: object}
+        created_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+    RemoteHost:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        address: {type: string}
+        credential_id: {type: integer, format: int64}
+        agent_id: {type: string}
+        hostname: {type: string}
+        os_type: {type: string}
+        os_version: {type: string}
+        arch: {type: string}
+        package_count: {type: integer}
+        status: {type: string}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
     CVESummary:
       type: object
       properties:

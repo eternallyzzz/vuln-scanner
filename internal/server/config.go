@@ -15,6 +15,7 @@ import (
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/ldap"
 	"vuln-scanner/internal/patch"
+	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/report"
 )
 
@@ -54,6 +55,7 @@ type Config struct {
 	ContainerScan *container.Config `mapstructure:"container_scan"`
 	Reporting     *report.Config    `mapstructure:"reporting"`
 	LDAP          *ldap.Config      `mapstructure:"ldap"`
+	RemoteScan    *remotescan.Config `mapstructure:"remote_scan"`
 }
 
 func DefaultConfig() *Config {
@@ -64,6 +66,7 @@ func DefaultConfig() *Config {
 		JWTSecret:   "change-me-in-production",
 		APIKey:      "sk-change-me",
 		Reporting:   report.DefaultConfig(),
+		RemoteScan:  remotescan.DefaultConfig(),
 	}
 }
 
@@ -129,8 +132,65 @@ func LoadConfig(path string) (*Config, error) {
 	if err := applyLDAPEnv(cfg.LDAP); err != nil {
 		return nil, fmt.Errorf("apply ldap env: %w", err)
 	}
+	if cfg.RemoteScan == nil {
+		cfg.RemoteScan = remotescan.DefaultConfig()
+	}
+	if err := applyRemoteScanEnv(cfg.RemoteScan); err != nil {
+		return nil, fmt.Errorf("apply remote scan env: %w", err)
+	}
+	if err := cfg.RemoteScan.Validate(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+// applyRemoteScanEnv applies REMOTE_SCAN_* environment overrides on top of
+// any server.yaml remote_scan section. The master key itself is read from
+// the environment variable named by master_key_env (default
+// REMOTE_SCAN_MASTER_KEY) and is never written to server.yaml.
+func applyRemoteScanEnv(c *remotescan.Config) error {
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setInt := func(envName string, dst *int) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be an integer: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+
+	setString("REMOTE_SCAN_MASTER_KEY_ENV", &c.MasterKeyEnv)
+	if err := setBool("REMOTE_SCAN_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setInt("REMOTE_SCAN_TIMEOUT_SECONDS", &c.TimeoutSeconds); err != nil {
+		return err
+	}
+	if err := setInt("REMOTE_SCAN_CONCURRENCY", &c.Concurrency); err != nil {
+		return err
+	}
+	return nil
 }
 
 // applyLDAPEnv applies LDAP_* environment overrides on top of any
