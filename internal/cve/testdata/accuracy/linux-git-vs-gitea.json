@@ -1,0 +1,47 @@
+{
+  "name": "linux-git-vs-gitea",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "git", "version": "2.43.0", "format": "deb", "vendor": "Ubuntu"},
+    {"name": "gitea", "version": "1.21.0", "format": "deb", "vendor": "Gitea"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2024-32002",
+      "severity": "HIGH",
+      "cvss_score": 8.0,
+      "summary": "Git recursive clone RCE",
+      "affected": [
+        {"name": "git", "max_ver": "2.43.1", "vendor": "git"}
+      ]
+    },
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2024-24789",
+      "severity": "MEDIUM",
+      "cvss_score": 5.5,
+      "summary": "Gitea path traversal",
+      "affected": [
+        {"name": "gitea", "max_ver": "1.21.1", "vendor": "gitea"}
+      ]
+    },
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2023-2825",
+      "severity": "MEDIUM",
+      "cvss_score": 6.4,
+      "summary": "GitLab path traversal",
+      "affected": [
+        {"name": "gitlab", "max_ver": "16.0.1", "vendor": "gitlab"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2024-32002", "asset": "git", "status": "active"},
+    {"cve_id": "CVE-2024-24789", "asset": "gitea", "status": "active"}
+  ]
+}

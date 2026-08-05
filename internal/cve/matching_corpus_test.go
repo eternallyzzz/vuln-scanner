@@ -184,7 +184,7 @@ func TestWazuhSkypeHotfixStatus(t *testing.T) {
 		AssetName:    "skype_for_business",
 		AssetVersion: "2016",
 	}}
-	out := (&Matcher{}).enrichVersionStatus(results, nil,
+	out := enrichVersionStatus(results, nil,
 		map[string]bool{"KB3114960": true}, "",
 		map[string]string{"skype_for_business": "KB3114960"})
 	if out[0].MatchStatus != "fixed" || out[0].FixedVersion != "KB3114960" {

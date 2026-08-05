@@ -405,110 +405,120 @@ func (f *FeedManager) matchByName(ctx context.Context, source string, names, msr
 			&e.Severity, &e.CVSSScore, &e.Summary, &e.Source); err != nil {
 			continue
 		}
+		results = append(results, matchFeedEntry(e, queryNames, queryVersions,
+			lowerNames, agentCPEIndex, installedKBs, agentOS, agentVersion, agentArch, osAssetName)...)
+	}
+	return results
+}
 
-		if e.Source == "redhat" {
-			results = append(results, matchRedHatEntry(&e, agentOS, agentVersion,
-				names, assetVersions, lowerNames)...)
+// matchFeedEntry evaluates one feed row against the caller-scoped asset
+// names/versions. It is the pure decision core of matchByName and is reused
+// by the offline accuracy harness. The SQL pre-filter is intentionally not
+// part of it: it only narrows candidate rows and never changes a verdict.
+func matchFeedEntry(e FeedEntry, queryNames []string, queryVersions map[string]string,
+	lowerNames map[string]bool, agentCPEIndex map[string]string, installedKBs map[string]bool,
+	agentOS, agentVersion, agentArch, osAssetName string) []MatchedCVE {
+	if e.Source == "redhat" {
+		return matchRedHatEntry(&e, agentOS, agentVersion, queryNames, queryVersions, lowerNames)
+	}
+
+	var affected []AffectedProduct
+	json.Unmarshal(e.Affected, &affected)
+	var results []MatchedCVE
+	for _, ap := range affected {
+		if ap.Name == "" {
 			continue
 		}
-
-		var affected []AffectedProduct
-		json.Unmarshal(e.Affected, &affected)
-		for _, ap := range affected {
-			if ap.Name == "" {
+		if !cpeMatches(ap, e.Source, agentCPEIndex, lowerNames) {
+			continue
+		}
+		if !isRelevantProduct(ap, e.Source, agentOS, agentVersion, agentArch, lowerNames) {
+			continue
+		}
+		status := "active"
+		kb, kbURL := "", ""
+		if e.Source == "msrc" {
+			// Per-product KB from the CVRF remediation mapping; the
+			// fallback e.FixedKB must not be smeared over products that
+			// have their own remediation (or none).
+			kb = ap.FixedIn
+			kbURL = ap.KBURL
+			if kb != "" && installedKBs != nil && isKBFixed(kb, installedKBs) {
+				status = "fixed"
+			}
+		}
+		installedVer := findInstalledVersionEco(ap.Name, ap.Ecosystem, queryVersions)
+		if e.Source != "msrc" && e.Source != "debian" {
+			hasRange := ap.MinVer != "" || ap.MaxVer != "" || ap.FixedIn != ""
+			if !hasRange {
 				continue
 			}
-			if !cpeMatches(ap, e.Source, agentCPEIndex, lowerNames) {
+			if installedVer == "" {
 				continue
 			}
-			if !isRelevantProduct(ap, e.Source, agentOS, agentVersion, agentArch, lowerNames) {
+			if !isVersionAffected(installedVer, ap) {
 				continue
 			}
-			status := "active"
-			kb, kbURL := "", ""
-			if e.Source == "msrc" {
-				// Per-product KB from the CVRF remediation mapping; the
-				// fallback e.FixedKB must not be smeared over products that
-				// have their own remediation (or none).
-				kb = ap.FixedIn
-				kbURL = ap.KBURL
-				if kb != "" && installedKBs != nil && isKBFixed(kb, installedKBs) {
+			fixedVer := ap.FixedIn
+			if fixedVer == "" {
+				fixedVer = ap.MaxVer
+			}
+			if fixedVer != "" {
+				if isDpkgEcosystem(ap.Ecosystem) {
+					if compareDpkgVersions(installedVer, fixedVer) >= 0 {
+						status = "fixed"
+					}
+				} else if isAPKEcosystem(ap.Ecosystem) {
+					if apkVersionCompare(installedVer, fixedVer) >= 0 {
+						status = "fixed"
+					}
+				} else if isRPMEcosystem(ap.Ecosystem) {
+					if compareRPMVersions(installedVer, fixedVer) >= 0 {
+						status = "fixed"
+					}
+				} else if compareVersions(installedVer, fixedVer) >= 0 {
 					status = "fixed"
 				}
 			}
-			installedVer := findInstalledVersionEco(ap.Name, ap.Ecosystem, queryVersions)
-			if e.Source != "msrc" && e.Source != "debian" {
-				hasRange := ap.MinVer != "" || ap.MaxVer != "" || ap.FixedIn != ""
-				if !hasRange {
-					continue
-				}
-				if installedVer == "" {
-					continue
-				}
-				if !isVersionAffected(installedVer, ap) {
-					continue
-				}
-				fixedVer := ap.FixedIn
-				if fixedVer == "" {
-					fixedVer = ap.MaxVer
-				}
-				if fixedVer != "" {
-					if isDpkgEcosystem(ap.Ecosystem) {
-						if compareDpkgVersions(installedVer, fixedVer) >= 0 {
-							status = "fixed"
-						}
-					} else if isAPKEcosystem(ap.Ecosystem) {
-						if apkVersionCompare(installedVer, fixedVer) >= 0 {
-							status = "fixed"
-						}
-					} else if isRPMEcosystem(ap.Ecosystem) {
-						if compareRPMVersions(installedVer, fixedVer) >= 0 {
-							status = "fixed"
-						}
-					} else if compareVersions(installedVer, fixedVer) >= 0 {
-						status = "fixed"
-					}
-				}
-			}
-			fixVer := ""
-			if e.Source == "msrc" {
-				fixVer = ap.FixedIn
-			} else {
-				fixVer = firstNonEmpty(e.FixedKB, e.FixedVer)
-			}
-			if fixVer == "" && e.Source != "msrc" {
-				fixVer = firstNonEmpty(ap.FixedIn, ap.MaxVer)
-			}
-			assetName := resolveAssetName(e.Source, ap, agentCPEIndex, queryVersions, osAssetName)
-			assetLower := strings.ToLower(assetName)
-			for _, n := range queryNames {
-				if strings.ToLower(n) == assetLower {
-					assetName = n
-					break
-				}
-			}
-			if installedVer == "" {
-				if v, ok := queryVersions[strings.ToLower(assetName)]; ok {
-					installedVer = v
-				}
-			}
-
-			results = append(results, MatchedCVE{
-				CVEID:        e.CVEID,
-				AssetName:    assetName,
-				AssetVersion: installedVer,
-				FixedVersion: fixVer,
-				KBArticle:    kb,
-				KBURL:        kbURL,
-				CpeVer:       ap.CpeVer,
-				OSProduct:    e.Source == "msrc" && isMSRCOSProductName(ap.Name),
-				Severity:     e.Severity,
-				CVSSScore:    e.CVSSScore,
-				Summary:      e.Summary,
-				Source:       e.Source,
-				MatchStatus:  status,
-			})
 		}
+		fixVer := ""
+		if e.Source == "msrc" {
+			fixVer = ap.FixedIn
+		} else {
+			fixVer = firstNonEmpty(e.FixedKB, e.FixedVer)
+		}
+		if fixVer == "" && e.Source != "msrc" {
+			fixVer = firstNonEmpty(ap.FixedIn, ap.MaxVer)
+		}
+		assetName := resolveAssetName(e.Source, ap, agentCPEIndex, queryVersions, osAssetName)
+		assetLower := strings.ToLower(assetName)
+		for _, n := range queryNames {
+			if strings.ToLower(n) == assetLower {
+				assetName = n
+				break
+			}
+		}
+		if installedVer == "" {
+			if v, ok := queryVersions[strings.ToLower(assetName)]; ok {
+				installedVer = v
+			}
+		}
+
+		results = append(results, MatchedCVE{
+			CVEID:        e.CVEID,
+			AssetName:    assetName,
+			AssetVersion: installedVer,
+			FixedVersion: fixVer,
+			KBArticle:    kb,
+			KBURL:        kbURL,
+			CpeVer:       ap.CpeVer,
+			OSProduct:    e.Source == "msrc" && isMSRCOSProductName(ap.Name),
+			Severity:     e.Severity,
+			CVSSScore:    e.CVSSScore,
+			Summary:      e.Summary,
+			Source:       e.Source,
+			MatchStatus:  status,
+		})
 	}
 	return results
 }

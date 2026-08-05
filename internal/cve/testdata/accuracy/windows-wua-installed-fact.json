@@ -1,0 +1,31 @@
+{
+  "name": "windows-wua-installed-fact",
+  "platform": "windows",
+  "agent_os": "Windows 10 Pro 22H2",
+  "agent_version": "10.0.19045.4043",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "Skype for Business Basic 2016", "version": "2016", "format": "win", "vendor": "Microsoft Corporation"}
+  ],
+  "wua_facts": [
+    {"kb": "KB3114960", "state": "installed", "source": "wua"}
+  ],
+  "wua_source": {
+    "source_reachable": true
+  },
+  "feed": [
+    {
+      "source": "msrc",
+      "cve_id": "CVE-2016-0145",
+      "severity": "IMPORTANT",
+      "cvss_score": 8.8,
+      "summary": "Skype for Business elevation of privilege",
+      "affected": [
+        {"name": "Skype for Business Basic 2016", "min_ver": "2016", "fixed_in": "KB3114960"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2016-0145", "asset": "Skype for Business Basic 2016", "status": "fixed"}
+  ]
+}

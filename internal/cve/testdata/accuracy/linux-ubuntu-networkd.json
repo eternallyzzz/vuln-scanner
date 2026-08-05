@@ -1,0 +1,25 @@
+{
+  "name": "linux-ubuntu-networkd",
+  "platform": "linux",
+  "agent_os": "Ubuntu 20.04.6 LTS",
+  "agent_version": "20.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "networkd-dispatcher", "version": "2.1-1~ubuntu20.04.3", "format": "deb", "vendor": "Ubuntu"}
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2022-29800",
+      "severity": "MODERATE",
+      "cvss_score": 5.5,
+      "summary": "networkd-dispatcher time-of-check issue",
+      "affected": [
+        {"name": "networkd-dispatcher", "max_ver": "0:2.1-2~ubuntu20.04.2", "ecosystem": "Ubuntu:20.04:LTS"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2022-29800", "asset": "networkd-dispatcher", "status": "active"}
+  ]
+}

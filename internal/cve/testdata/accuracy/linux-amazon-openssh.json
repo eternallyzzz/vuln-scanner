@@ -1,0 +1,25 @@
+{
+  "name": "linux-amazon-openssh",
+  "platform": "linux",
+  "agent_os": "Amazon Linux 2023",
+  "agent_version": "2023.4.20240416",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "openssh", "version": "8.7p1-8.amzn2023.0.9", "format": "rpm", "vendor": "Amazon"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2023-51385",
+      "severity": "MEDIUM",
+      "cvss_score": 5.9,
+      "summary": "OpenSSH ssh-agent PKCS#11",
+      "affected": [
+        {"name": "openssh", "max_ver": "8.7p1-8.amzn2023.0.10", "ecosystem": "rpm"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2023-51385", "asset": "openssh", "status": "active"}
+  ]
+}

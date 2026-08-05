@@ -1,0 +1,33 @@
+{
+  "name": "linux-python3-alias",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "python3", "version": "3.11.2", "format": "deb", "vendor": "Ubuntu"}
+  ],
+  "translations": [
+    {
+      "pattern": "^python[0-9].*",
+      "product": "python",
+      "platform": "any",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2024-11174",
+      "severity": "MEDIUM",
+      "cvss_score": 6.5,
+      "summary": "CPython tarfile filter bypass",
+      "affected": [
+        {"name": "python", "min_ver": "3.11.0", "max_ver": "3.11.3", "ecosystem": "pypi"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2024-11174", "asset": "python", "status": "active"}
+  ]
+}

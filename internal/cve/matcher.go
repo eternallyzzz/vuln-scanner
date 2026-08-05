@@ -79,7 +79,7 @@ func (m *Matcher) matchWindows(ctx context.Context, agentID string, assets []Ass
 	if err != nil {
 		return nil, err
 	}
-	matched = m.enrichVersionStatus(matched, assets, installedKBs, agentVer, tm.hotfixes())
+	matched = enrichVersionStatus(matched, assets, installedKBs, agentVer, tm.hotfixes())
 	updateFacts, _ := m.store.GetAgentUpdateFacts(ctx, agentID)
 	updateStatus, _ := m.store.GetAgentUpdateStatus(ctx, agentID)
 	matched = applyWUAVerification(matched, updateFacts, updateStatus)
@@ -125,11 +125,15 @@ func (m *Matcher) prefetchNVD(ctx context.Context, names []string) {
 }
 
 func (m *Matcher) matchLinux(ctx context.Context, agentID string, assets []AssetToMatch, tm *translationMatcher) ([]MatchedCVE, error) {
-	rawNames, _ := extractSoftwareNames(assets, "linux", tm)
+	// Translated names (package aliases such as python3 -> python) join the
+	// search set exactly as they do on Windows; without them an 'any'-platform
+	// alias can never reach the feed pre-filter or the Go-side name matcher.
+	rawNames, translatedNames := extractSoftwareNames(assets, "linux", tm)
+	searchNames := append(translatedNames, rawNames...)
 
 	assetVersions := buildAssetVersions(assets, "linux", tm)
 	agentOS, agentVer, agentArch := getAgentOSInfo(ctx, m.store, agentID)
-	matched, err := m.feed.MatchAssets(ctx, rawNames, nil, assetVersions, nil, nil, agentOS, agentVer, agentArch, "")
+	matched, err := m.feed.MatchAssets(ctx, searchNames, nil, assetVersions, nil, nil, agentOS, agentVer, agentArch, "")
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +184,7 @@ func msrcFamilyToken(agentOS string) string {
 	return ""
 }
 
-func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatch,
+func enrichVersionStatus(results []MatchedCVE, assets []AssetToMatch,
 	installedKBs map[string]bool, agentVersion string, hotfixByProduct map[string]string) []MatchedCVE {
 	assetMap := make(map[string]string)
 	for _, a := range assets {

@@ -1,0 +1,46 @@
+{
+  "name": "linux-rhel-nss-exact-rpm",
+  "platform": "linux",
+  "agent_os": "Red Hat Enterprise Linux 9.4",
+  "agent_version": "9.4",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "nss", "version": "3.79.0-4.el9_3", "format": "rpm", "vendor": "Red Hat"},
+    {"name": "openssl-libs", "version": "3.0.7-17.el9", "format": "rpm", "vendor": "Red Hat"}
+  ],
+  "feed": [
+    {
+      "source": "redhat",
+      "cve_id": "CVE-2020-25648",
+      "severity": "MODERATE",
+      "cvss_score": 5.3,
+      "summary": "NSS improper handling of certificate",
+      "affected": [
+        {"name": "nss", "major": "9", "fixed_in": "0:3.79.0-5.el9_3"}
+      ]
+    },
+    {
+      "source": "redhat",
+      "cve_id": "CVE-2023-0286",
+      "severity": "IMPORTANT",
+      "cvss_score": 7.4,
+      "summary": "OpenSSL X.400 address RCE",
+      "affected": [
+        {"name": "openssl", "major": "9", "fixed_in": "0:3.0.7-17.el9"}
+      ]
+    },
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2023-0286",
+      "severity": "HIGH",
+      "cvss_score": 7.4,
+      "summary": "OpenSSL X.400 address RCE",
+      "affected": [
+        {"name": "openssl", "max_ver": "3.0.8", "ecosystem": "rpm"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2020-25648", "asset": "nss", "status": "active"}
+  ]
+}

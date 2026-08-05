@@ -1,0 +1,23 @@
+{
+  "name": "linux-arch-openssh-fixed",
+  "platform": "linux",
+  "agent_os": "Arch Linux",
+  "agent_version": "rolling",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "openssh", "version": "9.8p1-1", "format": "pkg", "vendor": "Arch"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2024-6387",
+      "severity": "CRITICAL",
+      "cvss_score": 9.8,
+      "summary": "OpenSSH regreSSHion",
+      "affected": [
+        {"name": "openssh", "max_ver": "9.8p1-1"}
+      ]
+    }
+  ],
+  "expected": []
+}

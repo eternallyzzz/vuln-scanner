@@ -1,0 +1,25 @@
+{
+  "name": "linux-suse-libopenssl1_1",
+  "platform": "linux",
+  "agent_os": "SUSE Linux Enterprise Server 15 SP5",
+  "agent_version": "15.5",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "libopenssl1_1", "version": "1.1.0i-150100.14.42.1.x86_64", "format": "rpm", "vendor": "SUSE"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2002-20001",
+      "severity": "HIGH",
+      "cvss_score": 8.1,
+      "summary": "OpenSSL ASN.1 denial of service",
+      "affected": [
+        {"name": "libopenssl1_1", "max_ver": "0:1.1.1l-150500.15.4", "ecosystem": "SUSE"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2002-20001", "asset": "libopenssl1_1", "status": "active"}
+  ]
+}
