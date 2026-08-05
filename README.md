@@ -14,6 +14,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Alerting / 告警** — rule engine with severity/source/agent/asset/tag/environment filters, dedup & cooldown, Webhook (HMAC-signed) / SMTP delivery
 - **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
 - **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
+- **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
 - **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
 - **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
@@ -146,6 +147,22 @@ ldap:                    # 可选；不配置或 enabled: false 时 LDAP 登录�
 
 Set `agent.patch_enabled: true` to enable patch task polling / 开启补丁任务轮询。
 
+网络扫描（可选）：启用后 Agent 按周期对目标网段做 TCP 发现与服务指纹，结果上报 Server 并进入
+现有 CVE 匹配/风险/告警链路；也可由 Server 通过 `POST /api/v1/network/scan` 下发一次性任务。
+
+```yaml
+network_scan:
+  enabled: true
+  interval_minutes: 60
+  targets:
+    - "192.168.10.0/24"
+  ports: [21, 22, 80, 443, 445, 3389, 5432, 6379, 8080]   # 不填用默认端口表
+  exclude: ["192.168.10.99"]
+  timeout_seconds: 2
+  concurrency: 32
+  max_hosts: 1024
+```
+
 ## API Keys & Secrets / 密钥配置
 
 The repository contains **no hardcoded API keys**; every deployer supplies their own. / 仓库不含任何硬编码密钥，由每个部署者自行提供：
@@ -170,6 +187,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 补丁：`POST /agents/{id}/patch-tasks/generate`、`/patch-tasks/{id}/approve|reject|cancel|retry`；agent 轮询执行并回传结果
 - 批量补丁：`POST /api/v1/patch-campaigns`（按 agent_ids/tags/environments/asset_names/cve_ids/min_severity/min_cvss 批量生成，支持 `dry_run` 预演、重复任务去重）、`/patch-campaigns/{id}/approve|reject|cancel|retry` 批量状态流转、`/patch-campaigns/{id}` 汇总与审计、`GET /api/v1/patch-tasks` 全局任务列表
 - 容器扫描：`POST /api/v1/container/scan` 异步触发 Trivy 扫描、`GET /api/v1/container/status` 扫描状态、`GET /api/v1/container/images` 镜像清单；结果落入合成 agent（默认 agent-container-docker），修复建议为 rebuild（不可自动部署）
+- 网络扫描：`GET /api/v1/network/hosts`（发现主机与服务指纹）、`GET /api/v1/network/tasks`（任务列表）、`POST /api/v1/network/scan`（operator+ 下发一次性任务，Agent 领取执行）；每台主机生成合成 agent（agent-net-*）复用匹配/风险/告警链路
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`

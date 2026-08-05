@@ -133,6 +133,7 @@ func operatorCan(method, path string) bool {
 		{http.MethodPost, "/api/v1/trigger-match", ""},
 		{http.MethodPut, "/api/v1/scan-policies/", ""},
 		{http.MethodPost, "/api/v1/container/scan", ""},
+		{http.MethodPost, "/api/v1/network/scan", ""},
 		{http.MethodPost, "/api/v1/assets/import", ""},
 		{http.MethodPost, "/api/v1/assets/bulk-meta", ""},
 		{http.MethodPut, "/api/v1/assets/", ""},

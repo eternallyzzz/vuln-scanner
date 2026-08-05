@@ -25,6 +25,17 @@ type Config struct {
 		WUAEnabled          bool   `mapstructure:"wua_collect"`
 		WUATimeoutSeconds   int    `mapstructure:"wua_timeout_seconds"`
 	} `mapstructure:"agent"`
+
+	NetworkScan struct {
+		Enabled         bool     `mapstructure:"enabled"`
+		IntervalMinutes int      `mapstructure:"interval_minutes"`
+		Targets         []string `mapstructure:"targets"`
+		Ports           []int    `mapstructure:"ports"`
+		Exclude         []string `mapstructure:"exclude"`
+		TimeoutSeconds  int      `mapstructure:"timeout_seconds"`
+		Concurrency     int      `mapstructure:"concurrency"`
+		MaxHosts        int      `mapstructure:"max_hosts"`
+	} `mapstructure:"network_scan"`
 }
 
 func ConfigDir() string {
@@ -54,6 +65,10 @@ func LoadConfig() (*Config, error) {
 	cfg.Agent.PatchTimeoutSeconds = 600
 	cfg.Agent.WUAEnabled = true
 	cfg.Agent.WUATimeoutSeconds = 60
+	cfg.NetworkScan.IntervalMinutes = 60
+	cfg.NetworkScan.TimeoutSeconds = 2
+	cfg.NetworkScan.Concurrency = 32
+	cfg.NetworkScan.MaxHosts = 1024
 
 	v := viper.New()
 	v.SetConfigFile(configPath())
@@ -96,6 +111,14 @@ func SaveConfig(cfg *Config) error {
 	v.Set("agent.patch_timeout_seconds", cfg.Agent.PatchTimeoutSeconds)
 	v.Set("agent.wua_collect", cfg.Agent.WUAEnabled)
 	v.Set("agent.wua_timeout_seconds", cfg.Agent.WUATimeoutSeconds)
+	v.Set("network_scan.enabled", cfg.NetworkScan.Enabled)
+	v.Set("network_scan.interval_minutes", cfg.NetworkScan.IntervalMinutes)
+	v.Set("network_scan.targets", cfg.NetworkScan.Targets)
+	v.Set("network_scan.ports", cfg.NetworkScan.Ports)
+	v.Set("network_scan.exclude", cfg.NetworkScan.Exclude)
+	v.Set("network_scan.timeout_seconds", cfg.NetworkScan.TimeoutSeconds)
+	v.Set("network_scan.concurrency", cfg.NetworkScan.Concurrency)
+	v.Set("network_scan.max_hosts", cfg.NetworkScan.MaxHosts)
 
 	return v.WriteConfigAs(configPath())
 }

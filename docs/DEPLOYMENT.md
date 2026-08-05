@@ -106,9 +106,29 @@ Invoke-WebRequest http://SERVER:8080/dl/agent/windows-amd64.exe -OutFile $env:TE
 服务名为 `VulnAgent`：`sc query VulnAgent`；卸载：`vuln-agent.exe uninstall`。Agent 配置写入
 `%USERPROFILE%\.vuln-scanner\agent.yaml`。
 
-### 2.4 网络要求 / Network
+### 2.4 网络扫描（可选）/ Network Scanning (Optional)
+
+在 `agent.yaml` 增加 `network_scan` 段即可启用 Agent 侧 TCP 发现与服务指纹（不登录主机）：
+
+```yaml
+network_scan:
+  enabled: true
+  interval_minutes: 60
+  targets: ["192.168.10.0/24"]
+  ports: [22, 80, 443, 445, 3389]
+  exclude: ["192.168.10.99"]
+  timeout_seconds: 2
+  concurrency: 32
+  max_hosts: 1024
+```
+
+结果上报 Server 后生成合成 agent（`agent-net-*`）并复用 CVE 匹配/风险/告警链路；也可通过
+`POST /api/v1/network/scan` 下发一次性任务，任意 Agent 都会领取执行。
+
+### 2.5 网络要求 / Network
 
 - Agent → Server：TCP 9090（gRPC 遥测）与 8080（注册/下载/补丁任务）。
+- 启用网络扫描的 Agent → 目标网段：TCP（目标端口，默认含 21/22/80/443/445/993/995/3306/3389/5432/6379/8080/8443）。
 - Server → PostgreSQL：容器内网自动打通；本机部署请保持 5432 可达。
 - Server → 公网：MSRC/NVD/OSV/Debian/Red Hat 数据源与（可选）LLM API。
 

@@ -18,7 +18,7 @@
 | 能力 | VulnScanner | Tenable | Qualys VMDR | Rapid7 | Defender for Cloud |
 | --- | --- | --- | --- | --- | --- |
 | 主机资产发现（Agent） | ★ | ★ | ★ | ★ | ★ |
-| Agentless/网络扫描 | — | ★ | ★ | ★ | ★（agentless 机器扫描） |
+| Agentless/网络扫描 | ◐（Agent 侧 TCP 发现+服务指纹，v1） | ★ | ★ | ★ | ★（agentless 机器扫描） |
 | 凭据认证扫描（远程主机） | — | ★ | ★ | ★ | ◐（主要 agent/agentless） |
 | 云资产（AWS/Azure/GCP） | — | ★ | ★ | ★ | ★（原生） |
 | AD/身份暴露面 | — | ★（Tenable One/AD 模块） | ◐ | ★ | ◐ |
@@ -92,7 +92,7 @@ VulnScanner 可借鉴的方向：分层可解释权重（已具备雏形）、�
 - [x] OpenAPI 规范与 API 文档（2026-08 完成）
 
 ### P2（中期）
-- Agentless/网络扫描与凭据认证扫描（范围大，需单独设计）
+- [x] Agentless/网络扫描（Agent 侧 TCP 发现+服务指纹+CVE 匹配，2026-08 完成）；凭据认证扫描待后续
 - 工单集成（Jira/ServiceNow）与 SIEM/SOAR 事件流
 - [x] SSO/LDAP（对接已有 RBAC）：目录绑定认证 + 组角色映射 + 自动建号（2026-08 完成）
 - 云资产接入（AWS/Azure/GCP 凭据发现）

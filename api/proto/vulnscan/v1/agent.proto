@@ -12,6 +12,8 @@ service AgentService {
   rpc SyncCompliance(SyncComplianceRequest) returns (SyncComplianceResponse);
   rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
   rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
+  rpc FetchNetworkScanTasks(FetchNetworkScanTasksRequest) returns (FetchNetworkScanTasksResponse);
+  rpc SyncNetworkScan(SyncNetworkScanRequest) returns (SyncNetworkScanResponse);
 }
 
 message AuthRequest {
@@ -124,6 +126,51 @@ message ReportPatchTaskRequest {
 
 message ReportPatchTaskResponse {
   bool ok = 1;
+}
+
+message NetworkScanTaskInfo {
+  int64 id = 1;
+  string target = 2;
+  repeated int32 ports = 3;
+}
+
+message FetchNetworkScanTasksRequest {
+  string agent_id = 1;
+  string token = 2;
+}
+
+message FetchNetworkScanTasksResponse {
+  repeated NetworkScanTaskInfo tasks = 1;
+}
+
+message NetworkService {
+  int32 port = 1;
+  string protocol = 2; // tcp
+  string service = 3;  // canonical product/service name
+  string version = 4;
+  string banner = 5;
+}
+
+message NetworkHost {
+  string ip = 1;
+  string hostname = 2;
+  string os_type = 3; // windows | linux | unknown
+  repeated NetworkService services = 4;
+}
+
+message SyncNetworkScanRequest {
+  string agent_id = 1;
+  string token = 2;
+  int64 task_id = 3;    // 0 = scheduled scan
+  string scan_mode = 4; // scheduled | manual
+  string scanned_at = 5;
+  repeated NetworkHost hosts = 6;
+  string error = 7;
+}
+
+message SyncNetworkScanResponse {
+  bool ok = 1;
+  int64 received_count = 2;
 }
 
 enum SyncMode {

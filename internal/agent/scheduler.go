@@ -10,6 +10,7 @@ import (
 	pb "vuln-scanner/api/gen/vulnscan/v1"
 	"vuln-scanner/internal/collector"
 	"vuln-scanner/internal/compliance"
+	"vuln-scanner/internal/netscan"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -44,8 +45,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	heartbeatInterval := 30 * time.Second
 	patchInterval := 60 * time.Second
+	netScanInterval := time.Duration(s.cfg.NetworkScan.IntervalMinutes) * time.Minute
+	if netScanInterval < 15*time.Minute {
+		netScanInterval = 15 * time.Minute
+	}
 	complianceTicker := time.NewTicker(complianceSyncInterval)
+	netScanTicker := time.NewTicker(netScanInterval)
 	defer complianceTicker.Stop()
+	defer netScanTicker.Stop()
 
 	s.ticker = time.NewTicker(interval)
 	hbTicker := time.NewTicker(heartbeatInterval)
@@ -54,6 +61,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	_, sys := s.doFullSync(ctx)
 	s.syncCompliance(ctx, sys)
+	if s.cfg.NetworkScan.Enabled && len(s.cfg.NetworkScan.Targets) > 0 {
+		s.runNetworkScan(ctx, "", nil, 0, "scheduled")
+	}
 
 	for {
 		select {
@@ -83,8 +93,84 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			if s.cfg.Agent.PatchEnabled {
 				s.doPatchLoop(ctx)
 			}
+			s.doNetworkTaskLoop(ctx)
+		case <-netScanTicker.C:
+			if s.cfg.NetworkScan.Enabled && len(s.cfg.NetworkScan.Targets) > 0 {
+				s.runNetworkScan(ctx, "", nil, 0, "scheduled")
+			}
 		}
 	}
+}
+
+// doNetworkTaskLoop claims server-dispatched network scan tasks. Any agent
+// can execute a task because the target and ports travel with the task.
+func (s *Scheduler) doNetworkTaskLoop(ctx context.Context) {
+	tasks, err := s.client.FetchNetworkScanTasks(ctx)
+	if err != nil {
+		slog.Warn("fetch network scan tasks failed", "error", err)
+		return
+	}
+	for _, task := range tasks {
+		ports := make([]int, 0, len(task.GetPorts()))
+		for _, p := range task.GetPorts() {
+			ports = append(ports, int(p))
+		}
+		s.runNetworkScan(ctx, task.GetTarget(), ports, task.GetId(), "manual")
+	}
+}
+
+// runNetworkScan runs one discovery pass and reports the result. A server
+// task that fails to scan is still reported so it can be marked failed.
+func (s *Scheduler) runNetworkScan(ctx context.Context, target string, ports []int, taskID int64, mode string) {
+	cfg := netscan.Config{
+		Targets:     s.cfg.NetworkScan.Targets,
+		Ports:       ports,
+		Exclude:     s.cfg.NetworkScan.Exclude,
+		Timeout:     time.Duration(s.cfg.NetworkScan.TimeoutSeconds) * time.Second,
+		Concurrency: s.cfg.NetworkScan.Concurrency,
+		MaxHosts:    s.cfg.NetworkScan.MaxHosts,
+	}
+	if target != "" {
+		cfg.Targets = []string{target}
+	}
+	if len(ports) == 0 {
+		cfg.Ports = s.cfg.NetworkScan.Ports
+	}
+	hosts, err := netscan.Scan(ctx, cfg)
+	scanErr := ""
+	if err != nil {
+		scanErr = err.Error()
+		hosts = nil
+	}
+	if err := s.client.SyncNetworkScan(ctx, taskID, mode, toPBHosts(hosts), scanErr); err != nil {
+		slog.Warn("sync network scan failed", "task_id", taskID, "error", err)
+		return
+	}
+	slog.Info("network scan reported", "task_id", taskID, "mode", mode,
+		"hosts", len(hosts), "error", scanErr)
+}
+
+func toPBHosts(hosts []netscan.Host) []*pb.NetworkHost {
+	out := make([]*pb.NetworkHost, 0, len(hosts))
+	for _, h := range hosts {
+		services := make([]*pb.NetworkService, 0, len(h.Services))
+		for _, svc := range h.Services {
+			services = append(services, &pb.NetworkService{
+				Port:     int32(svc.Port),
+				Protocol: svc.Protocol,
+				Service:  svc.Service,
+				Version:  svc.Version,
+				Banner:   svc.Banner,
+			})
+		}
+		out = append(out, &pb.NetworkHost{
+			Ip:       h.IP,
+			Hostname: h.Hostname,
+			OsType:   h.OSTypeGuess,
+			Services: services,
+		})
+	}
+	return out
 }
 
 func (s *Scheduler) doPatchLoop(ctx context.Context) {

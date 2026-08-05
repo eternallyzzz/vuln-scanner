@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AgentService_Auth_FullMethodName            = "/vulnscan.v1.AgentService/Auth"
-	AgentService_RefreshToken_FullMethodName    = "/vulnscan.v1.AgentService/RefreshToken"
-	AgentService_Heartbeat_FullMethodName       = "/vulnscan.v1.AgentService/Heartbeat"
-	AgentService_SyncInventory_FullMethodName   = "/vulnscan.v1.AgentService/SyncInventory"
-	AgentService_SyncCompliance_FullMethodName  = "/vulnscan.v1.AgentService/SyncCompliance"
-	AgentService_FetchPatchTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchPatchTasks"
-	AgentService_ReportPatchTask_FullMethodName = "/vulnscan.v1.AgentService/ReportPatchTask"
+	AgentService_Auth_FullMethodName                  = "/vulnscan.v1.AgentService/Auth"
+	AgentService_RefreshToken_FullMethodName          = "/vulnscan.v1.AgentService/RefreshToken"
+	AgentService_Heartbeat_FullMethodName             = "/vulnscan.v1.AgentService/Heartbeat"
+	AgentService_SyncInventory_FullMethodName         = "/vulnscan.v1.AgentService/SyncInventory"
+	AgentService_SyncCompliance_FullMethodName        = "/vulnscan.v1.AgentService/SyncCompliance"
+	AgentService_FetchPatchTasks_FullMethodName       = "/vulnscan.v1.AgentService/FetchPatchTasks"
+	AgentService_ReportPatchTask_FullMethodName       = "/vulnscan.v1.AgentService/ReportPatchTask"
+	AgentService_FetchNetworkScanTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchNetworkScanTasks"
+	AgentService_SyncNetworkScan_FullMethodName       = "/vulnscan.v1.AgentService/SyncNetworkScan"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -39,6 +41,8 @@ type AgentServiceClient interface {
 	SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error)
 	FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(ctx context.Context, in *ReportPatchTaskRequest, opts ...grpc.CallOption) (*ReportPatchTaskResponse, error)
+	FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error)
+	SyncNetworkScan(ctx context.Context, in *SyncNetworkScanRequest, opts ...grpc.CallOption) (*SyncNetworkScanResponse, error)
 }
 
 type agentServiceClient struct {
@@ -112,6 +116,24 @@ func (c *agentServiceClient) ReportPatchTask(ctx context.Context, in *ReportPatc
 	return out, nil
 }
 
+func (c *agentServiceClient) FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error) {
+	out := new(FetchNetworkScanTasksResponse)
+	err := c.cc.Invoke(ctx, AgentService_FetchNetworkScanTasks_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) SyncNetworkScan(ctx context.Context, in *SyncNetworkScanRequest, opts ...grpc.CallOption) (*SyncNetworkScanResponse, error) {
+	out := new(SyncNetworkScanResponse)
+	err := c.cc.Invoke(ctx, AgentService_SyncNetworkScan_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility
@@ -123,6 +145,8 @@ type AgentServiceServer interface {
 	SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error)
 	FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error)
+	FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error)
+	SyncNetworkScan(context.Context, *SyncNetworkScanRequest) (*SyncNetworkScanResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -150,6 +174,12 @@ func (UnimplementedAgentServiceServer) FetchPatchTasks(context.Context, *FetchPa
 }
 func (UnimplementedAgentServiceServer) ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportPatchTask not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchNetworkScanTasks not implemented")
+}
+func (UnimplementedAgentServiceServer) SyncNetworkScan(context.Context, *SyncNetworkScanRequest) (*SyncNetworkScanResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncNetworkScan not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 
@@ -290,6 +320,42 @@ func _AgentService_ReportPatchTask_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_FetchNetworkScanTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchNetworkScanTasksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).FetchNetworkScanTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_FetchNetworkScanTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).FetchNetworkScanTasks(ctx, req.(*FetchNetworkScanTasksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_SyncNetworkScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncNetworkScanRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SyncNetworkScan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SyncNetworkScan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SyncNetworkScan(ctx, req.(*SyncNetworkScanRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -324,6 +390,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportPatchTask",
 			Handler:    _AgentService_ReportPatchTask_Handler,
+		},
+		{
+			MethodName: "FetchNetworkScanTasks",
+			Handler:    _AgentService_FetchNetworkScanTasks_Handler,
+		},
+		{
+			MethodName: "SyncNetworkScan",
+			Handler:    _AgentService_SyncNetworkScan_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

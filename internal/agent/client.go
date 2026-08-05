@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	pb "vuln-scanner/api/gen/vulnscan/v1"
 
@@ -134,6 +135,34 @@ func (c *Client) ReportPatchTask(ctx context.Context, taskID int64, status strin
 		Status:   status,
 		ExitCode: exitCode,
 		Output:   output,
+	})
+	return err
+}
+
+// FetchNetworkScanTasks claims pending server-dispatched network scan tasks
+// for this agent.
+func (c *Client) FetchNetworkScanTasks(ctx context.Context) ([]*pb.NetworkScanTaskInfo, error) {
+	resp, err := c.rawClient.FetchNetworkScanTasks(ctx, &pb.FetchNetworkScanTasksRequest{
+		AgentId: c.cfg.Agent.ID,
+		Token:   c.cfg.Agent.Token,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetTasks(), nil
+}
+
+// SyncNetworkScan uploads one discovery result. taskID is 0 for scheduled
+// scans; scanErr marks a server task as failed.
+func (c *Client) SyncNetworkScan(ctx context.Context, taskID int64, scanMode string, hosts []*pb.NetworkHost, scanErr string) error {
+	_, err := c.rawClient.SyncNetworkScan(ctx, &pb.SyncNetworkScanRequest{
+		AgentId:   c.cfg.Agent.ID,
+		Token:     c.cfg.Agent.Token,
+		TaskId:    taskID,
+		ScanMode:  scanMode,
+		ScannedAt: time.Now().Format(time.RFC3339),
+		Hosts:     hosts,
+		Error:     scanErr,
 	})
 	return err
 }

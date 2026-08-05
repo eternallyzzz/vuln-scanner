@@ -1673,6 +1673,71 @@ paths:
                   enabled: {type: boolean}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/network/hosts:
+    get:
+      tags: [scanning]
+      summary: 网络发现主机列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 发现的主机
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  hosts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NetworkHost'
+  /api/v1/network/tasks:
+    get:
+      tags: [scanning]
+      summary: 网络扫描任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NetworkScanTask'
+  /api/v1/network/scan:
+    post:
+      tags: [scanning]
+      summary: 创建网络扫描任务（Agent 领取执行）
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NetworkScanRequest'
+      responses:
+        '201':
+          description: 任务已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task:
+                    $ref: '#/components/schemas/NetworkScanTask'
+        '400': {$ref: '#/components/responses/BadRequest'}
   /api/v1/agents/{id}/scan:
     post:
       tags: [scanning]
@@ -2558,6 +2623,54 @@ components:
       properties:
         interval_minutes: {type: integer, minimum: 10}
         enabled: {type: boolean}
+    NetworkService:
+      type: object
+      properties:
+        port: {type: integer}
+        protocol: {type: string}
+        service: {type: string}
+        version: {type: string}
+        banner: {type: string}
+    NetworkHost:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        ip: {type: string}
+        hostname: {type: string}
+        os_type: {type: string}
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkService'
+        scanner_agent_id: {type: string}
+        agent_id: {type: string}
+        status: {type: string}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+    NetworkScanTask:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        target: {type: string}
+        ports:
+          type: array
+          items: {type: integer}
+        status: {type: string}
+        assigned_agent_id: {type: string}
+        created_by: {type: string}
+        error: {type: string}
+        result_summary: {type: object}
+        created_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+    NetworkScanRequest:
+      type: object
+      required: [target]
+      properties:
+        target: {type: string, description: IPv4 地址或 CIDR}
+        ports:
+          type: array
+          items: {type: integer}
     CVESummary:
       type: object
       properties:

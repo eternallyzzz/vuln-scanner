@@ -12,7 +12,7 @@ gRPC（规范见 [`api/proto/vulnscan/v1/agent.proto`](../api/proto/vulnscan/v1/
 
 ## 鉴权
 
-所有 `/api/v1/*` 端点（除 `/register`、`/auth/login`）二选一：
+所有 `/api/v1/*` 端点（除 `/register`、`/auth/login`、`/auth/ldap/login`）二选一：
 
 1. `X-API-Key: <key>`——admin 级自动化凭证，等价 admin 角色；
 2. `Authorization: Bearer <jwt>`——用户登录返回的 JWT，按用户角色鉴权。
@@ -38,7 +38,7 @@ curl -s http://SERVER:8080/api/v1/agents -H "X-API-Key: $API_KEY"
 | `operator` | 日常运维写操作：补丁任务/Campaign 流转、告警 ack/resolve/remediate、豁免创建/撤销、触发扫描/分析、资产导入与元数据、告警规则与 SLA 维护 |
 | `viewer` | 只读（所有 GET；`/audit-logs*` 仅 admin 可见） |
 
-公开端点（免鉴权）：`/health`、`/demo`、`/openapi.yaml`、`/dl/*`、`/r/*`、`/api/v1/register`、`/api/v1/auth/login`。
+公开端点（免鉴权）：`/health`、`/demo`、`/openapi.yaml`、`/dl/*`、`/r/*`、`/api/v1/register`、`/api/v1/auth/login`、`/api/v1/auth/ldap/login`。
 
 每个操作的具体角色见 OpenAPI 规范中的 `x-roles` 扩展。
 
@@ -74,6 +74,14 @@ curl -s http://SERVER:8080/api/v1/compliance/export.csv -H "X-API-Key: $API_KEY"
 
 # 手动发送计划报表（仅 admin）
 curl -s -X POST http://SERVER:8080/api/v1/admin/report/send -H "X-API-Key: $API_KEY"
+
+# 下发网络扫描任务（operator+；Agent 领取后执行）
+curl -s -X POST http://SERVER:8080/api/v1/network/scan \
+  -H "X-API-Key: $API_KEY" -H 'Content-Type: application/json' \
+  -d '{"target":"192.168.10.0/24","ports":[22,80,443]}'
+
+# 查看发现的主机
+curl -s http://SERVER:8080/api/v1/network/hosts -H "X-API-Key: $API_KEY"
 ```
 
 ## 维护约定
