@@ -102,6 +102,26 @@ func TestWazuhParityCorpus(t *testing.T) {
 			wantAffected: true,
 		},
 		{
+			name:      "006-windows-libreoffice-affected",
+			installed: "4.2.0.1",
+			cve:       "CVE-2014-3524",
+			ap: AffectedProduct{
+				Name:   "libreoffice",
+				MaxVer: "4.2.6",
+			},
+			wantAffected: true,
+		},
+		{
+			name:      "011-windows-skype-affected",
+			installed: "2016",
+			cve:       "CVE-2016-0145",
+			ap: AffectedProduct{
+				Name:   "skype_for_business",
+				MinVer: "2016",
+			},
+			wantAffected: true,
+		},
+		{
 			name:      "009-macos-os-affected",
 			installed: "14.0",
 			cve:       "CVE-2024-23224",
@@ -130,5 +150,45 @@ func TestWazuhParityCorpus(t *testing.T) {
 					c.cve, c.installed, got, c.wantAffected)
 			}
 		})
+	}
+}
+
+func TestWazuhWindowsOSBuildBounds(t *testing.T) {
+	cases := []struct {
+		agent, fixed string
+		wantFixed    bool
+	}{
+		{"10.0.19045.4043", "10.0.19045.5011", false}, // CVE-2024-20659 still active
+		{"10.0.19045.4043", "10.0.19045.4046", false}, // CVE-2024-21405 still active
+		{"10.0.19045.5011", "10.0.19045.5011", true},
+		{"10.0.19045.5011", "10.0.19045.4046", true},
+	}
+	for _, c := range cases {
+		if got := msrcOSFixedByBuild(c.agent, c.fixed); got != c.wantFixed {
+			t.Errorf("msrcOSFixedByBuild(%q, %q) = %v, want %v", c.agent, c.fixed, got, c.wantFixed)
+		}
+	}
+}
+
+func TestWazuhSkypeHotfixStatus(t *testing.T) {
+	ap := AffectedProduct{Name: "skype_for_business", MinVer: "2016"}
+	if !isVersionAffected("2016", ap) {
+		t.Fatal("Skype 2016 must be affected")
+	}
+	if !isKBFixed("KB3114960", map[string]bool{"KB3114960": true}) {
+		t.Fatal("installed hotfix KB must remediate")
+	}
+
+	results := []MatchedCVE{{
+		CVEID:        "CVE-2016-0145",
+		AssetName:    "skype_for_business",
+		AssetVersion: "2016",
+	}}
+	out := (&Matcher{}).enrichVersionStatus(results, nil,
+		map[string]bool{"KB3114960": true}, "",
+		map[string]string{"skype_for_business": "KB3114960"})
+	if out[0].MatchStatus != "fixed" || out[0].FixedVersion != "KB3114960" {
+		t.Fatalf("status = %q fixed = %q, want fixed/KB3114960",
+			out[0].MatchStatus, out[0].FixedVersion)
 	}
 }

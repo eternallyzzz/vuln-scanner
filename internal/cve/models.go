@@ -60,6 +60,7 @@ type AssetToMatch struct {
 	Version   string
 	Format    string
 	Ecosystem string
+	Vendor    string
 }
 
 type MatchedCVE struct {

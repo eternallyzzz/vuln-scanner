@@ -34,18 +34,37 @@ func NewMatcher(s *store.Store, loader *Loader, feed *FeedManager, nvd ...*NVDCl
 }
 
 func (m *Matcher) Match(ctx context.Context, agentID string, assets []AssetToMatch, installedKBs map[string]bool) ([]MatchedCVE, error) {
+	tm := m.loadTranslationMatcher(ctx)
 	platform := m.store.AgentOSType(ctx, agentID)
 	if strings.Contains(strings.ToLower(platform), "windows") {
-		return m.matchWindows(ctx, agentID, assets, installedKBs)
+		return m.matchWindows(ctx, agentID, assets, installedKBs, tm)
 	}
-	return m.matchLinux(ctx, agentID, assets)
+	return m.matchLinux(ctx, agentID, assets, tm)
 }
 
-func (m *Matcher) matchWindows(ctx context.Context, agentID string, assets []AssetToMatch, installedKBs map[string]bool) ([]MatchedCVE, error) {
-	rawNames, translatedNames := extractSoftwareNames(ctx, m.store, assets, "windows")
+// loadTranslationMatcher loads and compiles package translation rules once
+// per match cycle. Failures degrade gracefully: matching continues without
+// translations instead of aborting the whole scan.
+func (m *Matcher) loadTranslationMatcher(ctx context.Context) *translationMatcher {
+	rules, err := m.store.LoadTranslationRules(ctx)
+	if err != nil {
+		slog.Warn("load translation rules failed", "error", err)
+		return nil
+	}
+	tm, err := newTranslationMatcher(rules)
+	if err != nil {
+		slog.Warn("compile translation rules failed", "error", err)
+		return nil
+	}
+	return tm
+}
+
+func (m *Matcher) matchWindows(ctx context.Context, agentID string, assets []AssetToMatch,
+	installedKBs map[string]bool, tm *translationMatcher) ([]MatchedCVE, error) {
+	rawNames, translatedNames := extractSoftwareNames(assets, "windows", tm)
 
 	searchNames := append(translatedNames, rawNames...)
-	assetVersions := buildAssetVersions(ctx, assets, m.store, "windows")
+	assetVersions := buildAssetVersions(assets, "windows", tm)
 	msrcNames, msrcVersions, osAssetName := msrcScopeAssets(assets)
 	agentOS, agentVer, agentArch := getAgentOSInfo(ctx, m.store, agentID)
 	if family := msrcFamilyToken(agentOS); family != "" {
@@ -60,7 +79,7 @@ func (m *Matcher) matchWindows(ctx context.Context, agentID string, assets []Ass
 	if err != nil {
 		return nil, err
 	}
-	matched = m.enrichVersionStatus(matched, assets, installedKBs, agentVer)
+	matched = m.enrichVersionStatus(matched, assets, installedKBs, agentVer, tm.hotfixes())
 	updateFacts, _ := m.store.GetAgentUpdateFacts(ctx, agentID)
 	updateStatus, _ := m.store.GetAgentUpdateStatus(ctx, agentID)
 	matched = applyWUAVerification(matched, updateFacts, updateStatus)
@@ -105,10 +124,10 @@ func (m *Matcher) prefetchNVD(ctx context.Context, names []string) {
 	}
 }
 
-func (m *Matcher) matchLinux(ctx context.Context, agentID string, assets []AssetToMatch) ([]MatchedCVE, error) {
-	rawNames, _ := extractSoftwareNames(ctx, m.store, assets, "linux")
+func (m *Matcher) matchLinux(ctx context.Context, agentID string, assets []AssetToMatch, tm *translationMatcher) ([]MatchedCVE, error) {
+	rawNames, _ := extractSoftwareNames(assets, "linux", tm)
 
-	assetVersions := buildAssetVersions(ctx, assets, m.store, "linux")
+	assetVersions := buildAssetVersions(assets, "linux", tm)
 	agentOS, agentVer, agentArch := getAgentOSInfo(ctx, m.store, agentID)
 	matched, err := m.feed.MatchAssets(ctx, rawNames, nil, assetVersions, nil, nil, agentOS, agentVer, agentArch, "")
 	if err != nil {
@@ -162,7 +181,7 @@ func msrcFamilyToken(agentOS string) string {
 }
 
 func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatch,
-	installedKBs map[string]bool, agentVersion string) []MatchedCVE {
+	installedKBs map[string]bool, agentVersion string, hotfixByProduct map[string]string) []MatchedCVE {
 	assetMap := make(map[string]string)
 	for _, a := range assets {
 		if a.Name != "" {
@@ -191,6 +210,17 @@ func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatc
 				}
 			}
 		}
+		// Translation rules can declare a hotfix KB that remediates a product
+		// even when the feed row itself does not carry one (e.g. Skype).
+		if results[i].MatchStatus == "active" {
+			if kb := hotfixByProduct[strings.ToLower(results[i].AssetName)]; kb != "" &&
+				installedKBs != nil && isKBFixed(kb, installedKBs) {
+				results[i].MatchStatus = "fixed"
+				if results[i].FixedVersion == "" {
+					results[i].FixedVersion = kb
+				}
+			}
+		}
 		if results[i].AssetVersion == "" {
 			if v, ok := assetMap[strings.ToLower(results[i].AssetName)]; ok {
 				results[i].AssetVersion = v
@@ -200,7 +230,7 @@ func (m *Matcher) enrichVersionStatus(results []MatchedCVE, assets []AssetToMatc
 	return results
 }
 
-func buildAssetVersions(ctx context.Context, assets []AssetToMatch, s *store.Store, platform string) map[string]string {
+func buildAssetVersions(assets []AssetToMatch, platform string, tm *translationMatcher) map[string]string {
 	m := make(map[string]string, len(assets))
 	for _, a := range assets {
 		if a.Name == "" || a.Version == "" {
@@ -209,9 +239,12 @@ func buildAssetVersions(ctx context.Context, assets []AssetToMatch, s *store.Sto
 		key := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(a.Name), " (x64)"))
 		mergeAssetVersion(m, key, a.Version)
 
-		cpe, err := s.TranslatePackage(ctx, a.Name, platform)
-		if err == nil && cpe != "" {
-			mergeAssetVersion(m, strings.ToLower(cpe), a.Version)
+		if tr, ok := tm.match(a.Name, a.Vendor, platform); ok && tr.Product != "" {
+			ver := tr.Version
+			if ver == "" {
+				ver = a.Version
+			}
+			mergeAssetVersion(m, strings.ToLower(tr.Product), ver)
 		}
 	}
 	return m
@@ -230,7 +263,7 @@ func mergeAssetVersion(m map[string]string, key, version string) {
 	}
 }
 
-func extractSoftwareNames(ctx context.Context, s *store.Store, assets []AssetToMatch, platform string) ([]string, []string) {
+func extractSoftwareNames(assets []AssetToMatch, platform string, tm *translationMatcher) ([]string, []string) {
 	seen := make(map[string]bool)
 	var rawNames []string
 	var translatedNames []string
@@ -246,11 +279,11 @@ func extractSoftwareNames(ctx context.Context, s *store.Store, assets []AssetToM
 		seen[name] = true
 		rawNames = append(rawNames, name)
 
-		cpe, err := s.TranslatePackage(ctx, a.Name, platform)
-		if err == nil && cpe != "" {
-			if _, ok := seen[cpe]; !ok {
-				seen[cpe] = true
-				translatedNames = append(translatedNames, cpe)
+		if tr, ok := tm.match(a.Name, a.Vendor, platform); ok && tr.Product != "" {
+			key := strings.ToLower(tr.Product)
+			if _, dup := seen[key]; !dup {
+				seen[key] = true
+				translatedNames = append(translatedNames, tr.Product)
 			}
 		}
 	}
@@ -284,6 +317,7 @@ func AssetsFromJSON(raw []byte) []AssetToMatch {
 			Version string `json:"version"`
 			Format  string `json:"format"`
 			Type    string `json:"type"`
+			Vendor  string `json:"vendor"`
 		} `json:"assets"`
 	}
 	if err := json.Unmarshal(raw, &wrapper); err != nil {
@@ -296,6 +330,7 @@ func AssetsFromJSON(raw []byte) []AssetToMatch {
 			Name:    a.Name,
 			Version: a.Version,
 			Format:  a.Format,
+			Vendor:  a.Vendor,
 		})
 	}
 	return assets
