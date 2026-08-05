@@ -1,0 +1,2578 @@
+openapi: 3.0.3
+info:
+  title: VulnScanner REST API
+  version: 1.0.0
+  description: |
+    VulnScanner 资产漏洞扫描与管理平台 REST API。
+    - 鉴权：请求头 `X-API-Key`（admin 级自动化凭证）或用户登录返回的 `Authorization: Bearer <token>`（按角色鉴权），二者任选其一。
+    - 角色：`admin` 全部操作；`operator` 日常运维写操作；`viewer` 只读（`/audit-logs*` 仅 admin 可见）。
+    - 公开端点：`/health`、`/demo`、`/dl/*`、`/r/*`、`/api/v1/register`、`/api/v1/auth/login`、`/openapi.yaml`。
+    - 错误格式统一为 `{"error": "<message>"}`。
+servers:
+  - url: /
+tags:
+  - name: system
+    description: 健康检查与页面
+  - name: downloads
+    description: Agent 安装包与安装脚本
+  - name: auth
+    description: 登录与用户管理
+  - name: audit
+    description: 统一审计日志（仅 admin）
+  - name: agents
+    description: Agent 管理与主机遥测
+  - name: vulnerabilities
+    description: 漏洞结果与修复建议
+  - name: patch
+    description: 补丁任务与批量 Campaign
+  - name: alerting
+    description: 告警规则与告警
+  - name: risk
+    description: 风险治理（仪表盘、汇总、豁免、SLA）
+  - name: eol
+    description: EOL/停更检测
+  - name: compliance
+    description: CIS 合规基线
+  - name: analysis
+    description: LLM 分析与匹配触发
+  - name: admin
+    description: 管理操作（数据源刷新、报表、CMDB 对账）
+  - name: scanning
+    description: 扫描策略与容器扫描
+  - name: assets
+    description: CMDB 资产台账
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+paths:
+  /openapi.yaml:
+    get:
+      tags: [system]
+      summary: OpenAPI 规范（本文件）
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.0.3 YAML 规范
+          content:
+            application/yaml:
+              schema: {type: string}
+  /health:
+    get:
+      tags: [system]
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  version: {type: string}
+  /demo:
+    get:
+      tags: [system]
+      summary: 测试展示页（HTML）
+      security: []
+      responses:
+        '200':
+          description: 展示页 HTML
+          content:
+            text/html:
+              schema: {type: string}
+  /dl/agent/{platform}:
+    get:
+      tags: [downloads]
+      summary: 下载 Agent 安装包
+      security: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema: {type: string, enum: [linux-amd64, linux-arm64, windows-amd64, windows-arm64]}
+      responses:
+        '200':
+          description: Agent 可执行文件
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+  /dl/{platform}:
+    get:
+      tags: [downloads]
+      summary: 下载 Agent 安装包（兼容别名）
+      security: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Agent 可执行文件
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+  /r/{code}:
+    get:
+      tags: [downloads]
+      summary: 获取一次性安装脚本
+      security: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: {type: string}
+          description: Agent 注册码
+      responses:
+        '200':
+          description: bash 或 PowerShell 安装脚本
+          content:
+            text/plain:
+              schema: {type: string}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/register:
+    post:
+      tags: [auth]
+      summary: Agent 注册（使用一次性注册码）
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string}
+                hostname: {type: string}
+                os_type: {type: string}
+                os_version: {type: string}
+                arch: {type: string}
+      responses:
+        '200':
+          description: 注册成功，返回 agent_id 与 gRPC 地址
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  grpc_addr: {type: string}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: 用户登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功，返回 JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前登录用户信息
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/auth/change-password:
+    post:
+      tags: [auth]
+      summary: 修改本人密码
+      x-roles: [admin, operator, viewer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: 密码已更新
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/users:
+    get:
+      tags: [auth]
+      summary: 用户列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 用户列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+    post:
+      tags: [auth]
+      summary: 创建用户
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/users/{userId}:
+    put:
+      tags: [auth]
+      summary: 更新用户（角色/状态/显示名）
+      x-roles: [admin]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [auth]
+      summary: 删除用户
+      x-roles: [admin]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/users/{userId}/password:
+    post:
+      tags: [auth]
+      summary: 重置用户密码
+      x-roles: [admin]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: 密码已重置
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/audit-logs:
+    get:
+      tags: [audit]
+      summary: 查询统一审计日志（仅 admin）
+      x-roles: [admin]
+      parameters:
+        - {name: actor, in: query, required: false, schema: {type: string}, description: 操作人精确匹配}
+        - {name: method, in: query, required: false, schema: {type: string}, description: HTTP 方法精确匹配}
+        - {name: path, in: query, required: false, schema: {type: string}, description: 路径子串}
+        - {name: since, in: query, required: false, schema: {type: string, format: date-time}, description: RFC3339 起始时间}
+        - {name: until, in: query, required: false, schema: {type: string, format: date-time}, description: RFC3339 结束时间}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 200, maximum: 1000}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 审计日志分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogList'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/audit-logs/export.csv:
+    get:
+      tags: [audit]
+      summary: 导出审计日志 CSV（最新 5000 条，仅 admin）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: CSV 文件
+          content:
+            text/csv:
+              schema: {type: string}
+  /api/v1/agents:
+    get:
+      tags: [agents]
+      summary: Agent 列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: Agent 数组
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+    post:
+      tags: [agents]
+      summary: 手动创建 Agent 并生成注册码
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostname, platform]
+              properties:
+                hostname: {type: string}
+                platform: {type: string, enum: [linux-amd64, linux-arm64, windows-amd64, windows-arm64]}
+      responses:
+        '201':
+          description: 创建成功，返回注册码与安装命令
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  code: {type: string}
+                  install_cmd: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/agents/{id}:
+    get:
+      tags: [agents]
+      summary: Agent 详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Agent 详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [agents]
+      summary: 删除 Agent
+      x-roles: [admin]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/agents/{id}/vulns:
+    get:
+      tags: [vulnerabilities]
+      summary: Agent 漏洞列表（分页）
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: severity, in: query, required: false, schema: {type: string}, description: 严重级过滤}
+        - {name: has_fix, in: query, required: false, schema: {type: boolean}, description: 仅看存在修复的漏洞}
+        - {name: page, in: query, required: false, schema: {type: integer, default: 1}}
+        - {name: page_size, in: query, required: false, schema: {type: integer, default: 50}}
+      responses:
+        '200':
+          description: 漏洞分页结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: '#/components/schemas/Agent'
+                  total: {type: integer}
+                  page: {type: integer}
+                  page_size: {type: integer}
+                  vulnerabilities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CVEResult'
+  /api/v1/agents/{id}/vulns/{cveId}:
+    get:
+      tags: [vulnerabilities]
+      summary: 单条漏洞详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: cveId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 漏洞详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CVEResult'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/report:
+    get:
+      tags: [vulnerabilities]
+      summary: Agent 完整报告（主机 + 快照 + 漏洞）
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Agent 报告
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: '#/components/schemas/Agent'
+                  snapshot:
+                    type: object
+                  cves:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CVEResult'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/system-info:
+    get:
+      tags: [agents]
+      summary: Agent 主机遥测
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 主机系统信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/update-facts:
+    get:
+      tags: [agents]
+      summary: Agent WUA/WSUS 更新事实
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 更新事实列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  facts:
+                    type: array
+                    items:
+                      type: object
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/agents/{id}/update-status:
+    get:
+      tags: [agents]
+      summary: Agent 更新源状态
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 更新源状态
+          content:
+            application/json:
+              schema:
+                type: object
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/agents/{id}/install-command:
+    get:
+      tags: [agents]
+      summary: 获取 Agent 安装命令与注册码
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 注册码与安装命令
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: {type: string}
+                  install_cmd: {type: string}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/recommendations:
+    get:
+      tags: [vulnerabilities]
+      summary: Agent 修复建议
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 修复建议列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  recommendations:
+                    type: array
+                    items:
+                      type: object
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/patch-tasks/generate:
+    post:
+      tags: [patch]
+      summary: 为 Agent 生成补丁任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeneratePatchTasksRequest'
+      responses:
+        '201':
+          description: 生成的补丁任务
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchTask'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/patch-tasks:
+    get:
+      tags: [patch]
+      summary: Agent 补丁任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 补丁任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchTask'
+                  total: {type: integer}
+  /api/v1/patch-tasks:
+    get:
+      tags: [patch]
+      summary: 全局补丁任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: agent_id, in: query, required: false, schema: {type: string}}
+        - {name: campaign_id, in: query, required: false, schema: {type: integer, format: int64}}
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: asset_name, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100, maximum: 200}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 补丁任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchTask'
+                  total: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/patch-tasks/{taskId}:
+    get:
+      tags: [patch]
+      summary: 补丁任务详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 补丁任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatchTask'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-tasks/{taskId}/approve:
+    post:
+      tags: [patch]
+      summary: 审批补丁任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-tasks/{taskId}/reject:
+    post:
+      tags: [patch]
+      summary: 驳回补丁任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-tasks/{taskId}/cancel:
+    post:
+      tags: [patch]
+      summary: 取消补丁任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-tasks/{taskId}/retry:
+    post:
+      tags: [patch]
+      summary: 重试失败的补丁任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns:
+    post:
+      tags: [patch]
+      summary: 按筛选批量生成补丁 Campaign（支持 dry-run）
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeneratePatchCampaignRequest'
+      responses:
+        '200':
+          description: dry-run 演练结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run: {type: boolean}
+                  matched: {type: integer}
+                  counts:
+                    $ref: '#/components/schemas/CampaignSummary'
+                  errors:
+                    type: array
+                    items: {type: string}
+        '201':
+          description: Campaign 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign:
+                    $ref: '#/components/schemas/PatchCampaign'
+                  created: {type: integer}
+                  counts:
+                    $ref: '#/components/schemas/CampaignSummary'
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchTask'
+                  errors:
+                    type: array
+                    items: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    get:
+      tags: [patch]
+      summary: Campaign 列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100, maximum: 200}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: Campaign 分页列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaigns:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchCampaign'
+                  total: {type: integer}
+  /api/v1/patch-campaigns/{campaignId}:
+    get:
+      tags: [patch]
+      summary: Campaign 详情与汇总/审计
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: Campaign 详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign:
+                    $ref: '#/components/schemas/PatchCampaign'
+                  summary:
+                    $ref: '#/components/schemas/CampaignSummary'
+                  audit:
+                    type: array
+                    items:
+                      type: object
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns/{campaignId}/tasks:
+    get:
+      tags: [patch]
+      summary: Campaign 任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: Campaign 任务
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PatchTask'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns/{campaignId}/approve:
+    post:
+      tags: [patch]
+      summary: 批量审批 Campaign
+      x-roles: [admin, operator]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 批量状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id: {type: integer, format: int64}
+                  affected: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns/{campaignId}/reject:
+    post:
+      tags: [patch]
+      summary: 批量驳回 Campaign
+      x-roles: [admin, operator]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 批量状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id: {type: integer, format: int64}
+                  affected: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns/{campaignId}/cancel:
+    post:
+      tags: [patch]
+      summary: 取消 Campaign
+      x-roles: [admin, operator]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 批量状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id: {type: integer, format: int64}
+                  affected: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch-campaigns/{campaignId}/retry:
+    post:
+      tags: [patch]
+      summary: 重试 Campaign 失败任务
+      x-roles: [admin, operator]
+      parameters:
+        - {name: campaignId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 批量状态流转结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaign_id: {type: integer, format: int64}
+                  affected: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/alert-rules:
+    get:
+      tags: [alerting]
+      summary: 告警规则列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 告警规则
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertRule'
+    post:
+      tags: [alerting]
+      summary: 创建告警规则
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleInput'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/alert-rules/{ruleId}:
+    get:
+      tags: [alerting]
+      summary: 告警规则详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: ruleId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 告警规则
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      tags: [alerting]
+      summary: 更新告警规则
+      x-roles: [admin, operator]
+      parameters:
+        - {name: ruleId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [alerting]
+      summary: 删除告警规则
+      x-roles: [admin, operator]
+      parameters:
+        - {name: ruleId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: {type: boolean}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/alert-rules/{ruleId}/test:
+    post:
+      tags: [alerting]
+      summary: 测试告警通道
+      x-roles: [admin, operator]
+      parameters:
+        - {name: ruleId, in: path, required: true, schema: {type: integer, format: int64}}
+        - {name: channel, in: query, required: false, schema: {type: string}}
+      responses:
+        '200':
+          description: 测试消息已发送
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/alerts:
+    get:
+      tags: [alerting]
+      summary: 告警列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: agent_id, in: query, required: false, schema: {type: string}}
+        - {name: severity, in: query, required: false, schema: {type: string}}
+        - {name: asset_filter, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 告警列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertDetail'
+                  total: {type: integer}
+  /api/v1/alerts/{alertId}/ack:
+    post:
+      tags: [alerting]
+      summary: 确认告警
+      x-roles: [admin, operator]
+      parameters:
+        - {name: alertId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/alerts/{alertId}/resolve:
+    post:
+      tags: [alerting]
+      summary: 解决告警
+      x-roles: [admin, operator]
+      parameters:
+        - {name: alertId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 状态更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/alerts/{alertId}/remediate:
+    post:
+      tags: [alerting]
+      summary: 对告警发起自动修复
+      x-roles: [admin, operator]
+      parameters:
+        - {name: alertId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 修复已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id: {type: integer, format: int64}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/dashboard:
+    get:
+      tags: [risk]
+      summary: 仪表盘概览
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 仪表盘数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+  /api/v1/demo-summary:
+    get:
+      tags: [risk]
+      summary: 聚合展示数据（demo 页数据源）
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 聚合摘要
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: object
+                  assets:
+                    type: object
+                  cves:
+                    $ref: '#/components/schemas/CVESummary'
+                  alerts:
+                    type: object
+                  patch:
+                    type: object
+                  cmdb:
+                    type: object
+                  container:
+                    $ref: '#/components/schemas/ContainerStatus'
+                  generated_at: {type: string, format: date-time}
+  /api/v1/risk/summary:
+    get:
+      tags: [risk]
+      summary: 风险汇总
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 风险汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskSummary'
+  /api/v1/risk/top:
+    get:
+      tags: [risk]
+      summary: Top 风险排行
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100, maximum: 1000}}
+        - {name: level, in: query, required: false, schema: {type: string}, description: 风险级别过滤}
+        - {name: kev, in: query, required: false, schema: {type: boolean}, description: 仅看 KEV}
+      responses:
+        '200':
+          description: 风险排行
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  rows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RiskRow'
+  /api/v1/risk/export.csv:
+    get:
+      tags: [risk]
+      summary: 导出活跃风险 CSV
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: CSV 文件
+          content:
+            text/csv:
+              schema: {type: string}
+  /api/v1/reports/trend:
+    get:
+      tags: [risk]
+      summary: 风险趋势（活跃/新增/修复）
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: days, in: query, required: false, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          description: 趋势点
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date: {type: string, format: date}
+                        active: {type: integer}
+                        new: {type: integer}
+                        fixed: {type: integer}
+  /api/v1/exceptions:
+    get:
+      tags: [risk]
+      summary: 风险豁免列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 豁免列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exceptions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VulnerabilityException'
+    post:
+      tags: [risk]
+      summary: 创建风险豁免
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateExceptionRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnerabilityException'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/exceptions/{exceptionId}/revoke:
+    post:
+      tags: [risk]
+      summary: 撤销风险豁免
+      x-roles: [admin, operator]
+      parameters:
+        - {name: exceptionId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 撤销成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exception_id: {type: integer, format: int64}
+                  status: {type: string}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/sla-policies:
+    get:
+      tags: [risk]
+      summary: SLA 策略列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: SLA 策略
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SLAPolicy'
+  /api/v1/sla-policies/{policyId}:
+    put:
+      tags: [risk]
+      summary: 更新 SLA 策略
+      x-roles: [admin, operator]
+      parameters:
+        - {name: policyId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSLAPolicyRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SLAPolicy'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/search:
+    get:
+      tags: [vulnerabilities]
+      summary: 按 CVE 搜索受影响 Agent
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: cve, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 受影响 Agent 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cve_id: {type: string}
+                  affected_agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CVEResult'
+                  total: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/stats:
+    get:
+      tags: [risk]
+      summary: 统计概览
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 统计
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_agents: {type: integer}
+                  cve_summary:
+                    $ref: '#/components/schemas/CVESummary'
+  /api/v1/eol/summary:
+    get:
+      tags: [eol]
+      summary: EOL 停更汇总
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: EOL 汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EOLSummary'
+  /api/v1/eol/agents:
+    get:
+      tags: [eol]
+      summary: EOL Agent 列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: EOL Agent 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EOLAgentRow'
+  /api/v1/compliance/summary:
+    get:
+      tags: [compliance]
+      summary: 合规评分汇总
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 合规汇总
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceSummary'
+  /api/v1/compliance/agents:
+    get:
+      tags: [compliance]
+      summary: 各 Agent 合规评分
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 合规评分列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  agents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceAgentRow'
+  /api/v1/compliance/agents/{id}:
+    get:
+      tags: [compliance]
+      summary: Agent 合规检查明细
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 合规报告与检查项
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceReport'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/compliance/export.csv:
+    get:
+      tags: [compliance]
+      summary: 导出合规评分 CSV
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: CSV 文件
+          content:
+            text/csv:
+              schema: {type: string}
+  /api/v1/analyze:
+    post:
+      tags: [analysis]
+      summary: 触发 LLM 分析
+      x-roles: [admin, operator]
+      responses:
+        '202':
+          description: 已受理（未配置 LLM 时 501）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  analysis_id: {type: string}
+        '501':
+          description: LLM 未配置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/analyze/{analysisId}:
+    get:
+      tags: [analysis]
+      summary: 分析结果
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: analysisId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 分析日志
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisLog'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/trigger-match:
+    post:
+      tags: [analysis]
+      summary: 手动触发全量匹配
+      x-roles: [admin, operator]
+      responses:
+        '200':
+          description: 匹配已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/admin/refresh-feeds:
+    post:
+      tags: [admin]
+      summary: 刷新漏洞数据源
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 刷新已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/admin/refresh-intel:
+    post:
+      tags: [admin]
+      summary: 刷新威胁情报（EPSS/KEV）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 刷新已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/admin/refresh-eol:
+    post:
+      tags: [admin]
+      summary: 手动刷新 EOL 判定
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 刷新结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: {type: integer}
+                  status: {type: string}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/admin/report/send:
+    post:
+      tags: [admin]
+      summary: 手动发送每日计划报表
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 已发送
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/admin/check-sla:
+    post:
+      tags: [admin]
+      summary: 手动执行 SLA 检查
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 检查完成
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/admin/reconcile-cmdb:
+    post:
+      tags: [admin]
+      summary: 全量对账 CMDB
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 对账结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/admin/reconcile-cmdb/{agentId}:
+    post:
+      tags: [admin]
+      summary: 对账单个 Agent 的 CMDB 资产
+      x-roles: [admin]
+      parameters:
+        - {name: agentId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 对账结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+  /api/v1/scan-policies:
+    get:
+      tags: [scanning]
+      summary: 扫描策略列表
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 扫描策略
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  policies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScanPolicy'
+  /api/v1/scan-policies/{agentId}:
+    put:
+      tags: [scanning]
+      summary: 创建/更新 Agent 扫描策略
+      x-roles: [admin, operator]
+      parameters:
+        - {name: agentId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanPolicyInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  interval_minutes: {type: integer}
+                  enabled: {type: boolean}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{id}/scan:
+    post:
+      tags: [scanning]
+      summary: 触发 Agent 扫描
+      x-roles: [admin, operator]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 扫描已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  agent_id: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/container/scan:
+    post:
+      tags: [scanning]
+      summary: 触发容器镜像扫描
+      x-roles: [admin, operator]
+      responses:
+        '202':
+          description: 扫描已触发
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/container/status:
+    get:
+      tags: [scanning]
+      summary: 容器扫描状态
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 扫描状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerStatus'
+  /api/v1/container/images:
+    get:
+      tags: [scanning]
+      summary: 容器镜像清单
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 镜像清单
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: object
+                  total: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/assets/summary:
+    get:
+      tags: [assets]
+      summary: 资产汇总
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 资产汇总行
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetSummaryRow'
+  /api/v1/assets:
+    get:
+      tags: [assets]
+      summary: 资产列表（筛选 + 分页）
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: asset_type, in: query, required: false, schema: {type: string}}
+        - {name: environment, in: query, required: false, schema: {type: string}}
+        - {name: business_unit, in: query, required: false, schema: {type: string}}
+        - {name: owner, in: query, required: false, schema: {type: string}}
+        - {name: lifecycle, in: query, required: false, schema: {type: string}}
+        - {name: agent_id, in: query, required: false, schema: {type: string}}
+        - {name: tag, in: query, required: false, schema: {type: string}}
+        - {name: q, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 资产分页列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Asset'
+                  total: {type: integer}
+  /api/v1/assets/export:
+    get:
+      tags: [assets]
+      summary: 导出资产台账（JSON 或 CSV）
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: format, in: query, required: false, schema: {type: string, enum: [json, csv], default: json}}
+        - {name: asset_type, in: query, required: false, schema: {type: string}}
+        - {name: environment, in: query, required: false, schema: {type: string}}
+        - {name: business_unit, in: query, required: false, schema: {type: string}}
+        - {name: owner, in: query, required: false, schema: {type: string}}
+        - {name: lifecycle, in: query, required: false, schema: {type: string}}
+        - {name: agent_id, in: query, required: false, schema: {type: string}}
+        - {name: tag, in: query, required: false, schema: {type: string}}
+        - {name: q, in: query, required: false, schema: {type: string}}
+      responses:
+        '200':
+          description: 资产导出内容
+          content:
+            application/json:
+              schema:
+                type: object
+            text/csv:
+              schema: {type: string}
+  /api/v1/assets/import:
+    post:
+      tags: [assets]
+      summary: 导入外部 CMDB 资产（JSON 或 CSV）
+      x-roles: [admin, operator]
+      parameters:
+        - {name: format, in: query, required: false, schema: {type: string, enum: [json, csv], default: json}}
+        - {name: mode, in: query, required: false, schema: {type: string, enum: [merge, full], default: merge}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportAssetsRequest'
+          text/csv:
+            schema: {type: string}
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/cmdb/reconcile-report:
+    get:
+      tags: [assets]
+      summary: CMDB 对账报告
+      x-roles: [admin, operator, viewer]
+      responses:
+        '200':
+          description: 对账报告
+          content:
+            application/json:
+              schema:
+                type: object
+        '500': {$ref: '#/components/responses/InternalError'}
+  /api/v1/assets/{assetId}:
+    get:
+      tags: [assets]
+      summary: 资产详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: assetId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 资产详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      tags: [assets]
+      summary: 更新资产元数据
+      x-roles: [admin, operator]
+      parameters:
+        - {name: assetId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAssetInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/assets/bulk-meta:
+    post:
+      tags: [assets]
+      summary: 批量维护资产元数据
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkMetaRequest'
+      responses:
+        '200':
+          description: 批量更新结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: {type: integer}
+                  total_items: {type: integer}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/assets/{assetId}/changes:
+    get:
+      tags: [assets]
+      summary: 资产变更历史
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: assetId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 变更历史
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetChange'
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/assets/{assetId}/relations:
+    get:
+      tags: [assets]
+      summary: 资产关联关系
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: assetId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 关联关系
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  relations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssetRelation'
+        '404': {$ref: '#/components/responses/NotFound'}
+  # ===== END PATHS =====
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: admin 级自动化凭证（等同 admin 角色）。
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 用户登录返回的 JWT，按用户角色鉴权。
+  responses:
+    BadRequest:
+      description: 请求参数或请求体不合法
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: 缺少或无效的鉴权凭证
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: 当前角色无权访问
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: 服务端内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    User:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        username: {type: string}
+        display_name: {type: string}
+        role: {type: string, enum: [admin, operator, viewer]}
+        status: {type: string, enum: [active, disabled]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        last_login_at: {type: string, format: date-time, nullable: true}
+    LoginResponse:
+      type: object
+      properties:
+        token: {type: string}
+        expires_at: {type: string, format: date-time}
+        user:
+          $ref: '#/components/schemas/User'
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: {type: string}
+        password: {type: string}
+    CreateUserRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: {type: string, pattern: '^[A-Za-z0-9_.-]{3,64}$'}
+        password: {type: string, minLength: 8}
+        display_name: {type: string}
+        role: {type: string, enum: [admin, operator, viewer]}
+    UpdateUserRequest:
+      type: object
+      properties:
+        display_name: {type: string}
+        role: {type: string, enum: [admin, operator, viewer]}
+        status: {type: string, enum: [active, disabled]}
+    ResetPasswordRequest:
+      type: object
+      required: [password]
+      properties:
+        password: {type: string, minLength: 8}
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string}
+        new_password: {type: string, minLength: 8}
+    Agent:
+      type: object
+      properties:
+        id: {type: string}
+        hostname: {type: string}
+        os_type: {type: string}
+        os_version: {type: string}
+        arch: {type: string}
+        agent_ver: {type: string}
+        ip: {type: string}
+        status: {type: string}
+        last_seen: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        eol_status: {type: string, enum: [eol, unsupported, supported, unknown]}
+        eol_date: {type: string, format: date, nullable: true}
+        eol_product: {type: string}
+        eol_cycle: {type: string}
+    CVEResult:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        agent_id: {type: string}
+        cve_id: {type: string}
+        asset_name: {type: string}
+        asset_version: {type: string}
+        fixed_version: {type: string}
+        fix_state: {type: string}
+        kb_article: {type: string}
+        kb_url: {type: string}
+        verification_source: {type: string}
+        advisory_url: {type: string}
+        severity: {type: string}
+        cvss_score: {type: number, format: double}
+        summary: {type: string}
+        source: {type: string}
+        status: {type: string}
+        detected_at: {type: string, format: date-time}
+        canonical_cve_id: {type: string}
+        epss_score: {type: number, format: double}
+        epss_percentile: {type: number, format: double}
+        kev: {type: boolean}
+        exposure_score: {type: number, format: double}
+        asset_criticality: {type: number, format: double}
+        risk_score: {type: number, format: double}
+        risk_level: {type: string}
+    RiskSummary:
+      type: object
+      properties:
+        total_active: {type: integer}
+        total_fixed: {type: integer}
+        by_risk_level:
+          type: object
+          additionalProperties: {type: integer}
+        by_severity:
+          type: object
+          additionalProperties: {type: integer}
+        eol_agents: {type: integer}
+        unsupported_agents: {type: integer}
+        eol_by_product:
+          type: object
+          additionalProperties: {type: integer}
+        kev_count: {type: integer}
+        overdue: {type: integer}
+        exempted: {type: integer}
+        average_epss: {type: number, format: double}
+        fix_rate: {type: number, format: double}
+    RiskRow:
+      type: object
+      properties:
+        cve_id: {type: string}
+        canonical_cve_id: {type: string}
+        agent_id: {type: string}
+        hostname: {type: string}
+        asset_name: {type: string}
+        severity: {type: string}
+        risk_level: {type: string}
+        eol: {type: boolean}
+        eol_product: {type: string}
+        cvss_score: {type: number, format: double}
+        epss_score: {type: number, format: double}
+        kev: {type: boolean}
+        exposure_score: {type: number, format: double}
+        asset_criticality: {type: number, format: double}
+        risk_score: {type: number, format: double}
+        detected_at: {type: string, format: date-time}
+        due_at: {type: string, format: date-time, nullable: true}
+        overdue: {type: boolean}
+        fixed_version: {type: string}
+        patch_url: {type: string}
+    EOLSummary:
+      type: object
+      properties:
+        total_agents: {type: integer}
+        eol_agents: {type: integer}
+        unsupported_agents: {type: integer}
+        supported_agents: {type: integer}
+        unknown_agents: {type: integer}
+        by_product:
+          type: object
+          additionalProperties: {type: integer}
+    EOLAgentRow:
+      type: object
+      properties:
+        agent_id: {type: string}
+        hostname: {type: string}
+        os_type: {type: string}
+        os_version: {type: string}
+        eol_status: {type: string}
+        eol_date: {type: string, format: date, nullable: true}
+        eol_product: {type: string}
+        eol_cycle: {type: string}
+        last_seen: {type: string, format: date-time}
+    AuditLog:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        created_at: {type: string, format: date-time}
+        actor: {type: string}
+        method: {type: string}
+        path: {type: string}
+        status: {type: integer}
+        ip: {type: string}
+        duration_ms: {type: integer, format: int64}
+        detail:
+          type: object
+    AuditLogList:
+      type: object
+      properties:
+        total: {type: integer}
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    ComplianceCheck:
+      type: object
+      properties:
+        id: {type: string}
+        title: {type: string}
+        group: {type: string}
+        status: {type: string, enum: [pass, fail, na]}
+        evidence: {type: string}
+    ComplianceReport:
+      type: object
+      properties:
+        agent_id: {type: string}
+        benchmark: {type: string}
+        score: {type: number, format: double}
+        total: {type: integer}
+        passed: {type: integer}
+        failed: {type: integer}
+        na: {type: integer}
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceCheck'
+        checked_at: {type: string, format: date-time}
+    ComplianceAgentRow:
+      type: object
+      properties:
+        agent_id: {type: string}
+        hostname: {type: string}
+        os_type: {type: string}
+        os_version: {type: string}
+        score: {type: number, format: double}
+        total: {type: integer}
+        passed: {type: integer}
+        failed: {type: integer}
+        na: {type: integer}
+        checked_at: {type: string, format: date-time}
+    FailedCheckCount:
+      type: object
+      properties:
+        id: {type: string}
+        title: {type: string}
+        count: {type: integer}
+    ComplianceSummary:
+      type: object
+      properties:
+        total_agents: {type: integer}
+        reported_agents: {type: integer}
+        avg_score: {type: number, format: double}
+        min_score: {type: number, format: double}
+        max_score: {type: number, format: double}
+        total_checks: {type: integer}
+        passed_checks: {type: integer}
+        failed_checks: {type: integer}
+        na_checks: {type: integer}
+        top_failed_checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/FailedCheckCount'
+    Alert:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        rule_id: {type: integer, format: int64}
+        agent_id: {type: string}
+        cve_id: {type: string}
+        asset_name: {type: string}
+        severity: {type: string}
+        cvss_score: {type: number, format: double}
+        status: {type: string}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        occurrence_count: {type: integer}
+        resolved_at: {type: string, format: date-time, nullable: true}
+        source: {type: string}
+        remediation_campaign_id: {type: integer, format: int64, nullable: true}
+        remediation_error: {type: string}
+    AlertDetail:
+      allOf:
+        - $ref: '#/components/schemas/Alert'
+        - type: object
+          properties:
+            rule_name: {type: string}
+            agent_hostname: {type: string}
+    AlertRule:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        enabled: {type: boolean}
+        severity_filter: {type: string}
+        source_filter: {type: string}
+        agent_id_filter: {type: string}
+        asset_filter: {type: string}
+        min_cvss: {type: number, format: double}
+        cooldown_minutes: {type: integer}
+        channels:
+          type: array
+          items: {type: string}
+        asset_tag_filter:
+          type: array
+          items: {type: string}
+        environment_filter: {type: string}
+        auto_remediate: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AlertRuleInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        enabled: {type: boolean}
+        severity_filter: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
+        source_filter: {type: string, enum: ['', msrc, nvd, osv, debian]}
+        agent_id_filter: {type: string}
+        asset_filter: {type: string}
+        min_cvss: {type: number, format: double}
+        cooldown_minutes: {type: integer}
+        channels:
+          type: array
+          items: {type: string}
+        asset_tag_filter:
+          type: array
+          items: {type: string}
+        environment_filter: {type: string}
+        auto_remediate: {type: boolean}
+    PatchTask:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        agent_id: {type: string}
+        asset_name: {type: string}
+        fix_type: {type: string}
+        fix_value: {type: string}
+        action: {type: string}
+        cve_ids:
+          type: array
+          items: {type: string}
+        command: {type: string}
+        commands:
+          type: array
+          items:
+            type: array
+            items: {type: string}
+        status: {type: string}
+        approval_required: {type: boolean}
+        window_start: {type: string, format: date-time, nullable: true}
+        window_end: {type: string, format: date-time, nullable: true}
+        campaign_id: {type: integer, format: int64, nullable: true}
+        result:
+          type: object
+        created_by: {type: string}
+        approved_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    GeneratePatchTasksRequest:
+      type: object
+      properties:
+        asset_names:
+          type: array
+          items: {type: string}
+        cve_ids:
+          type: array
+          items: {type: string}
+        approval_required: {type: boolean}
+        window_start: {type: string, format: date-time}
+        window_end: {type: string, format: date-time}
+    PatchCampaign:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        filters:
+          type: object
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+    CampaignSummary:
+      type: object
+      properties:
+        status_counts:
+          type: object
+          additionalProperties: {type: integer}
+        agent_count: {type: integer, format: int64}
+        task_count: {type: integer, format: int64}
+    GeneratePatchCampaignRequest:
+      type: object
+      properties:
+        name: {type: string}
+        agent_ids:
+          type: array
+          items: {type: string}
+        tags:
+          type: array
+          items: {type: string}
+        environments:
+          type: array
+          items: {type: string}
+        asset_names:
+          type: array
+          items: {type: string}
+        cve_ids:
+          type: array
+          items: {type: string}
+        min_severity: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
+        min_cvss: {type: number, format: double}
+        approval_required: {type: boolean}
+        window_start: {type: string, format: date-time}
+        window_end: {type: string, format: date-time}
+        dry_run: {type: boolean}
+    VulnerabilityException:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        cve_id: {type: string}
+        asset_key: {type: string}
+        reason: {type: string}
+        expires_at: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+    CreateExceptionRequest:
+      type: object
+      required: [cve_id, reason, expires_at]
+      properties:
+        cve_id: {type: string}
+        asset_key: {type: string}
+        reason: {type: string}
+        expires_at: {type: string, format: date-time}
+        created_by: {type: string}
+    SLAPolicy:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        severity: {type: string}
+        max_remediation_hours: {type: integer}
+        enabled: {type: boolean}
+        updated_at: {type: string, format: date-time}
+    UpdateSLAPolicyRequest:
+      type: object
+      required: [max_remediation_hours]
+      properties:
+        name: {type: string}
+        max_remediation_hours: {type: integer}
+        enabled: {type: boolean}
+    Asset:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        asset_key: {type: string}
+        asset_type: {type: string}
+        name: {type: string}
+        version: {type: string}
+        os_type: {type: string}
+        os_version: {type: string}
+        format: {type: string}
+        vendor: {type: string}
+        arch: {type: string}
+        location: {type: string}
+        source: {type: string}
+        hostname: {type: string}
+        ip: {type: string}
+        agent_id: {type: string}
+        lifecycle: {type: string}
+        environment: {type: string}
+        business_unit: {type: string}
+        owner: {type: string}
+        tags:
+          type: array
+          items: {type: string}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AssetChange:
+      type: object
+      properties:
+        agent_id: {type: string}
+        asset_name: {type: string}
+        old_version: {type: string}
+        new_version: {type: string}
+        format: {type: string}
+        detected_at: {type: string, format: date-time}
+        asset_key: {type: string}
+        change_source: {type: string}
+        actor: {type: string}
+    AssetRelation:
+      type: object
+      properties:
+        parent_key: {type: string}
+        child_key: {type: string}
+        relation_type: {type: string}
+        created_at: {type: string, format: date-time}
+    AssetSummaryRow:
+      type: object
+      properties:
+        asset_type: {type: string}
+        environment: {type: string}
+        lifecycle: {type: string}
+        count: {type: integer, format: int64}
+    ExternalAssetInput:
+      type: object
+      required: [name]
+      properties:
+        asset_key: {type: string}
+        name: {type: string}
+        version: {type: string}
+        asset_type: {type: string}
+        hostname: {type: string}
+        ip: {type: string}
+        format: {type: string}
+        vendor: {type: string}
+        arch: {type: string}
+        location: {type: string}
+        environment: {type: string}
+        business_unit: {type: string}
+        owner: {type: string}
+        lifecycle: {type: string}
+        tags:
+          type: array
+          items: {type: string}
+    ImportAssetsRequest:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExternalAssetInput'
+    ImportResult:
+      type: object
+      properties:
+        imported: {type: integer}
+        updated: {type: integer}
+        retired: {type: integer}
+        changes: {type: integer}
+        errors:
+          type: array
+          items: {type: string}
+    UpdateAssetInput:
+      type: object
+      properties:
+        environment: {type: string}
+        business_unit: {type: string}
+        owner: {type: string}
+        lifecycle: {type: string, enum: [active, retired]}
+        tags:
+          type: array
+          items: {type: string}
+    BulkMetaItem:
+      type: object
+      required: [asset_key]
+      properties:
+        asset_key: {type: string}
+        environment: {type: string}
+        business_unit: {type: string}
+        owner: {type: string}
+        lifecycle: {type: string, enum: [active, retired]}
+        tags:
+          type: array
+          items: {type: string}
+    BulkMetaRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/BulkMetaItem'
+    ScanPolicy:
+      type: object
+      properties:
+        agent_id: {type: string}
+        interval_minutes: {type: integer}
+        enabled: {type: boolean}
+        next_run_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ScanPolicyInput:
+      type: object
+      required: [interval_minutes]
+      properties:
+        interval_minutes: {type: integer, minimum: 10}
+        enabled: {type: boolean}
+    CVESummary:
+      type: object
+      properties:
+        total: {type: integer}
+        active: {type: integer}
+        fixed: {type: integer}
+        by_severity:
+          type: object
+          additionalProperties: {type: integer}
+        by_source:
+          type: object
+          additionalProperties: {type: integer}
+    Dashboard:
+      type: object
+      properties:
+        total_agents: {type: integer}
+        online_agents: {type: integer}
+        cve_summary:
+          $ref: '#/components/schemas/CVESummary'
+    AnalysisLog:
+      type: object
+      properties:
+        id: {type: string}
+        agent_id: {type: string}
+        cve_ids:
+          type: array
+          items: {type: string}
+        summary: {type: string}
+        provider: {type: string}
+        model: {type: string}
+        tokens_used: {type: integer}
+        duration_ms: {type: integer}
+        created_at: {type: string, format: date-time}
+    ContainerStatus:
+      type: object
+      description: 容器扫描 worker 状态（enabled、scanning、last_scan 等，字段随实现扩展）。
+    SystemInfo:
+      type: object
+      description: Agent 上报的主机遥测（OS、硬件、网络、账户、服务、防火墙、证书、TPM/加密/杀软等），字段以 JSON 实际返回为准。

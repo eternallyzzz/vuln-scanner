@@ -159,6 +159,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 审计日志：`GET /api/v1/audit-logs`（admin，支持 `actor/method/path/since/until/limit/offset`，返回 `total + entries`）、`GET /api/v1/audit-logs/export.csv`（admin，最新 5000 条）；所有 `POST/PUT/DELETE/PATCH` 自动记录操作人、方法、路径、状态码、来源 IP 与耗时，登录成功/失败亦入审计
 - 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送
 - 合规基线：Agent 侧执行 CIS 风格精简检查（v1 为双平台各 10 项，非官方认证）并自动上报；`GET /api/v1/compliance/summary`（fleet 平均分、最低/最高分、失败检查 Top）、`GET /api/v1/compliance/agents`（每 agent 评分行）、`GET /api/v1/compliance/agents/{id}`（检查明细）、`GET /api/v1/compliance/export.csv`；所有登录角色可读，日报 HTML 含合规概览
+- OpenAPI 规范：`GET /openapi.yaml`（免鉴权）返回完整 OpenAPI 3.0.3 规范，覆盖全部 REST 端点、鉴权方案与 `x-roles` 角色标注；人类阅读版见 [docs/API.md](docs/API.md)
 
 ## Users & RBAC / 用户与权限
 

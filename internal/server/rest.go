@@ -75,6 +75,7 @@ func (s *RESTServer) Handler() http.Handler {
 	r.Use(s.auditMiddleware)
 
 	r.Get("/health", s.health)
+	r.Get("/openapi.yaml", s.serveOpenAPI)
 	r.Get("/demo", s.serveDemo)
 	// Install scripts reference /dl/agent/<platform>; keep the single-segment
 	// alias for backward compatibility.
@@ -192,6 +193,7 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 		}
 		whiteList := map[string]bool{
 			"/health":            true,
+			"/openapi.yaml":      true,
 			"/demo":              true,
 			"/api/v1/register":   true,
 			"/api/v1/auth/login": true,
