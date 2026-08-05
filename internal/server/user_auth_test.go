@@ -85,6 +85,13 @@ func TestUserCanMatrix(t *testing.T) {
 		role, method, path string
 		want               bool
 	}{
+		{"admin", http.MethodGet, "/api/v1/audit-logs", true},
+		{"admin", http.MethodGet, "/api/v1/audit-logs/export.csv", true},
+		{"operator", http.MethodGet, "/api/v1/audit-logs", false},
+		{"operator", http.MethodGet, "/api/v1/audit-logs/export.csv", false},
+		{"viewer", http.MethodGet, "/api/v1/audit-logs", false},
+		{"viewer", http.MethodGet, "/api/v1/audit-logs/export.csv", false},
+		{"operator", http.MethodPost, "/api/v1/audit-logs", false},
 		{"admin", http.MethodDelete, "/api/v1/admin/refresh-feeds", true},
 		{"admin", http.MethodGet, "/api/v1/agents", true},
 		{"viewer", http.MethodGet, "/api/v1/risk/summary", true},

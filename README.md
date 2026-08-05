@@ -149,6 +149,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
 - EOL：`GET /api/v1/eol/summary`、`GET /api/v1/eol/agents`、`POST /api/v1/admin/refresh-eol`（管理员手动重算，服务端默认每 6 小时自动刷新）；生命周期数据基于公开资料静态种子表（`os_lifecycle`），日期以厂商为准
+- 审计日志：`GET /api/v1/audit-logs`（admin，支持 `actor/method/path/since/until/limit/offset`，返回 `total + entries`）、`GET /api/v1/audit-logs/export.csv`（admin，最新 5000 条）；所有 `POST/PUT/DELETE/PATCH` 自动记录操作人、方法、路径、状态码、来源 IP 与耗时，登录成功/失败亦入审计
 
 ## Users & RBAC / 用户与权限
 
@@ -156,9 +157,9 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 
 | 角色 | 权限 |
 | --- | --- |
-| `admin` | 全部操作，含 `/admin/*` 数据源刷新、用户管理、agent 创建/删除 |
+| `admin` | 全部操作，含 `/admin/*` 数据源刷新、用户管理、agent 创建/删除、审计日志查询与 CSV 导出 |
 | `operator` | 日常运维：补丁任务/campaign 审批流转、告警 ack/resolve/remediate、异常创建/撤销、触发扫描/分析、资产导入与元数据、alert-rules 与 SLA 策略维护 |
-| `viewer` | 只读（所有 GET） |
+| `viewer` | 只读（所有 GET；审计日志除外，仅 admin 可见） |
 
 - 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
 - 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。
@@ -170,6 +171,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 补丁命令由服务端白名单模板生成（apt argv 数组 / 受限 PowerShell 脚本），资产名与 URL 均校验，杜绝自由 shell 输入
 - 任务默认需审批，且受执行窗口约束；agent 仅领取 approved 且在窗口内的任务
 - 执行结果（exit_code/output/时间）与审批人全部落库审计；`dry_run` 可安全演练
+- 统一审计日志（`audit_logs`）自动记录全部写操作（操作人、方法、路径、状态码、来源 IP、耗时），admin 专属查询/CSV 导出；登录成功/失败一并记录，被 API Key 拒绝的请求不记录
 - 告警投递带 HMAC-SHA256 签名，投递失败最多重试 3 次并留痕
 - Agent 通过 gRPC JWT 鉴权；REST 使用 X-API-Key
 

@@ -90,6 +90,11 @@ func actorFromRequest(r *http.Request) string {
 // read-only; operator gets the daily operational mutations; self-service
 // password change and /auth/me are available to every logged-in role.
 func userCan(role, method, path string) bool {
+	// The unified audit trail is a governance surface: only admins may read
+	// or export it, regardless of the generic GET permissions below.
+	if strings.HasPrefix(path, "/api/v1/audit-logs") {
+		return role == "admin"
+	}
 	switch role {
 	case "admin":
 		return true

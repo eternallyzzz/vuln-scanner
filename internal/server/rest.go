@@ -72,6 +72,7 @@ func (s *RESTServer) Handler() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.userAuthMiddleware)
 	r.Use(s.apiKeyMiddleware)
+	r.Use(s.auditMiddleware)
 
 	r.Get("/health", s.health)
 	r.Get("/demo", s.serveDemo)
@@ -92,6 +93,8 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Put("/users/{userId}", s.updateUser)
 		r.Delete("/users/{userId}", s.deleteUser)
 		r.Post("/users/{userId}/password", s.resetPassword)
+		r.Get("/audit-logs", s.listAuditLogs)
+		r.Get("/audit-logs/export.csv", s.exportAuditLogs)
 		r.Get("/agents", s.listAgents)
 		r.Post("/agents", s.addAgent)
 		r.Get("/agents/{id}", s.getAgent)

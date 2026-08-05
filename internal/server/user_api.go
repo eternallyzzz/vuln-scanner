@@ -56,6 +56,7 @@ func (s *RESTServer) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	setAuditActor(r.Context(), u.Username)
 	_ = s.store.TouchUserLogin(r.Context(), u.ID)
 	writeJSON(w, 200, map[string]interface{}{
 		"token":      token,
