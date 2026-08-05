@@ -66,6 +66,14 @@ func TestAuditActorFor(t *testing.T) {
 		t.Fatalf("successful login actor = %q, want alice", got)
 	}
 
+	ldapReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/ldap/login", nil)
+	if got := auditActorFor(context.Background(), ldapReq); got != "" {
+		t.Fatalf("failed ldap login actor = %q, want empty", got)
+	}
+	if got := auditActorFor(ctx, ldapReq); got != "alice" {
+		t.Fatalf("successful ldap login actor = %q, want alice", got)
+	}
+
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/users", nil)
 	if got := auditActorFor(ctx, req); got != "api" {
 		t.Fatalf("anonymous actor = %q, want api", got)

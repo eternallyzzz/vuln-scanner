@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-ldap/ldap/v3 v3.4.8
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/knqyf263/go-cpe v0.0.0-20230627041855-cb0794d06872
@@ -21,8 +22,10 @@ require (
 )
 
 require (
+	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
+	github.com/go-asn1-ber/asn1-ber v1.5.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

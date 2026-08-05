@@ -47,7 +47,7 @@
 | REST API | ★ | ★ | ★ | ★ | ★ |
 | Webhook 出站 | ★（告警 HMAC） | ★ | ★ | ★ | ★ |
 | SIEM/SOAR 集成 | ◐（可经 webhook 转发） | ★ | ★ | ★ | ★ |
-| SSO/LDAP | — | ★ | ★ | ★ | ★（Entra ID） |
+| SSO/LDAP | ◐（LDAP 绑定 + 组角色映射 + 自动建号） | ★ | ★ | ★ | ★（Entra ID） |
 | RBAC 多用户 | ◐（本轮新增 admin/operator/viewer） | ★ | ★ | ★ | ★ |
 | 多租户/MSP | — | ★ | ★ | ★ | ◐ |
 | 离线/内网部署 | ★（完全自托管） | ◐ | ◐ | ◐ | — |
@@ -94,7 +94,7 @@ VulnScanner 可借鉴的方向：分层可解释权重（已具备雏形）、�
 ### P2（中期）
 - Agentless/网络扫描与凭据认证扫描（范围大，需单独设计）
 - 工单集成（Jira/ServiceNow）与 SIEM/SOAR 事件流
-- SSO/LDAP（对接已有 RBAC）
+- [x] SSO/LDAP（对接已有 RBAC）：目录绑定认证 + 组角色映射 + 自动建号（2026-08 完成）
 - 云资产接入（AWS/Azure/GCP 凭据发现）
 - Web 应用与数据库扫描
 

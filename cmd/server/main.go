@@ -62,6 +62,17 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if cfg.LDAP != nil {
+		if err := cfg.LDAP.Validate(); err != nil {
+			slog.Error("ldap config invalid", "error", err)
+			os.Exit(1)
+		}
+		if cfg.LDAP.Enabled {
+			slog.Info("ldap login enabled",
+				"url", cfg.LDAP.URL,
+				"auto_provision", cfg.LDAP.AutoProvision)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

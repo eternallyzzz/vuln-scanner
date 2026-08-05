@@ -1,8 +1,10 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"vuln-scanner/internal/alert"
 	"vuln-scanner/internal/container"
 	"vuln-scanner/internal/cve"
+	"vuln-scanner/internal/ldap"
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/report"
 )
@@ -50,6 +53,7 @@ type Config struct {
 	Patch         *patch.Config     `mapstructure:"patch"`
 	ContainerScan *container.Config `mapstructure:"container_scan"`
 	Reporting     *report.Config    `mapstructure:"reporting"`
+	LDAP          *ldap.Config      `mapstructure:"ldap"`
 }
 
 func DefaultConfig() *Config {
@@ -119,8 +123,83 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.LLM.APIKey = os.ExpandEnv(cfg.LLM.APIKey)
 		cfg.LLM.BaseURL = os.ExpandEnv(cfg.LLM.BaseURL)
 	}
+	if cfg.LDAP == nil {
+		cfg.LDAP = &ldap.Config{}
+	}
+	if err := applyLDAPEnv(cfg.LDAP); err != nil {
+		return nil, fmt.Errorf("apply ldap env: %w", err)
+	}
 
 	return cfg, nil
+}
+
+// applyLDAPEnv applies LDAP_* environment overrides on top of any
+// server.yaml ldap section. LDAP_ROLE_GROUPS is a JSON object such as
+// {"admin":["cn=admins,..."],"operator":["cn=ops,..."]}; the bind password
+// itself is read from the environment variable named by bind_password_env.
+func applyLDAPEnv(c *ldap.Config) error {
+	c.URL = os.ExpandEnv(c.URL)
+	c.BindDN = os.ExpandEnv(c.BindDN)
+	c.BindPasswordEnv = os.ExpandEnv(c.BindPasswordEnv)
+	c.UserBaseDN = os.ExpandEnv(c.UserBaseDN)
+	c.UserFilter = os.ExpandEnv(c.UserFilter)
+	c.GroupBaseDN = os.ExpandEnv(c.GroupBaseDN)
+	c.GroupFilter = os.ExpandEnv(c.GroupFilter)
+
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+
+	setString("LDAP_URL", &c.URL)
+	setString("LDAP_BIND_DN", &c.BindDN)
+	setString("LDAP_BIND_PASSWORD_ENV", &c.BindPasswordEnv)
+	setString("LDAP_USER_BASE_DN", &c.UserBaseDN)
+	setString("LDAP_USER_FILTER", &c.UserFilter)
+	setString("LDAP_GROUP_BASE_DN", &c.GroupBaseDN)
+	setString("LDAP_GROUP_FILTER", &c.GroupFilter)
+	if err := setBool("LDAP_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setBool("LDAP_TLS_SKIP_VERIFY", &c.TLSSkipVerify); err != nil {
+		return err
+	}
+	if err := setBool("LDAP_AUTO_PROVISION", &c.AutoProvision); err != nil {
+		return err
+	}
+	if raw := os.Getenv("LDAP_TIMEOUT_SECONDS"); raw != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || n <= 0 {
+			return fmt.Errorf("LDAP_TIMEOUT_SECONDS must be a positive integer")
+		}
+		c.TimeoutSeconds = n
+	}
+	if raw := os.Getenv("LDAP_ROLE_GROUPS"); raw != "" {
+		var rg ldap.RoleGroups
+		if err := json.Unmarshal([]byte(raw), &rg); err != nil {
+			return fmt.Errorf("LDAP_ROLE_GROUPS must be valid JSON: %w", err)
+		}
+		c.RoleGroups = rg
+	}
+	// Convenience for env-only deployments: when bind_password_env is not
+	// set but LDAP_BIND_PASSWORD is, use it directly.
+	if c.BindPasswordEnv == "" && os.Getenv("LDAP_BIND_PASSWORD") != "" {
+		c.BindPasswordEnv = "LDAP_BIND_PASSWORD"
+	}
+	return nil
 }
 
 // bindCoreEnv registers the environment variables that must work even when

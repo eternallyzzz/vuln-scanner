@@ -123,6 +123,23 @@ container_scan:
   scan_interval_minutes: 360
   timeout_minutes: 20
   max_images: 100
+
+ldap:                    # 可选；不配置或 enabled: false 时 LDAP 登录端点返回 400
+  enabled: true
+  url: "ldap://ldap.example.com:389"   # 支持 ldap:// 与 ldaps://
+  tls_skip_verify: false               # 仅对 ldaps:// 生效，测试环境可临时 true
+  bind_dn: "cn=admin,dc=example,dc=org"
+  bind_password_env: "LDAP_BIND_PASSWORD"   # 密码只从环境变量读取，不写入配置文件
+  user_base_dn: "ou=users,dc=example,dc=org"
+  user_filter: "(uid={username})"      # 支持 {username} 占位符
+  group_base_dn: "ou=groups,dc=example,dc=org"
+  group_filter: "(member={dn})"        # 支持 {dn} 占位符
+  role_groups:                         # 组可写 DN 或 CN，匹配不区分大小写
+    admin: ["cn=admins,ou=groups,dc=example,dc=org"]
+    operator: ["cn=ops,ou=groups,dc=example,dc=org"]
+    viewer: ["viewers"]
+  auto_provision: true                 # true=首次登录自动建号；false=仅允许已有本地用户
+  timeout_seconds: 10
 ```
 
 ### Agent (`~/.vuln-scanner/agent.yaml`)
@@ -138,6 +155,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 | `NVD_API_KEY` | env var, or `cve.nvd_api_key` in `server.yaml` | Optional. Without it NVD is still usable at 2 req/s; with it, 0.6 req/s. 免费申请：https://nvd.nist.gov/developers/request-an-api-key |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | `llm.api_key` in `server.yaml` | Optional, for LLM analysis |
 | `SMTP_PASSWORD` | `alerting.smtp.password_env` | SMTP password for alert delivery |
+| `LDAP_BIND_PASSWORD` | `ldap.bind_password_env` | LDAP service-account bind password; read from the environment variable named there (env-only deployments can set `LDAP_BIND_PASSWORD` directly) |
 | `JWT_SECRET` / `API_KEY` | `server.yaml` | Agent gRPC JWT signing secret & REST X-API-Key. **Must be changed** from the demo placeholders |
 | OSV / MSRC / Debian / Red Hat | none / 无 | Public APIs, no key required |
 
@@ -172,6 +190,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 | `viewer` | 只读（所有 GET；审计日志除外，仅 admin 可见） |
 
 - 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
+- LDAP 登录（可选）：`POST /api/v1/auth/ldap/login`（body 同 `/auth/login`）由服务端完成目录绑定认证，按 `role_groups` 映射 admin/operator/viewer；首次登录自动建号（`auto_provision: true` 时），已有本地用户保留本地角色与状态（禁用即拒绝），登录成功后复用同一 JWT/RBAC/审计链路。未命中任何角色映射的目录用户返回 403，本地密码登录不受影响。
 - 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。
 - 首启引导：`users` 表为空且设置 `ADMIN_PASSWORD` 环境变量时自动创建第一个 `admin` 用户（用户名默认 `admin`，可用 `ADMIN_USERNAME` 覆盖）；未设置则控制台登录不可用。
 - 兼容性：`X-API-Key` 继续作为 admin 级自动化凭证；请求带用户 Bearer token 时优先按用户角色鉴权。禁用用户只阻止新登录，已签发 token 到期前仍有效。

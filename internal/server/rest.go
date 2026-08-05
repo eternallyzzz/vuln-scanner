@@ -84,6 +84,7 @@ func (s *RESTServer) Handler() http.Handler {
 	r.Get("/r/{code}", s.downloadScript)
 	r.Post("/api/v1/register", s.registerAgent)
 	r.Post("/api/v1/auth/login", s.login)
+	r.Post("/api/v1/auth/ldap/login", s.ldapLogin)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.enforceRBAC)
@@ -192,11 +193,12 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		whiteList := map[string]bool{
-			"/health":            true,
-			"/openapi.yaml":      true,
-			"/demo":              true,
-			"/api/v1/register":   true,
-			"/api/v1/auth/login": true,
+			"/health":                 true,
+			"/openapi.yaml":           true,
+			"/demo":                   true,
+			"/api/v1/register":        true,
+			"/api/v1/auth/login":      true,
+			"/api/v1/auth/ldap/login": true,
 		}
 		for prefix := range whiteList {
 			if r.URL.Path == prefix {

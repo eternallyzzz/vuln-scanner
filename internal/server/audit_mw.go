@@ -75,7 +75,7 @@ func isAuditedMethod(method string) bool {
 // (empty string). Other anonymous automation is labelled "api" unless the
 // legacy X-User header names the caller.
 func auditActorFor(ctx context.Context, r *http.Request) string {
-	if r.URL.Path == "/api/v1/auth/login" {
+	if r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/auth/ldap/login" {
 		if a, ok := ctx.Value(auditActorCtxKey).(*auditActor); ok {
 			return a.username
 		}

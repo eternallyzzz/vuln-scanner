@@ -20,7 +20,7 @@ curl http://localhost:8080/health
 
 | 端口 | 用途 |
 | --- | --- |
-| 8080 | REST API（X-API-Key 或用户 Bearer JWT 鉴权；`/health`、`/demo`、`/api/v1/register`、`/api/v1/auth/login`、`/dl/*`、`/r/*` 免鉴权） |
+| 8080 | REST API（X-API-Key 或用户 Bearer JWT 鉴权；`/health`、`/demo`、`/api/v1/register`、`/api/v1/auth/login`、`/api/v1/auth/ldap/login`、`/dl/*`、`/r/*` 免鉴权） |
 | 9090 | Agent gRPC（JWT 鉴权） |
 | 5432 | PostgreSQL（仅本机暴露，可用 `POSTGRES_PORT` 修改） |
 
@@ -40,6 +40,19 @@ curl http://localhost:8080/health
 | `HTTP_PORT` / `GRPC_PORT` | `8080` / `9090` | 宿主机映射端口 |
 | `NVD_API_KEY` | 空 | 可选，提高 NVD 刷新速率（0.6 秒/请求） |
 | `SMTP_PASSWORD` | 空 | 告警邮件密码（对应 `alerting.smtp.password_env`） |
+| `LDAP_ENABLED` | `false` | 启用 LDAP 目录登录（对应 `ldap.enabled`） |
+| `LDAP_URL` | 空 | LDAP 服务器地址，`ldap://` 或 `ldaps://` |
+| `LDAP_TLS_SKIP_VERIFY` | `false` | 仅对 `ldaps://` 生效，跳过证书校验（测试环境） |
+| `LDAP_BIND_DN` | 空 | LDAP 服务账号 DN（用户/组搜索） |
+| `LDAP_BIND_PASSWORD` | 空 | LDAP 服务账号密码；仅从环境变量读取，不落配置文件 |
+| `LDAP_BIND_PASSWORD_ENV` | `LDAP_BIND_PASSWORD` | 指定存放 bind 密码的环境变量名（默认直接用 `LDAP_BIND_PASSWORD`） |
+| `LDAP_USER_BASE_DN` | 空 | 用户搜索基点 |
+| `LDAP_USER_FILTER` | 空 | 用户过滤，支持 `{username}`，如 `(uid={username})` |
+| `LDAP_GROUP_BASE_DN` | 空 | 组搜索基点 |
+| `LDAP_GROUP_FILTER` | 空 | 组过滤，支持 `{dn}`/`{username}`，如 `(member={dn})` |
+| `LDAP_ROLE_GROUPS` | 空 | JSON 对象，如 `{"admin":["cn=admins,dc=example,dc=org"],"viewer":["viewers"]}` |
+| `LDAP_AUTO_PROVISION` | `false` | 首次登录自动创建本地用户 |
+| `LDAP_TIMEOUT_SECONDS` | `10` | LDAP 连接/请求超时 |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |
