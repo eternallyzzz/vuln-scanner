@@ -49,3 +49,6 @@ coverage.html
 /step1-server.ps1
 /step2-agent.ps1
 /test-e2e.ps1
+
+# Development worklog (local only, not committed)
+docs/WORKLOG.md
