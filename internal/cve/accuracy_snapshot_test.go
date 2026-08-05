@@ -2,7 +2,9 @@ package cve
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +53,9 @@ func TestAccuracySnapshot(t *testing.T) {
 		return
 	}
 	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Skip("snapshot.json is local-only; run with -update to regenerate")
+	}
 	if err != nil {
 		t.Fatalf("read snapshot (run with -update to create): %v", err)
 	}

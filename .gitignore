@@ -43,12 +43,18 @@ coverage.html
 /server
 /server.log
 /server-err.log
-/results.json
-/results_summary.json
+/results*.json
 /tmp/
 /step1-server.ps1
 /step2-agent.ps1
 /test-e2e.ps1
+
+# Local test/report artifacts (never commit)
+*.log
+/reports/
+*.metrics
+*.bench
+internal/cve/testdata/accuracy/snapshot.json
 
 # Development worklog (local only, not committed)
 docs/WORKLOG.md
