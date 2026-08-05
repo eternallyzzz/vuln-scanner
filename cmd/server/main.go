@@ -14,6 +14,7 @@ import (
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/llm"
 	"vuln-scanner/internal/patch"
+	"vuln-scanner/internal/report"
 	"vuln-scanner/internal/server"
 	"vuln-scanner/internal/store"
 
@@ -41,6 +42,18 @@ func main() {
 	}
 	if err := cfg.Patch.Validate(); err != nil {
 		slog.Error("patch config invalid", "error", err)
+		os.Exit(1)
+	}
+	if cfg.Reporting == nil {
+		cfg.Reporting = report.DefaultConfig()
+	}
+	smtpHost, smtpFrom := "", ""
+	if cfg.Alerting != nil && cfg.Alerting.SMTP != nil {
+		smtpHost = cfg.Alerting.SMTP.Host
+		smtpFrom = cfg.Alerting.SMTP.From
+	}
+	if err := cfg.Reporting.Validate(smtpHost, smtpFrom); err != nil {
+		slog.Error("reporting config invalid", "error", err)
 		os.Exit(1)
 	}
 	if cfg.ContainerScan != nil {
@@ -99,6 +112,11 @@ func main() {
 
 	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch, feedCfg)
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
+	var smtpCfg *alert.SMTPConfig
+	if cfg.Alerting != nil {
+		smtpCfg = cfg.Alerting.SMTP
+	}
+	worker.ConfigureReporting(cfg.Reporting, smtpCfg)
 	worker.Start(ctx)
 
 	grpcSrv := grpc.NewServer(

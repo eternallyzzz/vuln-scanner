@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -11,6 +12,7 @@ import (
 	"vuln-scanner/internal/container"
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/patch"
+	"vuln-scanner/internal/report"
 )
 
 type LLMConfig struct {
@@ -47,6 +49,7 @@ type Config struct {
 	Alerting      *alert.Config     `mapstructure:"alerting"`
 	Patch         *patch.Config     `mapstructure:"patch"`
 	ContainerScan *container.Config `mapstructure:"container_scan"`
+	Reporting     *report.Config    `mapstructure:"reporting"`
 }
 
 func DefaultConfig() *Config {
@@ -56,6 +59,7 @@ func DefaultConfig() *Config {
 		DatabaseURL: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable",
 		JWTSecret:   "change-me-in-production",
 		APIKey:      "sk-change-me",
+		Reporting:   report.DefaultConfig(),
 	}
 }
 
@@ -91,6 +95,22 @@ func LoadConfig(path string) (*Config, error) {
 	cfg.APIKey = os.ExpandEnv(cfg.APIKey)
 	cfg.DatabaseURL = os.ExpandEnv(cfg.DatabaseURL)
 	cfg.ServerURL = os.ExpandEnv(cfg.ServerURL)
+	if cfg.Reporting == nil {
+		cfg.Reporting = report.DefaultConfig()
+	}
+	if raw := os.Getenv("REPORTING_ENABLED"); raw != "" {
+		cfg.Reporting.Enabled = strings.EqualFold(strings.TrimSpace(raw), "true") ||
+			strings.TrimSpace(raw) == "1"
+	}
+	if raw := os.Getenv("REPORTING_SCHEDULE"); raw != "" {
+		cfg.Reporting.Schedule = strings.TrimSpace(raw)
+	}
+	if raw := os.Getenv("REPORTING_TIMEZONE"); raw != "" {
+		cfg.Reporting.Timezone = strings.TrimSpace(raw)
+	}
+	if raw := os.Getenv("REPORTING_TO"); raw != "" {
+		cfg.Reporting.To = splitCommaList(raw)
+	}
 	if cfg.CVE == nil {
 		cfg.CVE = &CVEScanConfig{}
 	}
@@ -115,6 +135,10 @@ func bindCoreEnv(v *viper.Viper) {
 		"jwt_secret",
 		"api_key",
 		"server_url",
+		"reporting.enabled",
+		"reporting.schedule",
+		"reporting.timezone",
+		"reporting.to",
 	} {
 		_ = v.BindEnv(key)
 	}
@@ -122,6 +146,16 @@ func bindCoreEnv(v *viper.Viper) {
 	// "cve.nvd_api_key" into "CVE.NVD_API_KEY", which is not a valid
 	// environment variable name. Bind the real variable explicitly.
 	_ = v.BindEnv("cve.nvd_api_key", "NVD_API_KEY")
+}
+
+func splitCommaList(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func (c *Config) LLMEnabled() bool {

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>VulnScanner 每日安全报告 {{.Period}}</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #222; margin: 24px; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 17px; margin-top: 28px; border-bottom: 2px solid #4a6fa5; padding-bottom: 4px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+    th, td { border: 1px solid #cfd8dc; padding: 6px 8px; text-align: left; }
+    th { background: #eef3f8; }
+    tr:nth-child(even) td { background: #fafbfc; }
+    .muted { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>VulnScanner 每日安全报告</h1>
+  <p class="muted">生成时间：{{fmtTime .GeneratedAt}} · 报告周期：{{.Period}}</p>
+
+  <h2>概览</h2>
+  <table>
+    <tr><th>Agent 总数</th><td>{{.Summary.AgentsTotal}}</td><th>在线 Agent</th><td>{{.Summary.AgentsOnline}}</td></tr>
+    <tr><th>资产总数</th><td>{{.Summary.AssetsTotal}}</td><th>活跃/已修复漏洞</th><td>{{.Summary.ActiveCVEs}} / {{.Summary.FixedCVEs}}</td></tr>
+    <tr><th>开放告警</th><td>{{.Summary.OpenAlerts}}</td><th>告警规则</th><td>{{.Summary.Rules}}</td></tr>
+    <tr><th>EOL / 不支持 Agent</th><td>{{.Summary.EOLAgents}} / {{.Summary.UnsupportedAgents}}</td><th>活跃豁免</th><td>{{.Summary.Exceptions}}</td></tr>
+    <tr><th>补丁 Campaign</th><td>{{.Summary.Campaigns}}</td><th>最近 24h 写操作</th><td>{{.AuditLast24h}}</td></tr>
+  </table>
+
+  <h2>风险汇总</h2>
+  <table>
+    <tr><th>活跃</th><td>{{.Risk.TotalActive}}</td><th>已修复</th><td>{{.Risk.TotalFixed}}</td></tr>
+    <tr><th>CRITICAL</th><td>{{mapGet .Risk.ByRiskLevel "CRITICAL"}}</td><th>HIGH</th><td>{{mapGet .Risk.ByRiskLevel "HIGH"}}</td></tr>
+    <tr><th>MEDIUM</th><td>{{mapGet .Risk.ByRiskLevel "MEDIUM"}}</td><th>LOW</th><td>{{mapGet .Risk.ByRiskLevel "LOW"}}</td></tr>
+    <tr><th>KEV</th><td>{{.Risk.KEVCount}}</td><th>超期 SLA</th><td>{{.Risk.Overdue}}</td></tr>
+    <tr><th>平均 EPSS</th><td>{{fmtFloat .Risk.AverageEPSS}}</td><th>修复率</th><td>{{fmtFloat .Risk.FixRate}}%</td></tr>
+  </table>
+
+  <h2>Top 风险（{{len .TopRisks}}）</h2>
+  <table>
+    <tr><th>CVE</th><th>主机</th><th>资产</th><th>严重级</th><th>风险级</th><th>CVSS</th><th>EPSS</th><th>KEV</th><th>EOL</th><th>SLA 截止</th><th>超期</th></tr>
+    {{range .TopRisks}}
+    <tr><td>{{.CVEID}}</td><td>{{.Hostname}}</td><td>{{.AssetName}}</td><td>{{.Severity}}</td><td>{{.RiskLevel}}</td><td>{{fmtFloat .CVSSScore}}</td><td>{{fmtFloat .EPSSScore}}</td><td>{{yesno .KEV}}</td><td>{{yesno .EOL}}</td><td>{{fmtPtrTime .DueAt}}</td><td>{{yesno .Overdue}}</td></tr>
+    {{end}}
+  </table>
+
+  <h2>近 30 天趋势</h2>
+  <table>
+    <tr><th>日期</th><th>活跃</th><th>新增</th><th>修复</th></tr>
+    {{range .Trend}}
+    <tr><td>{{.Date}}</td><td>{{.Active}}</td><td>{{.New}}</td><td>{{.Fixed}}</td></tr>
+    {{end}}
+  </table>
+
+  <h2>EOL / 停更 Agent（前 {{len .EOLAgents}}）</h2>
+  <table>
+    <tr><th>Agent</th><th>主机</th><th>OS</th><th>版本</th><th>状态</th><th>EOL 日期</th><th>产品</th><th>周期</th><th>最后在线</th></tr>
+    {{range .EOLAgents}}
+    <tr><td>{{.AgentID}}</td><td>{{.Hostname}}</td><td>{{.OSType}}</td><td>{{.OSVersion}}</td><td>{{.EOLStatus}}</td><td>{{fmtDatePtr .EOLDate}}</td><td>{{.EOLProduct}}</td><td>{{.EOLCycle}}</td><td>{{fmtTime .LastSeen}}</td></tr>
+    {{end}}
+  </table>
+
+  <h2>开放告警（前 {{len .Alerts}}）</h2>
+  <table>
+    <tr><th>ID</th><th>规则</th><th>CVE</th><th>资产</th><th>Agent</th><th>严重级</th><th>首次发现</th><th>最后更新</th></tr>
+    {{range .Alerts}}
+    <tr><td>{{.ID}}</td><td>{{.RuleName}}</td><td>{{.CVEID}}</td><td>{{.AssetName}}</td><td>{{.AgentID}}</td><td>{{.Severity}}</td><td>{{fmtTime .FirstSeen}}</td><td>{{fmtTime .LastSeen}}</td></tr>
+    {{end}}
+  </table>
+
+  <h2>补丁流水线</h2>
+  <table>
+    <tr><th>待审批</th><td>{{mapGet .Patch.TasksByStatus "pending"}}</td><th>已审批</th><td>{{mapGet .Patch.TasksByStatus "approved"}}</td></tr>
+    <tr><th>执行中</th><td>{{mapGet .Patch.TasksByStatus "running"}}</td><th>失败</th><td>{{mapGet .Patch.TasksByStatus "failed"}}</td></tr>
+    <tr><th>已取消</th><td>{{mapGet .Patch.TasksByStatus "cancelled"}}</td><th>Campaign</th><td>{{.Patch.Campaigns}}</td></tr>
+  </table>
+</body>
+</html>

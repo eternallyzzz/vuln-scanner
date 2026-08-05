@@ -8,6 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/knqyf263/go-cpe v0.0.0-20230627041855-cb0794d06872
 	github.com/pandatix/go-cvss v0.6.2
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	golang.org/x/crypto v0.31.0

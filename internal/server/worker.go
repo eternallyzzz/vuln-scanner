@@ -10,6 +10,7 @@ import (
 	"vuln-scanner/internal/container"
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/patch"
+	"vuln-scanner/internal/report"
 	"vuln-scanner/internal/store"
 )
 
@@ -34,6 +35,10 @@ type Worker struct {
 	matching         bool
 	matchPending     bool
 	ready            chan struct{}
+	reportCfg        *report.Config
+	reportSMTP       *alert.SMTPConfig
+	reportMu         sync.Mutex
+	reportRunning    bool
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -71,10 +76,17 @@ func (w *Worker) Start(ctx context.Context) {
 	go w.slaLoop(ctx)
 	go w.eolLoop(ctx)
 	go w.containerScanLoop(ctx)
+	go w.reportLoop(ctx)
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
 	go w.reapPatchLoop(ctx)
+}
+
+// ConfigureReporting wires the optional scheduled report into the worker.
+func (w *Worker) ConfigureReporting(cfg *report.Config, smtp *alert.SMTPConfig) {
+	w.reportCfg = cfg
+	w.reportSMTP = smtp
 }
 
 func (w *Worker) Stop() {

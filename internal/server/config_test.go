@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -97,5 +98,52 @@ func TestNilCVEScanConfigFeedConfig(t *testing.T) {
 	var c *CVEScanConfig
 	if got := c.FeedConfig(); got == nil {
 		t.Fatal("nil config must return defaults")
+	}
+}
+
+func TestLoadConfigReportingEnv(t *testing.T) {
+	t.Setenv("REPORTING_ENABLED", "true")
+	t.Setenv("REPORTING_SCHEDULE", "0 9 * * *")
+	t.Setenv("REPORTING_TIMEZONE", "UTC")
+	t.Setenv("REPORTING_TO", "a@example.com,b@example.com")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Reporting == nil || !cfg.Reporting.Enabled {
+		t.Fatal("REPORTING_ENABLED must enable reporting")
+	}
+	if cfg.Reporting.Schedule != "0 9 * * *" || cfg.Reporting.Timezone != "UTC" {
+		t.Fatalf("reporting env not applied: %+v", cfg.Reporting)
+	}
+	if len(cfg.Reporting.To) != 2 ||
+		!strings.Contains(cfg.Reporting.To[0], "a@example.com") ||
+		!strings.Contains(cfg.Reporting.To[1], "b@example.com") {
+		t.Fatalf("REPORTING_TO not split: %#v", cfg.Reporting.To)
+	}
+}
+
+func TestLoadConfigReportingFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	content := []byte(`
+reporting:
+  enabled: true
+  schedule: "0 9 * * *"
+  timezone: "UTC"
+  to:
+    - reports@example.com
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Reporting.Enabled || cfg.Reporting.Schedule != "0 9 * * *" ||
+		cfg.Reporting.Timezone != "UTC" || len(cfg.Reporting.To) != 1 ||
+		cfg.Reporting.To[0] != "reports@example.com" {
+		t.Fatalf("reporting file config not applied: %+v", cfg.Reporting)
 	}
 }

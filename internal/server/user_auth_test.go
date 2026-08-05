@@ -110,6 +110,8 @@ func TestUserCanMatrix(t *testing.T) {
 		{"operator", http.MethodPut, "/api/v1/assets/3", true},
 		{"operator", http.MethodPost, "/api/v1/auth/change-password", true},
 		{"operator", http.MethodPost, "/api/v1/admin/refresh-feeds", false},
+		{"admin", http.MethodPost, "/api/v1/admin/report/send", true},
+		{"operator", http.MethodPost, "/api/v1/admin/report/send", false},
 		{"operator", http.MethodPost, "/api/v1/users", false},
 		{"operator", http.MethodDelete, "/api/v1/agents/2", false},
 		{"operator", http.MethodPost, "/api/v1/agents", false},

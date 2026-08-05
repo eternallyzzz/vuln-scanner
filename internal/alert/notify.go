@@ -6,13 +6,16 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
 	"os"
 	"strconv"
@@ -37,6 +40,13 @@ type Payload struct {
 type Notifier interface {
 	Name() string
 	Send(ctx context.Context, p Payload) error
+}
+
+// Attachment is one binary file attached to a report email.
+type Attachment struct {
+	Name        string
+	ContentType string
+	Data        []byte
 }
 
 func signBody(secret string, body []byte) string {
@@ -116,7 +126,61 @@ func (n *SMTPNotifier) Send(ctx context.Context, p Payload) error {
 	b.WriteString(fmt.Sprintf("Detected: %s\n", p.DetectedAt.Format(time.RFC3339)))
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
 		n.cfg.From, strings.Join(n.cfg.To, ","), subject, b.String())
+	return n.sendMessage(n.cfg.To, []byte(msg))
+}
 
+// SendMail delivers an HTML email with optional file attachments to a
+// caller-supplied recipient list, reusing the notifier's SMTP connection
+// settings.
+func (n *SMTPNotifier) SendMail(ctx context.Context, subject, htmlBody string, to []string, attachments []Attachment) error {
+	return n.sendMessage(to, buildMailMessage(n.cfg.From, subject, htmlBody, to, attachments))
+}
+
+func buildMailMessage(from, subject, htmlBody string, to []string, attachments []Attachment) []byte {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	htmlHdr := textproto.MIMEHeader{}
+	htmlHdr.Set("Content-Type", "text/html; charset=UTF-8")
+	htmlHdr.Set("Content-Transfer-Encoding", "base64")
+	htmlPart, _ := writer.CreatePart(htmlHdr)
+	_, _ = htmlPart.Write([]byte(encodeBase64Wrapped([]byte(htmlBody))))
+
+	for _, a := range attachments {
+		ct := a.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		hdr := textproto.MIMEHeader{}
+		hdr.Set("Content-Type", ct)
+		hdr.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, a.Name))
+		hdr.Set("Content-Transfer-Encoding", "base64")
+		part, _ := writer.CreatePart(hdr)
+		_, _ = part.Write([]byte(encodeBase64Wrapped(a.Data)))
+	}
+	_ = writer.Close()
+
+	return []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=%s\r\n\r\n%s",
+		from, strings.Join(to, ","), subject, writer.Boundary(), body.String()))
+}
+
+func encodeBase64Wrapped(data []byte) string {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	var b strings.Builder
+	for i := 0; i < len(encoded); i += 76 {
+		end := i + 76
+		if end > len(encoded) {
+			end = len(encoded)
+		}
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		b.WriteString(encoded[i:end])
+	}
+	return b.String()
+}
+
+func (n *SMTPNotifier) sendMessage(to []string, msg []byte) error {
 	addr := net.JoinHostPort(n.cfg.Host, strconv.Itoa(n.cfg.Port))
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
@@ -148,9 +212,9 @@ func (n *SMTPNotifier) Send(ctx context.Context, p Payload) error {
 	if err := client.Mail(n.cfg.From); err != nil {
 		return fmt.Errorf("smtp mail: %w", err)
 	}
-	for _, to := range n.cfg.To {
-		if err := client.Rcpt(to); err != nil {
-			return fmt.Errorf("smtp rcpt %s: %w", to, err)
+	for _, rcpt := range to {
+		if err := client.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("smtp rcpt %s: %w", rcpt, err)
 		}
 	}
 	w, err := client.Data()

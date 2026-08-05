@@ -104,6 +104,12 @@ patch:
     min_severity: HIGH
     max_campaigns_per_hour: 50
 
+reporting:
+  enabled: true
+  schedule: "0 8 * * *"    # 标准 5 段 cron，默认每天 08:00
+  timezone: "Local"        # 默认 Local；例如 "Asia/Shanghai"
+  to: ["ops@example.com"]  # 收件人独立；SMTP 服务器/认证复用 alerting.smtp
+
 container_scan:
   enabled: true
   docker_host: "unix:///var/run/docker.sock"
@@ -150,6 +156,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
 - EOL：`GET /api/v1/eol/summary`、`GET /api/v1/eol/agents`、`POST /api/v1/admin/refresh-eol`（管理员手动重算，服务端默认每 6 小时自动刷新）；生命周期数据基于公开资料静态种子表（`os_lifecycle`），日期以厂商为准
 - 审计日志：`GET /api/v1/audit-logs`（admin，支持 `actor/method/path/since/until/limit/offset`，返回 `total + entries`）、`GET /api/v1/audit-logs/export.csv`（admin，最新 5000 条）；所有 `POST/PUT/DELETE/PATCH` 自动记录操作人、方法、路径、状态码、来源 IP 与耗时，登录成功/失败亦入审计
+- 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送
 
 ## Users & RBAC / 用户与权限
 
@@ -157,7 +164,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 
 | 角色 | 权限 |
 | --- | --- |
-| `admin` | 全部操作，含 `/admin/*` 数据源刷新、用户管理、agent 创建/删除、审计日志查询与 CSV 导出 |
+| `admin` | 全部操作，含 `/admin/*` 数据源刷新、用户管理、agent 创建/删除、审计日志查询与 CSV 导出、计划报表手动发送 |
 | `operator` | 日常运维：补丁任务/campaign 审批流转、告警 ack/resolve/remediate、异常创建/撤销、触发扫描/分析、资产导入与元数据、alert-rules 与 SLA 策略维护 |
 | `viewer` | 只读（所有 GET；审计日志除外，仅 admin 可见） |
 

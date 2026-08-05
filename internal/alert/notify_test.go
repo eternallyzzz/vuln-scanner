@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,5 +75,36 @@ func TestWebhookNotifierNon2xx(t *testing.T) {
 	n, _ := NewWebhookNotifier(srv.URL, "")
 	if err := n.Send(httptest.NewRequest(http.MethodPost, "/", nil).Context(), Payload{}); err == nil {
 		t.Fatal("5xx must be an error")
+	}
+}
+
+func TestBuildMailMessageIncludesHTMLAndAttachment(t *testing.T) {
+	msg := buildMailMessage(
+		"reports@example.com",
+		"Daily Report",
+		"<html><body>hello</body></html>",
+		[]string{"ops@example.com"},
+		[]Attachment{{
+			Name:        "vulnscanner-report-2026-08-05.csv",
+			ContentType: "text/csv; charset=UTF-8",
+			Data:        []byte("cve_id,risk_level\nCVE-1,HIGH\n"),
+		}},
+	)
+	text := string(msg)
+	for _, want := range []string{
+		"From: reports@example.com",
+		"To: ops@example.com",
+		"Subject: Daily Report",
+		"multipart/mixed",
+		"text/html; charset=UTF-8",
+		`filename="vulnscanner-report-2026-08-05.csv"`,
+		"text/csv; charset=UTF-8",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("message missing %q", want)
+		}
+	}
+	if !strings.Contains(text, "Y3ZlX2lkLHJpc2tfbGV2ZWwKQ1ZFLTEsSElHSAo=") {
+		t.Errorf("CSV attachment not base64 encoded")
 	}
 }

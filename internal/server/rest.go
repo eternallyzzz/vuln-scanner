@@ -155,6 +155,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/admin/refresh-feeds", s.refreshFeeds)
 		r.Post("/admin/refresh-intel", s.refreshIntel)
 		r.Post("/admin/refresh-eol", s.refreshEOL)
+		r.Post("/admin/report/send", s.sendReport)
 		r.Post("/admin/check-sla", s.checkSLA)
 		r.Post("/admin/reconcile-cmdb", s.reconcileAllCMDB)
 		r.Post("/admin/reconcile-cmdb/{agentId}", s.reconcileAgentCMDB)
