@@ -1,0 +1,25 @@
+{
+  "name": "linux-debian-libldb2-fixed",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "libldb2", "version": "2:2.6.2+samba4.17.12+dfsg-0+deb12u1", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "debian",
+      "cve_id": "CVE-2023-34966",
+      "severity": "MEDIUM",
+      "cvss_score": 6.5,
+      "summary": "Samba libldb heap buffer overflow",
+      "affected": [
+        {"name": "libldb2", "fixed_in": "2:2.6.2+samba4.17.10+dfsg-0+deb12u1", "ecosystem": "Debian"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2023-34966", "asset": "libldb2", "status": "fixed"}
+  ]
+}

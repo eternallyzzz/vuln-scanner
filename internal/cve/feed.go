@@ -448,6 +448,16 @@ func matchFeedEntry(e FeedEntry, queryNames []string, queryVersions map[string]s
 			}
 		}
 		installedVer := findInstalledVersionEco(ap.Name, ap.Ecosystem, queryVersions)
+		if e.Source == "debian" {
+			// Debian tracker rows carry the release's fixed version when a
+			// fix exists; rows without one mean "no fix published yet" and
+			// stay active. An installed version at/above the fixed version
+			// must not be reported as vulnerable.
+			if ap.FixedIn != "" && installedVer != "" &&
+				compareVersionForEcosystem(installedVer, ap.FixedIn, ap.Ecosystem) >= 0 {
+				status = "fixed"
+			}
+		}
 		if e.Source != "msrc" && e.Source != "debian" {
 			hasRange := ap.MinVer != "" || ap.MaxVer != "" || ap.FixedIn != ""
 			if !hasRange {
