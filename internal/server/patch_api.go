@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -199,10 +198,7 @@ func (s *RESTServer) setPatchTaskStatus(w http.ResponseWriter, r *http.Request, 
 		}
 		next = "pending"
 	}
-	actor := strings.TrimSpace(r.Header.Get("X-User"))
-	if actor == "" {
-		actor = "api"
-	}
+	actor := actorFromRequest(r)
 	if err := s.store.SetPatchTaskStatus(r.Context(), id, next, actor); err != nil {
 		writeError(w, 500, err.Error())
 		return

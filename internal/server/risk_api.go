@@ -92,8 +92,12 @@ func (s *RESTServer) createException(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "expires_at must be RFC3339")
 		return
 	}
+	createdBy := actorFromRequest(r)
+	if createdBy == "api" && strings.TrimSpace(in.CreatedBy) != "" {
+		createdBy = strings.TrimSpace(in.CreatedBy)
+	}
 	item, err := s.store.CreateException(r.Context(), in.CVEID, strings.TrimSpace(in.AssetKey),
-		in.Reason, expiresAt, in.CreatedBy)
+		in.Reason, expiresAt, createdBy)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -107,7 +111,7 @@ func (s *RESTServer) revokeException(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid exception id")
 		return
 	}
-	if err := s.store.RevokeException(r.Context(), id, r.Header.Get("X-User")); err != nil {
+	if err := s.store.RevokeException(r.Context(), id, actorFromRequest(r)); err != nil {
 		if err == pgx.ErrNoRows {
 			writeError(w, 404, "exception not found or already revoked")
 			return

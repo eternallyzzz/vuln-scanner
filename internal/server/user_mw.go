@@ -1,0 +1,185 @@
+package server
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"vuln-scanner/internal/store"
+)
+
+type userCtxKeyType int
+
+const userCtxKey userCtxKeyType = iota + 1
+
+// requestUser is the authenticated dashboard identity attached to a request
+// context by userAuthMiddleware.
+type requestUser struct {
+	ID       int64
+	Username string
+	Role     string
+}
+
+func userFromContext(ctx context.Context) *requestUser {
+	u, _ := ctx.Value(userCtxKey).(*requestUser)
+	return u
+}
+
+// userAuthMiddleware parses an optional "Authorization: Bearer <token>"
+// dashboard session token. A missing header leaves the request anonymous so
+// the existing X-API-Key channel keeps working; a present-but-invalid token
+// is rejected outright.
+func (s *RESTServer) userAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authz := r.Header.Get("Authorization")
+		if authz == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		const prefix = "Bearer "
+		if !strings.HasPrefix(authz, prefix) {
+			writeError(w, http.StatusUnauthorized, "unsupported authorization scheme")
+			return
+		}
+		claims, err := s.userAuth.ValidateToken(strings.TrimSpace(authz[len(prefix):]))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid or expired token")
+			return
+		}
+		ctx := context.WithValue(r.Context(), userCtxKey, &requestUser{
+			ID:       claims.UserID,
+			Username: claims.Username,
+			Role:     claims.Role,
+		})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// enforceRBAC applies the role permission matrix to authenticated dashboard
+// requests. Anonymous (X-API-Key) requests pass through untouched.
+func (s *RESTServer) enforceRBAC(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := userFromContext(r.Context())
+		if u == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !userCan(u.Role, r.Method, r.URL.Path) {
+			writeError(w, http.StatusForbidden, "forbidden: insufficient role ("+u.Role+")")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// actorFromRequest returns the accountable actor for mutating operations:
+// the dashboard username when a session is present, otherwise the legacy
+// X-User header, otherwise "api".
+func actorFromRequest(r *http.Request) string {
+	if u := userFromContext(r.Context()); u != nil && u.Username != "" {
+		return u.Username
+	}
+	if actor := strings.TrimSpace(r.Header.Get("X-User")); actor != "" {
+		return actor
+	}
+	return "api"
+}
+
+// userCan is the RBAC permission matrix. admin can do everything; viewer is
+// read-only; operator gets the daily operational mutations; self-service
+// password change and /auth/me are available to every logged-in role.
+func userCan(role, method, path string) bool {
+	switch role {
+	case "admin":
+		return true
+	case "viewer":
+		return method == http.MethodGet
+	case "operator":
+		if method == http.MethodGet {
+			return true
+		}
+		if path == "/api/v1/auth/change-password" && method == http.MethodPost {
+			return true
+		}
+		return operatorCan(method, strings.ToLower(path))
+	default:
+		return false
+	}
+}
+
+type pathRule struct {
+	method string
+	prefix string
+	suffix string
+}
+
+func operatorCan(method, path string) bool {
+	rules := []pathRule{
+		{http.MethodPost, "/api/v1/agents/", "/scan"},
+		{http.MethodPost, "/api/v1/agents/", "/patch-tasks/generate"},
+		{http.MethodPost, "/api/v1/patch-tasks/", ""},
+		{http.MethodPost, "/api/v1/patch-campaigns", ""},
+		{http.MethodPost, "/api/v1/patch-campaigns/", ""},
+		{http.MethodPost, "/api/v1/alerts/", ""},
+		{http.MethodPost, "/api/v1/exceptions", ""},
+		{http.MethodPost, "/api/v1/exceptions/", ""},
+		{http.MethodPost, "/api/v1/analyze", ""},
+		{http.MethodPost, "/api/v1/trigger-match", ""},
+		{http.MethodPut, "/api/v1/scan-policies/", ""},
+		{http.MethodPost, "/api/v1/container/scan", ""},
+		{http.MethodPost, "/api/v1/assets/import", ""},
+		{http.MethodPost, "/api/v1/assets/bulk-meta", ""},
+		{http.MethodPut, "/api/v1/assets/", ""},
+		{http.MethodPost, "/api/v1/alert-rules", ""},
+		{http.MethodPut, "/api/v1/alert-rules/", ""},
+		{http.MethodDelete, "/api/v1/alert-rules/", ""},
+		{http.MethodPut, "/api/v1/sla-policies/", ""},
+	}
+	for _, rule := range rules {
+		if method != rule.method {
+			continue
+		}
+		if rule.prefix != "" && !strings.HasPrefix(path, rule.prefix) {
+			continue
+		}
+		if rule.suffix != "" && !strings.HasSuffix(path, rule.suffix) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// userStore is the subset of *store.Store needed for admin bootstrap, kept
+// small so the bootstrap logic is unit-testable without a database.
+type userStore interface {
+	CountUsers(ctx context.Context) (int64, error)
+	CreateUser(ctx context.Context, username, passwordHash, displayName, role string) (*store.User, error)
+}
+
+// BootstrapAdmin creates the first admin account on an empty users table when
+// ADMIN_PASSWORD is supplied. Without a password the server logs a warning
+// and dashboard login stays unavailable until an admin is bootstrapped.
+func BootstrapAdmin(ctx context.Context, us userStore, username, password string) error {
+	if password == "" {
+		slog.Warn("ADMIN_PASSWORD not set; dashboard login disabled until admin bootstrap")
+		return nil
+	}
+	n, err := us.CountUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+	if _, err := us.CreateUser(ctx, username, hash, "Administrator", "admin"); err != nil {
+		return err
+	}
+	slog.Info("bootstrapped admin user", "username", username)
+	return nil
+}

@@ -22,6 +22,7 @@ import (
 type RESTServer struct {
 	store     *store.Store
 	auth      *AgentAuth
+	userAuth  *UserAuth
 	apiKey    string
 	cfg       *Config
 	llmConfig *LLMConfig
@@ -40,6 +41,7 @@ func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker,
 	return &RESTServer{
 		store:     s,
 		auth:      auth,
+		userAuth:  NewUserAuth(cfg.JWTSecret),
 		apiKey:    cfg.APIKey,
 		cfg:       cfg,
 		llmConfig: cfg.LLM,
@@ -68,6 +70,7 @@ func (s *RESTServer) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(s.userAuthMiddleware)
 	r.Use(s.apiKeyMiddleware)
 
 	r.Get("/health", s.health)
@@ -78,8 +81,17 @@ func (s *RESTServer) Handler() http.Handler {
 	r.Get("/dl/{platform}", s.downloadAgent)
 	r.Get("/r/{code}", s.downloadScript)
 	r.Post("/api/v1/register", s.registerAgent)
+	r.Post("/api/v1/auth/login", s.login)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(s.enforceRBAC)
+		r.Get("/auth/me", s.me)
+		r.Post("/auth/change-password", s.changePassword)
+		r.Get("/users", s.listUsers)
+		r.Post("/users", s.createUser)
+		r.Put("/users/{userId}", s.updateUser)
+		r.Delete("/users/{userId}", s.deleteUser)
+		r.Post("/users/{userId}/password", s.resetPassword)
 		r.Get("/agents", s.listAgents)
 		r.Post("/agents", s.addAgent)
 		r.Get("/agents/{id}", s.getAgent)
@@ -163,10 +175,15 @@ func (s *RESTServer) Handler() http.Handler {
 
 func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if userFromContext(r.Context()) != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
 		whiteList := map[string]bool{
 			"/health":          true,
 			"/demo":            true,
 			"/api/v1/register": true,
+			"/api/v1/auth/login": true,
 		}
 		for prefix := range whiteList {
 			if r.URL.Path == prefix {

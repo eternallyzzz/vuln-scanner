@@ -148,6 +148,21 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
 
+## Users & RBAC / 用户与权限
+
+服务端提供控制台用户体系（`users` 表）与基于角色的访问控制，覆盖全部 REST API：
+
+| 角色 | 权限 |
+| --- | --- |
+| `admin` | 全部操作，含 `/admin/*` 数据源刷新、用户管理、agent 创建/删除 |
+| `operator` | 日常运维：补丁任务/campaign 审批流转、告警 ack/resolve/remediate、异常创建/撤销、触发扫描/分析、资产导入与元数据、alert-rules 与 SLA 策略维护 |
+| `viewer` | 只读（所有 GET） |
+
+- 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
+- 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。
+- 首启引导：`users` 表为空且设置 `ADMIN_PASSWORD` 环境变量时自动创建第一个 `admin` 用户（用户名默认 `admin`，可用 `ADMIN_USERNAME` 覆盖）；未设置则控制台登录不可用。
+- 兼容性：`X-API-Key` 继续作为 admin 级自动化凭证；请求带用户 Bearer token 时优先按用户角色鉴权。禁用用户只阻止新登录，已签发 token 到期前仍有效。
+
 ## Security Model / 安全模型
 
 - 补丁命令由服务端白名单模板生成（apt argv 数组 / 受限 PowerShell 脚本），资产名与 URL 均校验，杜绝自由 shell 输入

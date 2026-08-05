@@ -66,6 +66,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	adminUser := os.Getenv("ADMIN_USERNAME")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	if err := server.BootstrapAdmin(ctx, db, adminUser, os.Getenv("ADMIN_PASSWORD")); err != nil {
+		slog.Error("admin bootstrap failed", "error", err)
+		os.Exit(1)
+	}
+
 	auth := server.NewAgentAuth(cfg.JWTSecret)
 	mw := server.NewAuthInterceptor(auth)
 

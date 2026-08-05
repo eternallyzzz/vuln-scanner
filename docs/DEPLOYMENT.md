@@ -20,7 +20,7 @@ curl http://localhost:8080/health
 
 | 端口 | 用途 |
 | --- | --- |
-| 8080 | REST API（X-API-Key 鉴权；`/health`、`/demo`、`/api/v1/register`、`/dl/*`、`/r/*` 免鉴权） |
+| 8080 | REST API（X-API-Key 或用户 Bearer JWT 鉴权；`/health`、`/demo`、`/api/v1/register`、`/api/v1/auth/login`、`/dl/*`、`/r/*` 免鉴权） |
 | 9090 | Agent gRPC（JWT 鉴权） |
 | 5432 | PostgreSQL（仅本机暴露，可用 `POSTGRES_PORT` 修改） |
 
@@ -41,6 +41,8 @@ curl http://localhost:8080/health
 | `NVD_API_KEY` | 空 | 可选，提高 NVD 刷新速率（0.6 秒/请求） |
 | `SMTP_PASSWORD` | 空 | 告警邮件密码（对应 `alerting.smtp.password_env`） |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
+| `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
+| `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |
 
 非容器部署仍可使用根目录 `server.yaml`（支持 `${ENV}` 展开），并可用 `VULNSCAN_CONFIG` 指定路径。
 
