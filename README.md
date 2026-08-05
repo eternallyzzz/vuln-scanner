@@ -14,6 +14,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Alerting / 告警** — rule engine with severity/source/agent/asset/tag/environment filters, dedup & cooldown, Webhook (HMAC-signed) / SMTP delivery
 - **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
 - **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
+- **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
 
 ## Architecture / 架构
@@ -147,6 +148,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
+- EOL：`GET /api/v1/eol/summary`、`GET /api/v1/eol/agents`、`POST /api/v1/admin/refresh-eol`（管理员手动重算，服务端默认每 6 小时自动刷新）；生命周期数据基于公开资料静态种子表（`os_lifecycle`），日期以厂商为准
 
 ## Users & RBAC / 用户与权限
 

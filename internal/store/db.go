@@ -15,19 +15,23 @@ import (
 var migrationFiles embed.FS
 
 type Agent struct {
-	ID              string    `json:"id"`
-	Hostname        string    `json:"hostname"`
-	OSType          string    `json:"os_type"`
-	OSVersion       string    `json:"os_version"`
-	Arch            string    `json:"arch"`
-	AgentVer        string    `json:"agent_ver"`
-	IP              string    `json:"ip"`
-	TokenHash       string    `json:"-"`
-	Status          string    `json:"status"`
-	FingerprintHash string    `json:"-"`
-	LastSeen        time.Time `json:"last_seen"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string     `json:"id"`
+	Hostname        string     `json:"hostname"`
+	OSType          string     `json:"os_type"`
+	OSVersion       string     `json:"os_version"`
+	Arch            string     `json:"arch"`
+	AgentVer        string     `json:"agent_ver"`
+	IP              string     `json:"ip"`
+	TokenHash       string     `json:"-"`
+	Status          string     `json:"status"`
+	FingerprintHash string     `json:"-"`
+	LastSeen        time.Time  `json:"last_seen"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	EOLStatus       string     `json:"eol_status,omitempty"`
+	EOLDate         *time.Time `json:"eol_date,omitempty"`
+	EOLProduct      string     `json:"eol_product,omitempty"`
+	EOLCycle        string     `json:"eol_cycle,omitempty"`
 }
 
 type AssetSnapshot struct {

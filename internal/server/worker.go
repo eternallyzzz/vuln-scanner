@@ -69,6 +69,7 @@ func (w *Worker) Start(ctx context.Context) {
 	go w.scanPolicyLoop(ctx)
 	go w.remediationLoop(ctx)
 	go w.slaLoop(ctx)
+	go w.eolLoop(ctx)
 	go w.containerScanLoop(ctx)
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)

@@ -34,6 +34,8 @@ type RiskRow struct {
 	AssetName        string     `json:"asset_name"`
 	Severity         string     `json:"severity"`
 	RiskLevel        string     `json:"risk_level"`
+	EOL              bool       `json:"eol,omitempty"`
+	EOLProduct       string     `json:"eol_product,omitempty"`
 	CVSSScore        float64    `json:"cvss_score"`
 	EPSSScore        float64    `json:"epss_score"`
 	KEV              bool       `json:"kev"`
@@ -49,15 +51,18 @@ type RiskRow struct {
 
 // RiskSummary aggregates the governance dashboard counts.
 type RiskSummary struct {
-	TotalActive int            `json:"total_active"`
-	TotalFixed  int            `json:"total_fixed"`
-	ByRiskLevel map[string]int `json:"by_risk_level"`
-	BySeverity  map[string]int `json:"by_severity"`
-	KEVCount    int            `json:"kev_count"`
-	Overdue     int            `json:"overdue"`
-	Exempted    int            `json:"exempted"`
-	AverageEPSS float64        `json:"average_epss"`
-	FixRate     float64        `json:"fix_rate"`
+	TotalActive       int            `json:"total_active"`
+	TotalFixed        int            `json:"total_fixed"`
+	ByRiskLevel       map[string]int `json:"by_risk_level"`
+	BySeverity        map[string]int `json:"by_severity"`
+	EOLAgents         int            `json:"eol_agents"`
+	UnsupportedAgents int            `json:"unsupported_agents"`
+	EOLByProduct      map[string]int `json:"eol_by_product"`
+	KEVCount          int            `json:"kev_count"`
+	Overdue           int            `json:"overdue"`
+	Exempted          int            `json:"exempted"`
+	AverageEPSS       float64        `json:"average_epss"`
+	FixRate           float64        `json:"fix_rate"`
 }
 
 // RiskTrendPoint is one day of the active/new/fixed trend.
@@ -100,11 +105,18 @@ func CanonicalCVEID(cveID string) string {
 	return cveID
 }
 
-// RiskScore combines CVSS, EPSS, asset criticality and exposure (0-10).
-func RiskScore(cvss, epss, criticality, exposure float64, kev bool) float64 {
+// RiskScore combines CVSS, EPSS, asset criticality, exposure and lifecycle
+// posture (0-10). An EOL asset receives a +0.5 bonus, capped at 10.
+func RiskScore(cvss, epss, criticality, exposure float64, kev, eol bool) float64 {
 	score := cvss*0.40 + epss*10*0.25 + criticality*0.20 + exposure*0.15
 	if kev && score < 9.0 {
 		score = 9.0
+	}
+	if eol {
+		score += 0.5
+	}
+	if score > 10 {
+		score = 10
 	}
 	return math.Round(score*10) / 10
 }
@@ -290,6 +302,12 @@ func (s *Store) RecalcAgentRisk(ctx context.Context, agentID string) (int, error
 	if len(items) == 0 {
 		return 0, nil
 	}
+	var agentEOL bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT eol_status = 'eol' FROM agents WHERE id = $1
+	`, agentID).Scan(&agentEOL); err != nil && err != pgx.ErrNoRows {
+		return 0, err
+	}
 
 	intel, err := s.GetCVEIntel(ctx, cveIDs)
 	if err != nil {
@@ -343,7 +361,7 @@ func (s *Store) RecalcAgentRisk(ctx context.Context, agentID string) (int, error
 		crit := AssetCriticality(meta.env, meta.tags, meta.typ)
 		exp := ExposureScore(ports, procs, r.asset, meta.typ, hasTelemetry)
 		i := intel[r.cveID]
-		risk := RiskScore(r.cvss, i.EPSSScore, crit, exp, i.KEV)
+		risk := RiskScore(r.cvss, i.EPSSScore, crit, exp, i.KEV, agentEOL)
 		ids = append(ids, r.id)
 		epssArr = append(epssArr, i.EPSSScore)
 		pctArr = append(pctArr, i.EPSSPercentile)
@@ -420,6 +438,28 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 	sum.ByRiskLevel["MEDIUM"] = med
 	sum.ByRiskLevel["LOW"] = low
 	if err := s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE eol_status = 'eol'),
+			COUNT(*) FILTER (WHERE eol_status = 'unsupported')
+		FROM agents
+	`).Scan(&sum.EOLAgents, &sum.UnsupportedAgents); err != nil {
+		return sum, err
+	}
+	if sum.EOLByProduct == nil {
+		sum.EOLByProduct = map[string]int{}
+	}
+	eolGroups, err := scanCountGroups(ctx, s, `
+		SELECT COALESCE(eol_product, ''), COUNT(*)
+		FROM agents WHERE eol_status = 'eol'
+		GROUP BY eol_product ORDER BY COUNT(*) DESC, eol_product
+	`)
+	if err != nil {
+		return sum, err
+	}
+	for k, v := range eolGroups {
+		sum.EOLByProduct[k] = v
+	}
+	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM cve_results cr
 		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled
 		WHERE cr.status='active' AND
@@ -459,7 +499,7 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 		SELECT cr.cve_id, cr.canonical_cve_id, cr.agent_id, a.hostname, cr.asset_name,
 			cr.severity, cr.risk_level, cr.cvss_score, cr.epss_score, cr.kev,
 			cr.exposure_score, cr.asset_criticality, cr.risk_score, cr.detected_at,
-			cr.fixed_version, cr.kb_article
+			cr.fixed_version, cr.kb_article, a.eol_status = 'eol', a.eol_product
 		FROM cve_results cr JOIN agents a ON a.id=cr.agent_id
 		WHERE cr.status='active' AND ($2='' OR cr.risk_level=$2) AND ($3=false OR cr.kev)
 		ORDER BY cr.risk_score DESC, cr.epss_score DESC, cr.cve_id
@@ -481,7 +521,7 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 		if err := rows.Scan(&r.CVEID, &r.CanonicalCVEID, &r.AgentID, &r.Hostname,
 			&r.AssetName, &r.Severity, &r.RiskLevel, &r.CVSSScore, &r.EPSSScore,
 			&r.KEV, &r.ExposureScore, &r.AssetCriticality, &r.RiskScore,
-			&r.DetectedAt, &r.FixedVersion, &kb); err != nil {
+			&r.DetectedAt, &r.FixedVersion, &kb, &r.EOL, &r.EOLProduct); err != nil {
 			return nil, err
 		}
 		if kb != "" {
@@ -569,7 +609,8 @@ func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
 	w := csv.NewWriter(&buf)
 	_ = w.Write([]string{"cve_id", "canonical_cve_id", "agent_id", "hostname", "asset_name",
 		"severity", "risk_level", "cvss_score", "epss_score", "kev", "exposure_score",
-		"asset_criticality", "risk_score", "detected_at", "due_at", "overdue", "fixed_version", "patch_url"})
+		"asset_criticality", "risk_score", "eol", "eol_product", "detected_at", "due_at",
+		"overdue", "fixed_version", "patch_url"})
 	for _, r := range rows {
 		due := ""
 		if r.DueAt != nil {
@@ -578,6 +619,7 @@ func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
 		_ = w.Write([]string{r.CVEID, r.CanonicalCVEID, r.AgentID, r.Hostname, r.AssetName,
 			r.Severity, r.RiskLevel, f2s(r.CVSSScore), f2s(r.EPSSScore), b2s(r.KEV),
 			f2s(r.ExposureScore), f2s(r.AssetCriticality), f2s(r.RiskScore),
+			b2s(r.EOL), r.EOLProduct,
 			r.DetectedAt.Format(time.RFC3339), due, b2s(r.Overdue), r.FixedVersion, r.PatchURL})
 	}
 	w.Flush()

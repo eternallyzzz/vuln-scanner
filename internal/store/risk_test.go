@@ -24,17 +24,26 @@ func TestCanonicalCVEID(t *testing.T) {
 }
 
 func TestRiskScoreAndLevel(t *testing.T) {
-	if got := RiskScore(9.8, 0.97, 9, 9, false); got != 9.5 {
+	if got := RiskScore(9.8, 0.97, 9, 9, false, false); got != 9.5 {
 		t.Fatalf("high risk score = %v, want 9.5", got)
 	}
-	if got := RiskScore(9.8, 0.01, 9, 9, true); got != 9.0 {
+	if got := RiskScore(9.8, 0.01, 9, 9, true, false); got != 9.0 {
 		t.Fatalf("kev must raise the score to 9: %v", got)
 	}
-	if got := RiskScore(5, 0, 2, 2, false); got != 2.7 {
+	if got := RiskScore(5, 0, 2, 2, false, false); got != 2.7 {
 		t.Fatalf("low risk score = %v, want 2.7", got)
 	}
-	if got := RiskScore(9.8, 0, 4, 2, false); got != 5.0 {
+	if got := RiskScore(9.8, 0, 4, 2, false, false); got != 5.0 {
 		t.Fatalf("medium risk score = %v, want 5.0", got)
+	}
+	if got := RiskScore(5, 0, 2, 2, false, true); got != 3.2 {
+		t.Fatalf("eol bonus = %v, want 3.2", got)
+	}
+	if got := RiskScore(9.8, 0.97, 9, 9, false, true); got != 10.0 {
+		t.Fatalf("eol bonus must cap at 10: %v", got)
+	}
+	if got := RiskScore(9.8, 0.01, 9, 9, true, true); got != 9.5 {
+		t.Fatalf("kev + eol = %v, want 9.5", got)
 	}
 	if RiskLevel(8.5) != "CRITICAL" || RiskLevel(7.0) != "HIGH" ||
 		RiskLevel(4.0) != "MEDIUM" || RiskLevel(3.9) != "LOW" {

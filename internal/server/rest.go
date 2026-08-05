@@ -144,11 +144,14 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Put("/sla-policies/{policyId}", s.updateSLAPolicy)
 		r.Get("/search", s.search)
 		r.Get("/stats", s.stats)
+		r.Get("/eol/summary", s.getEOLSummary)
+		r.Get("/eol/agents", s.getEOLAgents)
 		r.Post("/analyze", s.triggerAnalysis)
 		r.Get("/analyze/{analysisId}", s.getAnalysis)
 		r.Post("/trigger-match", s.triggerMatch)
 		r.Post("/admin/refresh-feeds", s.refreshFeeds)
 		r.Post("/admin/refresh-intel", s.refreshIntel)
+		r.Post("/admin/refresh-eol", s.refreshEOL)
 		r.Post("/admin/check-sla", s.checkSLA)
 		r.Post("/admin/reconcile-cmdb", s.reconcileAllCMDB)
 		r.Post("/admin/reconcile-cmdb/{agentId}", s.reconcileAgentCMDB)
@@ -180,9 +183,9 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		whiteList := map[string]bool{
-			"/health":          true,
-			"/demo":            true,
-			"/api/v1/register": true,
+			"/health":            true,
+			"/demo":              true,
+			"/api/v1/register":   true,
 			"/api/v1/auth/login": true,
 		}
 		for prefix := range whiteList {
