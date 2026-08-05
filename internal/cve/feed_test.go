@@ -77,9 +77,15 @@ func TestFindMatchingKeyDeterministicShortest(t *testing.T) {
 		t.Fatalf("git: got %q, want git", got)
 	}
 
+	// Whole-token matching must not let "python" leak onto "python3"
+	// (git->gitea class); distro packages are covered by translation aliases.
 	prefix := map[string]string{"python3.11": "3.11.2", "python3": "3.11.2"}
-	if got := findMatchingKey("python", prefix); got != "python3" {
-		t.Fatalf("python: got %q, want python3 (shortest containing)", got)
+	if got := findMatchingKey("python", prefix); got != "" {
+		t.Fatalf("python: got %q, want no match without alias", got)
+	}
+	token := map[string]string{"git for windows": "2.45.1"}
+	if got := findMatchingKey("git", token); got != "git for windows" {
+		t.Fatalf("git: got %q, want git for windows (whole token)", got)
 	}
 }
 

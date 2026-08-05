@@ -1308,7 +1308,7 @@ func findMatchingKey(product string, agentCPEIndex map[string]string) string {
 	keys := sortedMapKeys(agentCPEIndex)
 	best := ""
 	for _, k := range keys {
-		if strings.Contains(k, product) {
+		if tokenBoundaryContains(k, product) {
 			if best == "" || len(k) < len(best) || (len(k) == len(best) && k < best) {
 				best = k
 			}
@@ -1318,11 +1318,37 @@ func findMatchingKey(product string, agentCPEIndex map[string]string) string {
 		return best
 	}
 	for _, k := range keys {
-		if strings.Contains(product, k) && len(k) >= len(product)*3/4 && len(k) >= 5 {
+		// Reverse direction: a distinctive installed token inside a longer
+		// CPE product (openssh <-> openssh-portable). The length floor keeps
+		// short names like "git" or "node" from matching "gitlab"/"node.js".
+		if len(k) >= 5 && tokenBoundaryContains(product, k) {
 			return k
 		}
 	}
 	return ""
+}
+
+// tokenBoundaryContains reports whether the needle appears as a contiguous
+// run of whole word tokens inside the container. "git" is a token of
+// "git for windows" but not of "gitea"; "openssh" is a token of
+// "openssh-portable". This keeps CPE product matching aligned with the
+// whole-token semantics used by nameMatches/findInstalledVersion.
+func tokenBoundaryContains(container, needle string) bool {
+	cw := splitWords(strings.ToLower(container))
+	nw := splitWords(strings.ToLower(needle))
+	if len(nw) == 0 || len(nw) > len(cw) {
+		return false
+	}
+outer:
+	for i := 0; i+len(nw) <= len(cw); i++ {
+		for j := range nw {
+			if cw[i+j] != nw[j] {
+				continue outer
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func sortedMapKeys(m map[string]string) []string {
