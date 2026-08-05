@@ -15,6 +15,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
 - **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
 - **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
+- **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
 
 ## Architecture / 架构
@@ -157,6 +158,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - EOL：`GET /api/v1/eol/summary`、`GET /api/v1/eol/agents`、`POST /api/v1/admin/refresh-eol`（管理员手动重算，服务端默认每 6 小时自动刷新）；生命周期数据基于公开资料静态种子表（`os_lifecycle`），日期以厂商为准
 - 审计日志：`GET /api/v1/audit-logs`（admin，支持 `actor/method/path/since/until/limit/offset`，返回 `total + entries`）、`GET /api/v1/audit-logs/export.csv`（admin，最新 5000 条）；所有 `POST/PUT/DELETE/PATCH` 自动记录操作人、方法、路径、状态码、来源 IP 与耗时，登录成功/失败亦入审计
 - 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送
+- 合规基线：Agent 侧执行 CIS 风格精简检查（v1 为双平台各 10 项，非官方认证）并自动上报；`GET /api/v1/compliance/summary`（fleet 平均分、最低/最高分、失败检查 Top）、`GET /api/v1/compliance/agents`（每 agent 评分行）、`GET /api/v1/compliance/agents/{id}`（检查明细）、`GET /api/v1/compliance/export.csv`；所有登录角色可读，日报 HTML 含合规概览
 
 ## Users & RBAC / 用户与权限
 

@@ -9,6 +9,7 @@ service AgentService {
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc SyncInventory(SyncInventoryRequest) returns (SyncInventoryResponse);
+  rpc SyncCompliance(SyncComplianceRequest) returns (SyncComplianceResponse);
   rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
   rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
 }
@@ -58,6 +59,35 @@ message SyncInventoryRequest {
 message SyncInventoryResponse {
   bool ok = 1;
   int64 received_count = 2;
+}
+
+message SyncComplianceRequest {
+  string agent_id = 1;
+  string token = 2;
+  ComplianceReport compliance = 3;
+}
+
+message SyncComplianceResponse {
+  bool ok = 1;
+}
+
+message ComplianceReport {
+  string benchmark = 1;
+  double score = 2;
+  int32 total = 3;
+  int32 passed = 4;
+  int32 failed = 5;
+  int32 na = 6;
+  repeated ComplianceCheck checks = 7;
+  string checked_at = 8;
+}
+
+message ComplianceCheck {
+  string id = 1;
+  string title = 2;
+  string group = 3;
+  string status = 4; // pass | fail | na
+  string evidence = 5;
 }
 
 message PatchTaskInfo {

@@ -9,9 +9,15 @@ import (
 
 	pb "vuln-scanner/api/gen/vulnscan/v1"
 	"vuln-scanner/internal/collector"
+	"vuln-scanner/internal/compliance"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// complianceSyncInterval bounds how often the agent re-evaluates the CIS
+// baseline. The first evaluation runs right after startup; afterwards the
+// baseline is refreshed daily without a full asset inventory sync.
+const complianceSyncInterval = 24 * time.Hour
 
 type Scheduler struct {
 	cfg        *Config
@@ -38,13 +44,16 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	heartbeatInterval := 30 * time.Second
 	patchInterval := 60 * time.Second
+	complianceTicker := time.NewTicker(complianceSyncInterval)
+	defer complianceTicker.Stop()
 
 	s.ticker = time.NewTicker(interval)
 	hbTicker := time.NewTicker(heartbeatInterval)
 	patchTicker := time.NewTicker(patchInterval)
 	defer patchTicker.Stop()
 
-	s.doFullSync(ctx)
+	_, sys := s.doFullSync(ctx)
+	s.syncCompliance(ctx, sys)
 
 	for {
 		select {
@@ -63,6 +72,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 				}
 			}
 			s.doIncrementalSync(ctx)
+		case <-complianceTicker.C:
+			sys, err := s.collect.SystemInfo(ctx)
+			if err != nil {
+				slog.Warn("compliance system info collection failed", "error", err)
+				continue
+			}
+			s.syncCompliance(ctx, sys)
 		case <-patchTicker.C:
 			if s.cfg.Agent.PatchEnabled {
 				s.doPatchLoop(ctx)
@@ -122,7 +138,26 @@ func (s *Scheduler) Stop() {
 
 func (s *Scheduler) RunOnce(ctx context.Context) ([]collector.Asset, collector.SystemInfo) {
 	assets, sys := s.doFullSync(ctx)
+	s.syncCompliance(ctx, sys)
 	return assets, sys
+}
+
+// syncCompliance evaluates the baseline from the given SystemInfo snapshot
+// and uploads the report. Failures only log; they never block the inventory
+// loop.
+func (s *Scheduler) syncCompliance(ctx context.Context, sys collector.SystemInfo) {
+	facts := compliance.CollectFacts(ctx, sys)
+	rep := compliance.Evaluate(facts, time.Now())
+	if len(rep.Checks) == 0 {
+		slog.Warn("compliance sync skipped", "reason", "unsupported platform or no checks")
+		return
+	}
+	if err := s.client.SyncCompliance(ctx, complianceReportToPb(rep)); err != nil {
+		slog.Warn("compliance sync failed", "error", err)
+		return
+	}
+	slog.Info("compliance synced", "benchmark", rep.Benchmark,
+		"score", rep.Score, "passed", rep.Passed, "failed", rep.Failed, "na", rep.NA)
 }
 
 func (s *Scheduler) doFullSync(ctx context.Context) ([]collector.Asset, collector.SystemInfo) {
@@ -379,6 +414,28 @@ func systemInfoToPb(s collector.SystemInfo) *pb.SystemInfo {
 			LastCheckedAt:   formatTimeOrEmpty(s.UpdateSourceStatus.LastCheckedAt),
 			Error:           s.UpdateSourceStatus.Error,
 		}
+	}
+	return out
+}
+
+func complianceReportToPb(r compliance.Report) *pb.ComplianceReport {
+	out := &pb.ComplianceReport{
+		Benchmark: r.Benchmark,
+		Score:     r.Score,
+		Total:     int32(r.Total),
+		Passed:    int32(r.Passed),
+		Failed:    int32(r.Failed),
+		Na:        int32(r.NA),
+		CheckedAt: r.CheckedAt.UTC().Format(time.RFC3339),
+	}
+	for _, c := range r.Checks {
+		out.Checks = append(out.Checks, &pb.ComplianceCheck{
+			Id:       c.ID,
+			Title:    c.Title,
+			Group:    c.Group,
+			Status:   c.Status,
+			Evidence: c.Evidence,
+		})
 	}
 	return out
 }

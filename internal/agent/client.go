@@ -105,6 +105,16 @@ func (c *Client) SyncInventory(ctx context.Context, assets []*pb.Asset, mode pb.
 	return err
 }
 
+// SyncCompliance uploads the latest agent-side compliance report.
+func (c *Client) SyncCompliance(ctx context.Context, report *pb.ComplianceReport) error {
+	_, err := c.rawClient.SyncCompliance(ctx, &pb.SyncComplianceRequest{
+		AgentId:    c.cfg.Agent.ID,
+		Token:      c.cfg.Agent.Token,
+		Compliance: report,
+	})
+	return err
+}
+
 func (c *Client) FetchPatchTasks(ctx context.Context) ([]*pb.PatchTaskInfo, error) {
 	resp, err := c.rawClient.FetchPatchTasks(ctx, &pb.FetchPatchTasksRequest{
 		AgentId: c.cfg.Agent.ID,

@@ -18,6 +18,12 @@ func TestRenderHTML(t *testing.T) {
 		Summary: Summary{
 			AgentsTotal: 2, AgentsOnline: 1, AssetsTotal: 5,
 			ActiveCVEs: 3, FixedCVEs: 1, OpenAlerts: 2, EOLAgents: 1,
+			ComplianceReported: 1, ComplianceAvgScore: 50,
+		},
+		Compliance: store.ComplianceSummary{
+			ReportedAgents: 1, AvgScore: 50, MinScore: 50, MaxScore: 50,
+			PassedChecks: 5, FailedChecks: 3, NAChecks: 2,
+			TopFailedChecks: []store.FailedCheckCount{{ID: "linux.firewall_active", Title: "防火墙已激活", Count: 1}},
 		},
 		Risk: store.RiskSummary{
 			TotalActive: 3, TotalFixed: 1, KEVCount: 1, Overdue: 1,
@@ -50,7 +56,7 @@ func TestRenderHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"每日安全报告", "CVE-2024-0001", "web-01", "agent-1", ">1<"} {
+	for _, want := range []string{"每日安全报告", "CVE-2024-0001", "web-01", "agent-1", ">1<", "合规概览", "linux.firewall_active"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("HTML missing %q", want)
 		}

@@ -242,6 +242,60 @@ func (s *AgentGRPCServer) SyncInventory(ctx context.Context, req *pb.SyncInvento
 	}, nil
 }
 
+// SyncCompliance stores the latest agent-side CIS baseline report. It is a
+// dedicated RPC so the daily compliance refresh never triggers an inventory
+// snapshot, CMDB sync or match cycle.
+func (s *AgentGRPCServer) SyncCompliance(ctx context.Context, req *pb.SyncComplianceRequest) (*pb.SyncComplianceResponse, error) {
+	agentID, err := s.auth.ValidateToken(req.GetToken())
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "invalid token")
+	}
+	if agentID != req.GetAgentId() {
+		return nil, status.Error(codes.PermissionDenied, "agent_id mismatch")
+	}
+	if req.GetCompliance() == nil {
+		return nil, status.Error(codes.InvalidArgument, "compliance report required")
+	}
+	rep := complianceReportFromPB(req.GetCompliance())
+	rep.AgentID = agentID
+	if err := s.store.UpsertComplianceReport(ctx, rep); err != nil {
+		slog.Error("compliance report save failed", "agent_id", agentID, "error", err)
+		return nil, status.Error(codes.Internal, "failed to store compliance report")
+	}
+	slog.Info("compliance report received", "agent_id", agentID,
+		"benchmark", rep.Benchmark, "score", rep.Score, "failed", rep.Failed)
+	return &pb.SyncComplianceResponse{Ok: true}, nil
+}
+
+func complianceReportFromPB(in *pb.ComplianceReport) *store.ComplianceReport {
+	out := &store.ComplianceReport{
+		Benchmark: in.GetBenchmark(),
+		Score:     in.GetScore(),
+		Total:     int(in.GetTotal()),
+		Passed:    int(in.GetPassed()),
+		Failed:    int(in.GetFailed()),
+		NA:        int(in.GetNa()),
+	}
+	if t, err := time.Parse(time.RFC3339, in.GetCheckedAt()); err == nil {
+		out.CheckedAt = t
+	} else {
+		out.CheckedAt = time.Now()
+	}
+	for _, c := range in.GetChecks() {
+		if c == nil {
+			continue
+		}
+		out.Checks = append(out.Checks, store.ComplianceCheck{
+			ID:       c.GetId(),
+			Title:    c.GetTitle(),
+			Group:    c.GetGroup(),
+			Status:   c.GetStatus(),
+			Evidence: c.GetEvidence(),
+		})
+	}
+	return out
+}
+
 func hostSystemInfoFromPB(in *pb.SystemInfo) *store.HostSystemInfo {
 	info := &store.HostSystemInfo{
 		Hostname:           in.GetHostname(),

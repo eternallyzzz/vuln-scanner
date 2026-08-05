@@ -25,7 +25,22 @@
     <tr><th>开放告警</th><td>{{.Summary.OpenAlerts}}</td><th>告警规则</th><td>{{.Summary.Rules}}</td></tr>
     <tr><th>EOL / 不支持 Agent</th><td>{{.Summary.EOLAgents}} / {{.Summary.UnsupportedAgents}}</td><th>活跃豁免</th><td>{{.Summary.Exceptions}}</td></tr>
     <tr><th>补丁 Campaign</th><td>{{.Summary.Campaigns}}</td><th>最近 24h 写操作</th><td>{{.AuditLast24h}}</td></tr>
+    <tr><th>合规上报 / 平均分</th><td>{{.Summary.ComplianceReported}} / {{fmtFloat .Summary.ComplianceAvgScore}}</td><th>失败检查</th><td>{{.Compliance.FailedChecks}}</td></tr>
   </table>
+
+  <h2>合规概览</h2>
+  <table>
+    <tr><th>已上报 Agent</th><td>{{.Compliance.ReportedAgents}}</td><th>平均分</th><td>{{fmtFloat .Compliance.AvgScore}}</td></tr>
+    <tr><th>最低 / 最高分</th><td>{{fmtFloat .Compliance.MinScore}} / {{fmtFloat .Compliance.MaxScore}}</td><th>通过 / 失败 / NA 检查</th><td>{{.Compliance.PassedChecks}} / {{.Compliance.FailedChecks}} / {{.Compliance.NAChecks}}</td></tr>
+  </table>
+  {{if .Compliance.TopFailedChecks}}
+  <table>
+    <tr><th>失败检查 Top</th><th>Agent 数</th></tr>
+    {{range .Compliance.TopFailedChecks}}
+    <tr><td>{{.ID}}（{{.Title}}）</td><td>{{.Count}}</td></tr>
+    {{end}}
+  </table>
+  {{end}}
 
   <h2>风险汇总</h2>
   <table>

@@ -9,9 +9,9 @@ all: proto build
 
 proto:
 	@mkdir -p $(GEN_DIR)
-	$(PROTOC) --go_out=$(GEN_DIR) --go_opt=paths=source_relative \
+	$(PROTOC) -I $(PROTO_DIR) --go_out=$(GEN_DIR) --go_opt=paths=source_relative \
 		--go-grpc_out=$(GEN_DIR) --go-grpc_opt=paths=source_relative \
-		$(PROTO_DIR)/vulnscan/v1/agent.proto
+		vulnscan/v1/agent.proto
 
 build-agent:
 	$(GO) build -o bin/agent ./cmd/agent

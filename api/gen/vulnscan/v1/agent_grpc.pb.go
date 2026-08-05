@@ -23,6 +23,7 @@ const (
 	AgentService_RefreshToken_FullMethodName    = "/vulnscan.v1.AgentService/RefreshToken"
 	AgentService_Heartbeat_FullMethodName       = "/vulnscan.v1.AgentService/Heartbeat"
 	AgentService_SyncInventory_FullMethodName   = "/vulnscan.v1.AgentService/SyncInventory"
+	AgentService_SyncCompliance_FullMethodName  = "/vulnscan.v1.AgentService/SyncCompliance"
 	AgentService_FetchPatchTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchPatchTasks"
 	AgentService_ReportPatchTask_FullMethodName = "/vulnscan.v1.AgentService/ReportPatchTask"
 )
@@ -35,6 +36,7 @@ type AgentServiceClient interface {
 	RefreshToken(ctx context.Context, in *RefreshTokenRequest, opts ...grpc.CallOption) (*RefreshTokenResponse, error)
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
 	SyncInventory(ctx context.Context, in *SyncInventoryRequest, opts ...grpc.CallOption) (*SyncInventoryResponse, error)
+	SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error)
 	FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(ctx context.Context, in *ReportPatchTaskRequest, opts ...grpc.CallOption) (*ReportPatchTaskResponse, error)
 }
@@ -83,6 +85,15 @@ func (c *agentServiceClient) SyncInventory(ctx context.Context, in *SyncInventor
 	return out, nil
 }
 
+func (c *agentServiceClient) SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error) {
+	out := new(SyncComplianceResponse)
+	err := c.cc.Invoke(ctx, AgentService_SyncCompliance_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error) {
 	out := new(FetchPatchTasksResponse)
 	err := c.cc.Invoke(ctx, AgentService_FetchPatchTasks_FullMethodName, in, out, opts...)
@@ -109,6 +120,7 @@ type AgentServiceServer interface {
 	RefreshToken(context.Context, *RefreshTokenRequest) (*RefreshTokenResponse, error)
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 	SyncInventory(context.Context, *SyncInventoryRequest) (*SyncInventoryResponse, error)
+	SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error)
 	FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
@@ -129,6 +141,9 @@ func (UnimplementedAgentServiceServer) Heartbeat(context.Context, *HeartbeatRequ
 }
 func (UnimplementedAgentServiceServer) SyncInventory(context.Context, *SyncInventoryRequest) (*SyncInventoryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncInventory not implemented")
+}
+func (UnimplementedAgentServiceServer) SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncCompliance not implemented")
 }
 func (UnimplementedAgentServiceServer) FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchPatchTasks not implemented")
@@ -221,6 +236,24 @@ func _AgentService_SyncInventory_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_SyncCompliance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncComplianceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SyncCompliance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SyncCompliance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SyncCompliance(ctx, req.(*SyncComplianceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_FetchPatchTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchPatchTasksRequest)
 	if err := dec(in); err != nil {
@@ -279,6 +312,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncInventory",
 			Handler:    _AgentService_SyncInventory_Handler,
+		},
+		{
+			MethodName: "SyncCompliance",
+			Handler:    _AgentService_SyncCompliance_Handler,
 		},
 		{
 			MethodName: "FetchPatchTasks",
