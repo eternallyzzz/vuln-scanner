@@ -100,6 +100,11 @@ func userCan(role, method, path string) bool {
 	if strings.HasPrefix(path, "/api/v1/remote/credentials") {
 		return role == "admin"
 	}
+	// Cloud account management exposes provider credentials: only admins may
+	// read or mutate accounts; the manual refresh action stays operator-level.
+	if strings.HasPrefix(path, "/api/v1/cloud/accounts") && !strings.HasSuffix(path, "/refresh") {
+		return role == "admin"
+	}
 	switch role {
 	case "admin":
 		return true
@@ -140,6 +145,7 @@ func operatorCan(method, path string) bool {
 		{http.MethodPost, "/api/v1/container/scan", ""},
 		{http.MethodPost, "/api/v1/network/scan", ""},
 		{http.MethodPost, "/api/v1/remote/scan", ""},
+		{http.MethodPost, "/api/v1/cloud/accounts/", "/refresh"},
 		{http.MethodPost, "/api/v1/assets/import", ""},
 		{http.MethodPost, "/api/v1/assets/bulk-meta", ""},
 		{http.MethodPut, "/api/v1/assets/", ""},

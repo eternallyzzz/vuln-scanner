@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"vuln-scanner/internal/alert"
+	"vuln-scanner/internal/cloudscan"
 	"vuln-scanner/internal/container"
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/ldap"
@@ -60,6 +61,7 @@ type Config struct {
 	RemoteScan    *remotescan.Config `mapstructure:"remote_scan"`
 	Ticketing     *ticket.Config     `mapstructure:"ticketing"`
 	SIEM          *siem.Config       `mapstructure:"siem"`
+	CloudScan     *cloudscan.Config  `mapstructure:"cloud_scan"`
 }
 
 func DefaultConfig() *Config {
@@ -73,6 +75,7 @@ func DefaultConfig() *Config {
 		RemoteScan:  remotescan.DefaultConfig(),
 		Ticketing:   ticket.DefaultConfig(),
 		SIEM:        siem.DefaultConfig(),
+		CloudScan:   cloudscan.DefaultConfig(),
 	}
 }
 
@@ -164,8 +167,70 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.SIEM.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.CloudScan == nil {
+		cfg.CloudScan = cloudscan.DefaultConfig()
+	}
+	if err := applyCloudScanEnv(cfg.CloudScan); err != nil {
+		return nil, fmt.Errorf("apply cloud scan env: %w", err)
+	}
+	cfg.CloudScan = cfg.CloudScan.Normalized()
+	if err := cfg.CloudScan.Validate(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+// applyCloudScanEnv applies CLOUD_SCAN_* environment overrides on top of any
+// server.yaml cloud_scan section. The master key itself is read from the
+// environment variable named by master_key_env (default CLOUD_SCAN_MASTER_KEY).
+func applyCloudScanEnv(c *cloudscan.Config) error {
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setInt := func(envName string, dst *int) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be an integer: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setString("CLOUD_SCAN_MASTER_KEY_ENV", &c.MasterKeyEnv)
+	if err := setBool("CLOUD_SCAN_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setInt("CLOUD_SCAN_CONCURRENCY", &c.Concurrency); err != nil {
+		return err
+	}
+	if err := setInt("CLOUD_SCAN_DEFAULT_REFRESH_INTERVAL_MINUTES", &c.DefaultRefreshIntervalMinutes); err != nil {
+		return err
+	}
+	if err := setInt("CLOUD_SCAN_TIMEOUT_SECONDS", &c.TimeoutSeconds); err != nil {
+		return err
+	}
+	if c.MasterKeyEnv == "" && os.Getenv("CLOUD_SCAN_MASTER_KEY") != "" {
+		c.MasterKeyEnv = "CLOUD_SCAN_MASTER_KEY"
+	}
+	return nil
 }
 
 // applySIEMEnv applies SIEM_* environment overrides on top of any

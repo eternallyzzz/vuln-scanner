@@ -483,3 +483,61 @@ func TestLoadConfigSIEMInvalidEnv(t *testing.T) {
 		t.Fatal("invalid SIEM_ENABLED must fail config load")
 	}
 }
+
+func TestLoadConfigCloudScanFromFileAndEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	content := []byte(`
+cloud_scan:
+  enabled: true
+  master_key_env: "CLOUD_KEY"
+  concurrency: 4
+  default_refresh_interval_minutes: 120
+  timeout_seconds: 45
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLOUD_KEY", strings.Repeat("a", 64))
+	t.Setenv("CLOUD_SCAN_CONCURRENCY", "3")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudScan == nil || !cfg.CloudScan.Enabled || cfg.CloudScan.MasterKeyEnv != "CLOUD_KEY" ||
+		cfg.CloudScan.Concurrency != 3 || cfg.CloudScan.DefaultRefreshIntervalMinutes != 120 ||
+		cfg.CloudScan.TimeoutSeconds != 45 {
+		t.Fatalf("cloud scan config not applied: %+v", cfg.CloudScan)
+	}
+}
+
+func TestLoadConfigCloudScanEnvOnly(t *testing.T) {
+	t.Setenv("CLOUD_SCAN_ENABLED", "true")
+	t.Setenv("CLOUD_SCAN_MASTER_KEY", strings.Repeat("b", 64))
+	t.Setenv("CLOUD_SCAN_DEFAULT_REFRESH_INTERVAL_MINUTES", "90")
+	t.Setenv("CLOUD_SCAN_TIMEOUT_SECONDS", "20")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudScan == nil || !cfg.CloudScan.Enabled ||
+		cfg.CloudScan.MasterKeyEnv != "CLOUD_SCAN_MASTER_KEY" ||
+		cfg.CloudScan.DefaultRefreshIntervalMinutes != 90 || cfg.CloudScan.TimeoutSeconds != 20 {
+		t.Fatalf("cloud scan env-only config not applied: %+v", cfg.CloudScan)
+	}
+}
+
+func TestLoadConfigCloudScanInvalidEnv(t *testing.T) {
+	t.Setenv("CLOUD_SCAN_ENABLED", "true")
+	t.Setenv("CLOUD_SCAN_MASTER_KEY", strings.Repeat("c", 64))
+	t.Setenv("CLOUD_SCAN_CONCURRENCY", "99")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid CLOUD_SCAN_CONCURRENCY must fail config load")
+	}
+	t.Setenv("CLOUD_SCAN_CONCURRENCY", "")
+	t.Setenv("CLOUD_SCAN_ENABLED", "maybe")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid CLOUD_SCAN_ENABLED must fail config load")
+	}
+}

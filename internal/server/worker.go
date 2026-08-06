@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"vuln-scanner/internal/alert"
+	"vuln-scanner/internal/cloudscan"
 	"vuln-scanner/internal/container"
 	"vuln-scanner/internal/cve"
 	"vuln-scanner/internal/patch"
@@ -54,6 +55,9 @@ type Worker struct {
 	ticketCh         chan struct{}
 	siem             *siem.Service
 	siemCh           chan struct{}
+	cloudCfg         *cloudscan.Config
+	cloudKey         []byte
+	cloudCh          chan int64
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -99,10 +103,43 @@ func (w *Worker) Start(ctx context.Context) {
 	if w.siem != nil {
 		go w.siemLoop(ctx)
 	}
+	if w.cloudCfg != nil {
+		go w.cloudLoop(ctx)
+	}
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
 	go w.reapPatchLoop(ctx)
+}
+
+// ConfigureCloudScanning enables the background cloud asset discovery loop.
+func (w *Worker) ConfigureCloudScanning(cfg *cloudscan.Config) {
+	if cfg == nil || !cfg.Enabled {
+		return
+	}
+	raw := strings.TrimSpace(os.Getenv(cfg.MasterKeyEnv))
+	key, err := remotescan.ParseMasterKey(raw)
+	if err != nil {
+		slog.Error("cloud scan disabled: invalid master key", "error", err)
+		return
+	}
+	w.cloudCfg = cfg.Normalized()
+	w.cloudKey = key
+	w.cloudCh = make(chan int64, 16)
+	slog.Info("cloud scan enabled",
+		"concurrency", w.cloudCfg.Concurrency,
+		"default_refresh_interval_minutes", w.cloudCfg.DefaultRefreshIntervalMinutes)
+}
+
+// TriggerCloudRefresh wakes the cloud worker for one account.
+func (w *Worker) TriggerCloudRefresh(accountID int64) {
+	if w.cloudCh == nil {
+		return
+	}
+	select {
+	case w.cloudCh <- accountID:
+	default:
+	}
 }
 
 // ConfigureSIEM enables the background SIEM/SOAR outbox worker.

@@ -33,6 +33,7 @@ type RESTServer struct {
 	worker       *Worker
 	alerts       *alert.Service
 	remoteCipher *remotescan.Cipher
+	cloudCipher  *remotescan.Cipher
 	tickets      *ticket.Service
 }
 
@@ -69,6 +70,15 @@ func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker,
 			if key, err := remotescan.ParseMasterKey(raw); err == nil {
 				if cp, err := remotescan.NewCipher(key); err == nil {
 					r.remoteCipher = cp
+				}
+			}
+		}
+	}
+	if cfg.CloudScan != nil && cfg.CloudScan.Enabled {
+		if raw := strings.TrimSpace(os.Getenv(cfg.CloudScan.MasterKeyEnv)); raw != "" {
+			if key, err := remotescan.ParseMasterKey(raw); err == nil {
+				if cp, err := remotescan.NewCipher(key); err == nil {
+					r.cloudCipher = cp
 				}
 			}
 		}
@@ -201,6 +211,13 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/remote/scan", s.createRemoteScan)
 		r.Get("/remote/tasks", s.listRemoteScanTasks)
 		r.Get("/remote/hosts", s.listRemoteHosts)
+		r.Get("/cloud/accounts", s.listCloudAccounts)
+		r.Post("/cloud/accounts", s.createCloudAccount)
+		r.Put("/cloud/accounts/{accountId}", s.updateCloudAccount)
+		r.Delete("/cloud/accounts/{accountId}", s.deleteCloudAccount)
+		r.Post("/cloud/accounts/{accountId}/refresh", s.refreshCloudAccount)
+		r.Get("/cloud/resources", s.listCloudResources)
+		r.Get("/cloud/resources/export.csv", s.exportCloudResourcesCSV)
 		r.Post("/agents/{id}/scan", s.triggerAgentScan)
 		r.Post("/container/scan", s.triggerContainerScan)
 		r.Get("/container/status", s.containerStatus)

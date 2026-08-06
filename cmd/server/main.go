@@ -100,6 +100,18 @@ func main() {
 				"batch_size", cfg.SIEM.BatchSize)
 		}
 	}
+	if cfg.CloudScan != nil {
+		cfg.CloudScan = cfg.CloudScan.Normalized()
+		if err := cfg.CloudScan.Validate(); err != nil {
+			slog.Error("cloud scan config invalid", "error", err)
+			os.Exit(1)
+		}
+		if cfg.CloudScan.Enabled {
+			slog.Info("cloud scan enabled",
+				"concurrency", cfg.CloudScan.Concurrency,
+				"default_refresh_interval_minutes", cfg.CloudScan.DefaultRefreshIntervalMinutes)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -153,6 +165,7 @@ func main() {
 	worker.ConfigureRemoteScanning(cfg.RemoteScan)
 	worker.ConfigureTicketing(cfg.Ticketing)
 	worker.ConfigureSIEM(cfg.SIEM)
+	worker.ConfigureCloudScanning(cfg.CloudScan)
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP

@@ -87,6 +87,12 @@ curl http://localhost:8080/health
 | `SIEM_MAX_ATTEMPTS` | `3` | 单批失败重试上限 |
 | `SIEM_TIMEOUT_SECONDS` | `10` | 单次投递 HTTP 超时 |
 | `SIEM_TLS_SKIP_VERIFY` | `false` | 跳过 TLS 证书校验（测试环境） |
+| `CLOUD_SCAN_ENABLED` | `false` | 启用云资产接入（对应 `cloud_scan.enabled`） |
+| `CLOUD_SCAN_MASTER_KEY` | 空 | AES-256 主密钥（hex/base64 32 字节），加密云账号凭据；**仅环境变量，不落配置** |
+| `CLOUD_SCAN_MASTER_KEY_ENV` | `CLOUD_SCAN_MASTER_KEY` | 指定存放主密钥的环境变量名 |
+| `CLOUD_SCAN_CONCURRENCY` | `2` | 云账号并发刷新数（1-16） |
+| `CLOUD_SCAN_DEFAULT_REFRESH_INTERVAL_MINUTES` | `60` | 新建账号默认刷新周期 |
+| `CLOUD_SCAN_TIMEOUT_SECONDS` | `30` | 单账号发现超时 |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |
