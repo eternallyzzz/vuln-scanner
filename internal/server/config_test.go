@@ -80,6 +80,45 @@ func TestServerURLFallbackAndTrim(t *testing.T) {
 	}
 }
 
+func TestModeDefaultAndValidation(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Mode != "all" {
+		t.Fatalf("default mode = %q, want all", cfg.Mode)
+	}
+	for _, c := range []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"", "all", true},
+		{"all", "all", true},
+		{"api", "api", true},
+		{"worker", "worker", true},
+		{"ALL", "all", true},
+		{" Worker ", "worker", true},
+		{"other", "", false},
+	} {
+		got, err := normalizeMode(c.in)
+		if c.ok && (err != nil || got != c.want) {
+			t.Errorf("normalizeMode(%q) = %q,%v want %q", c.in, got, err, c.want)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("normalizeMode(%q) accepted, want error", c.in)
+		}
+	}
+}
+
+func TestLoadConfigModeEnv(t *testing.T) {
+	t.Setenv("VULNSCAN_MODE", "worker")
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Mode != "worker" {
+		t.Fatalf("mode = %q, want worker from VULNSCAN_MODE", cfg.Mode)
+	}
+}
+
 func TestCVEScanConfigFeedConfig(t *testing.T) {
 	c := &CVEScanConfig{
 		MSRCRefreshMinutes: 120,

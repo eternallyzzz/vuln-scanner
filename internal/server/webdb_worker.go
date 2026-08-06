@@ -30,7 +30,7 @@ func (w *Worker) webdbLoop(ctx context.Context) {
 		case <-w.done:
 			return
 		case <-ticker.C:
-		case <-w.webdbCh:
+		case <-w.wakeCh:
 		}
 		tasks, err := w.store.ClaimWebDBScanTasks(ctx, cfg.Concurrency)
 		if err != nil {

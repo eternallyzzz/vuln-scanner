@@ -141,6 +141,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/users/{userId}/password", s.resetPassword)
 		r.Get("/audit-logs", s.listAuditLogs)
 		r.Get("/audit-logs/export.csv", s.exportAuditLogs)
+		r.Get("/workers", s.listWorkers)
 		r.Get("/agents", s.listAgents)
 		r.Post("/agents", s.addAgent)
 		r.Get("/agents/{id}", s.getAgent)

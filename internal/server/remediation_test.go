@@ -2,26 +2,29 @@ package server
 
 import (
 	"testing"
-	"time"
 
 	"vuln-scanner/internal/alert"
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/store"
 )
 
-func TestHourlyLimiter(t *testing.T) {
-	now := time.Now()
-	l := &hourlyLimiter{max: 2}
-	if got := l.Remaining(now); got != 2 {
-		t.Fatalf("remaining = %d, want 2", got)
-	}
-	l.Record(now)
-	l.Record(now.Add(time.Second))
-	if got := l.Remaining(now.Add(2 * time.Second)); got != 0 {
-		t.Fatalf("remaining = %d, want 0 after two records", got)
-	}
-	if got := l.Remaining(now.Add(2 * time.Hour)); got != 2 {
-		t.Fatalf("remaining = %d, want 2 after window elapses", got)
+func TestAutoRemediationExceeded(t *testing.T) {
+	for _, c := range []struct {
+		count int64
+		max   int
+		want  bool
+	}{
+		{0, 2, false},
+		{1, 2, false},
+		{2, 2, true},
+		{3, 2, true},
+		{49, 0, false},
+		{50, 0, true},
+		{0, -1, false},
+	} {
+		if got := autoRemediationExceeded(c.count, c.max); got != c.want {
+			t.Errorf("autoRemediationExceeded(%d,%d) = %v, want %v", c.count, c.max, got, c.want)
+		}
 	}
 }
 

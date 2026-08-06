@@ -12,7 +12,7 @@ import (
 )
 
 // cloudLoop checks due accounts every 30s and also reacts to manual refresh
-// requests from the REST API.
+// jobs enqueued by the REST API.
 func (w *Worker) cloudLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -25,22 +25,22 @@ func (w *Worker) cloudLoop(ctx context.Context) {
 			return
 		case <-w.done:
 			return
-		case accountID := <-w.cloudCh:
-			w.refreshCloudAccount(context.Background(), accountID)
 		case <-ticker.C:
-			w.refreshDueCloudAccounts(ctx)
+		case <-w.wakeCh:
 		}
+		w.processCloudJobs(ctx)
 	}
 }
 
-func (w *Worker) refreshDueCloudAccounts(ctx context.Context) {
-	due, err := w.store.CloudAccountsDue(ctx, time.Now())
+func (w *Worker) processCloudJobs(ctx context.Context) {
+	due, err := w.store.ClaimCloudAccountsDue(ctx, time.Now(), w.workerID, store.StaleClaimLease)
 	if err != nil {
 		slog.Error("cloud due accounts lookup failed", "error", err)
 		return
 	}
-	if len(due) == 0 {
-		return
+	jobs, err := w.store.ClaimJobs(ctx, []string{"cloud_refresh"}, w.workerID, 16)
+	if err != nil {
+		slog.Error("cloud refresh jobs lookup failed", "error", err)
 	}
 	sem := make(chan struct{}, w.cloudCfg.Concurrency)
 	for i := range due {
@@ -49,6 +49,22 @@ func (w *Worker) refreshDueCloudAccounts(ctx context.Context) {
 			defer func() { <-sem }()
 			w.refreshCloudAccount(context.Background(), a.ID)
 		}(due[i])
+	}
+	for _, j := range jobs {
+		var payload struct {
+			AccountID int64 `json:"account_id"`
+		}
+		_ = json.Unmarshal(j.Payload, &payload)
+		sem <- struct{}{}
+		go func(j store.Job) {
+			defer func() { <-sem }()
+			if payload.AccountID > 0 {
+				w.refreshCloudAccount(context.Background(), payload.AccountID)
+			}
+			if err := w.store.FinishJob(context.Background(), j.ID, ""); err != nil {
+				slog.Error("finish cloud refresh job failed", "job_id", j.ID, "error", err)
+			}
+		}(j)
 	}
 }
 

@@ -93,11 +93,18 @@ Agent 注册/安装脚本基于 `SERVER_URL`（默认 `http://localhost:8080`）
 Agent 可达的对外地址。CI 在 main 分支构建并推送镜像至
 `ghcr.io/eternallyzzz/vuln-scanner`（`latest` 与 `sha-<commit>` 标签）。
 
+**水平扩展（可选）**：同一二进制支持 `mode: all|api|worker`（`server.yaml` 的 `mode` 或
+`VULNSCAN_MODE` 环境变量，默认 `all`）。多实例拓扑为 1×api + N×worker（或 1×all + N×worker），
+共享同一 PostgreSQL；后台任务队列与单例循环租约由 PostgreSQL 内置 `job_queue`/`worker_leases`
+协调，无需新增消息中间件。详见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 的“水平扩展”章节；
+`GET /api/v1/workers`（仅 admin）可查看各实例租约与队列深度。
+
 ## Configuration / 配置
 
 ### Server (`server.yaml`)
 
 ```yaml
+mode: "all"   # all（默认，API+gRPC+后台循环）| api（仅 API/gRPC）| worker（仅后台循环）
 alerting:
   enabled: true
   webhook_url: "https://hooks.example.com/x"

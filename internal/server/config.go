@@ -52,6 +52,7 @@ type Config struct {
 	JWTSecret     string             `mapstructure:"jwt_secret"`
 	APIKey        string             `mapstructure:"api_key"`
 	ServerURL     string             `mapstructure:"server_url"`
+	Mode          string             `mapstructure:"mode"`
 	CVE           *CVEScanConfig     `mapstructure:"cve"`
 	LLM           *LLMConfig         `mapstructure:"llm"`
 	Alerting      *alert.Config      `mapstructure:"alerting"`
@@ -73,6 +74,7 @@ func DefaultConfig() *Config {
 		DatabaseURL: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable",
 		JWTSecret:   "change-me-in-production",
 		APIKey:      "sk-change-me",
+		Mode:        "all",
 		Reporting:   report.DefaultConfig(),
 		RemoteScan:  remotescan.DefaultConfig(),
 		Ticketing:   ticket.DefaultConfig(),
@@ -109,6 +111,12 @@ func LoadConfig(path string) (*Config, error) {
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, err
 	}
+
+	mode, err := normalizeMode(cfg.Mode)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Mode = mode
 
 	cfg.JWTSecret = os.ExpandEnv(cfg.JWTSecret)
 	cfg.APIKey = os.ExpandEnv(cfg.APIKey)
@@ -192,6 +200,21 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// normalizeMode canonicalizes the instance mode (all/api/worker). Empty or
+// missing values default to "all" for backward compatibility.
+func normalizeMode(mode string) (string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "all", nil
+	}
+	switch mode {
+	case "all", "api", "worker":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid mode %q: must be all, api or worker", mode)
+	}
 }
 
 // applyWebDBScanEnv applies WEBDB_SCAN_* environment overrides on top of any
@@ -576,6 +599,7 @@ func bindCoreEnv(v *viper.Viper) {
 	} {
 		_ = v.BindEnv(key)
 	}
+	_ = v.BindEnv("mode", "VULNSCAN_MODE")
 	// Nested keys cannot use the automatic mapping: viper would turn
 	// "cve.nvd_api_key" into "CVE.NVD_API_KEY", which is not a valid
 	// environment variable name. Bind the real variable explicitly.

@@ -34,6 +34,7 @@ curl http://localhost:8080/health
 | `API_KEY` | `sk-change-me` | REST X-API-Key，**生产必改** |
 | `SERVER_URL` | `http://localhost:8080` | Agent 可达的 Server 对外地址（注册/安装脚本使用），**生产必改**，如 `https://vuln.example.com` |
 | `DATABASE_URL` | 由 compose 自动拼装 | 覆盖时需指向 `postgres` 服务 |
+| `VULNSCAN_MODE` | `all` | 运行模式：`all`（默认，API+gRPC+后台循环）/ `api`（仅 API/gRPC）/ `worker`（仅后台循环）；多实例水平扩展时使用 |
 | `POSTGRES_PASSWORD` | `vulnscan` | PostgreSQL 密码，**生产必改** |
 | `POSTGRES_USER` | `vulnscan` | PostgreSQL 用户 |
 | `POSTGRES_PORT` | `5432` | 宿主机映射端口 |
@@ -210,13 +211,35 @@ docker compose -f deploy/docker-compose/docker-compose.yml up -d --build
 
 迁移在启动时自动执行；升级前建议先备份数据库。
 
-## 4. Kubernetes（参考）/ Kubernetes (Reference)
+## 4. 水平扩展 / Horizontal Scaling
+
+单实例默认 `mode: all`，无需改动。需要扩容时，把职责拆成两类实例并共享同一 PostgreSQL：
+
+| 拓扑 | 说明 |
+| --- | --- |
+| 1×all + N×worker | 现有单实例行为不变，再增加纯 worker 实例分担扫描与投递 |
+| 1×api + N×worker | api 只提供 REST/gRPC 入口，所有后台循环由 worker 承担 |
+
+- 模式配置：`server.yaml` 的 `mode`，或环境变量 `VULNSCAN_MODE`；每个实例都运行迁移（同一 `DATABASE_URL`，迁移幂等）。
+- 后台机制（无新增消息中间件）：
+  - `job_queue`：REST/Agent 触发的 match/cloud/container/工单/SIEM/远程/WebDB 唤醒统一入队，`FOR UPDATE SKIP LOCKED` 领取，`pg_notify` 即时唤醒 + 各循环轮询兜底；
+  - `worker_leases`：feed、match 全量周期、scan_policy、sla、eol、report、container、archive、reap_patch 等单例循环由租约选举唯一持有者（心跳 10s、租约 30s，失联自动让渡）；
+  - 并行循环（远程/WebDB/云/SIEM/工单/告警投递/单 Agent 匹配/自动修复）可在任意 worker 领取，重复执行遵循 at-least-once 语义（业务侧已幂等）。
+- 配置一致性：所有实例必须使用相同 `DATABASE_URL`、`JWT_SECRET`、`API_KEY` 以及各主密钥（`REMOTE_SCAN_MASTER_KEY`/`CLOUD_SCAN_MASTER_KEY`/`WEBDB_SCAN_MASTER_KEY`）；SMTP/工单/SIEM 出站配置需在 worker 实例上生效。
+- 网络要求：worker 实例需能访问外网数据源与 SMTP/工单/SIEM 等出站端点；api 实例需对外暴露 8080/9090。
+- 观察：`GET /api/v1/workers`（admin）返回当前租约（loop/worker_id/hostname/pid/heartbeat age）与各 kind 的 pending 队列深度。
+- 注意：
+  - feed 租约持有者负责镜像内置情报并刷新外部数据源；`mode: api` 单独部署（无任何 worker）时不会同步内置情报与匹配，必须至少搭配一个 worker；
+  - container 扫描依赖本机 Docker socket，仅在持有 container 租约且能访问 Docker 的实例上启用；
+  - 手工同步端点（报表发送、EOL/intel 刷新）采用“内联领取”：同一时刻只允许一个实例执行，其余返回 409。
+
+## 5. Kubernetes（参考）/ Kubernetes (Reference)
 
 `deploy/k8s/` 提供 namespace、ConfigMap/Secret、PostgreSQL StatefulSet 与 Server Deployment/Service 示例。
 使用前必须：替换 Secret 中的占位值、将镜像改为已推送的 `ghcr.io/<owner>/vuln-scanner:<tag>`、按需调整 PVC 大小与副本数，
 并配置 Ingress 或 LoadBalancer 暴露 8080/9090。
 
-## 5. 故障排查 / Troubleshooting
+## 6. 故障排查 / Troubleshooting
 
 - **server 反复重启、日志报 database connection failed**：确认 `POSTGRES_PASSWORD` 与 `DATABASE_URL` 一致、postgres 已 healthy。
 - **`/health` 无响应**：查看 server 日志；确认 8080 端口未被占用。

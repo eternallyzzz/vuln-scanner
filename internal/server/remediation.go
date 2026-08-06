@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"vuln-scanner/internal/store"
@@ -21,44 +20,9 @@ type remediationRequest struct {
 	CVSS      float64
 }
 
-// hourlyLimiter is an in-memory sliding-window counter used to cap how many
-// auto-generated campaigns the server actually creates per hour. Dedupe or
-// non-deployable skips do not consume budget.
-type hourlyLimiter struct {
-	mu     sync.Mutex
-	max    int
-	stamps []time.Time
-}
-
-func (l *hourlyLimiter) Remaining(now time.Time) int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.max <= 0 {
-		l.max = 50
-	}
-	cutoff := now.Add(-time.Hour)
-	kept := l.stamps[:0]
-	for _, t := range l.stamps {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	l.stamps = kept
-	return l.max - len(l.stamps)
-}
-
-func (l *hourlyLimiter) Record(now time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.max <= 0 {
-		l.max = 50
-	}
-	l.stamps = append(l.stamps, now)
-}
-
 // handleNewAlert is registered on the alert service and fires once per newly
-// created alert. It enqueues remediation work only when both the rule and the
-// server configuration opt into auto remediation.
+// created alert. It enqueues a coalesced remediation job when both the rule
+// and the server configuration opt into auto remediation.
 func (w *Worker) handleNewAlert(ctx context.Context, rule store.AlertRule, alertID int64,
 	agentID, cveID, assetName, severity string, cvss float64) {
 	if w.patchCfg == nil || !w.patchCfg.Enabled ||
@@ -72,25 +36,7 @@ func (w *Worker) handleNewAlert(ctx context.Context, rule store.AlertRule, alert
 		AlertID: alertID, Rule: rule, AgentID: agentID, CVEID: cveID,
 		AssetName: assetName, Severity: severity, CVSS: cvss,
 	}
-	select {
-	case w.remediationCh <- req:
-	default:
-		slog.Warn("remediation queue full, dropping alert", "alert_id", alertID)
-	}
-}
-
-func (w *Worker) remediationLoop(ctx context.Context) {
-	slog.Info("remediation loop started")
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-w.done:
-			return
-		case req := <-w.remediationCh:
-			w.processRemediation(ctx, req)
-		}
-	}
+	w.enqueue("remediation", fmt.Sprintf("%d", alertID), req)
 }
 
 func (w *Worker) processRemediation(ctx context.Context, req remediationRequest) {
@@ -119,7 +65,12 @@ func (w *Worker) processRemediation(ctx context.Context, req remediationRequest)
 	if detail.RemediationCampaignID != nil {
 		return
 	}
-	if w.rateLimiter == nil || w.rateLimiter.Remaining(time.Now()) <= 0 {
+	count, err := w.store.AutoRemediationCampaignCount(ctx, time.Now().Add(-time.Hour))
+	if err != nil {
+		slog.Warn("remediation: rate limit count failed", "alert_id", req.AlertID, "error", err)
+		return
+	}
+	if autoRemediationExceeded(count, auto.MaxCampaignsPerHourResolved()) {
 		if err := w.store.SetAlertRemediation(ctx, req.AlertID, nil,
 			"skipped: rate limited"); err != nil {
 			slog.Warn("remediation: record rate limit failed", "alert_id", req.AlertID, "error", err)
@@ -153,9 +104,6 @@ func (w *Worker) processRemediation(ctx context.Context, req remediationRequest)
 	var reason string
 	switch {
 	case res.Created > 0:
-		if w.rateLimiter != nil {
-			w.rateLimiter.Record(time.Now())
-		}
 		cid := res.Campaign.ID
 		if err := w.store.SetAlertRemediation(ctx, req.AlertID, &cid, ""); err != nil {
 			slog.Warn("remediation: record campaign failed", "alert_id", req.AlertID, "error", err)
@@ -176,4 +124,13 @@ func (w *Worker) processRemediation(ctx context.Context, req remediationRequest)
 		slog.Warn("remediation: record skip failed", "alert_id", req.AlertID, "error", err)
 	}
 	slog.Info("remediation skipped", "alert_id", req.AlertID, "reason", reason)
+}
+
+// autoRemediationExceeded reports whether the shared hourly campaign budget
+// is exhausted. A non-positive max falls back to the 50/hour default.
+func autoRemediationExceeded(count int64, max int) bool {
+	if max <= 0 {
+		max = 50
+	}
+	return count >= int64(max)
 }

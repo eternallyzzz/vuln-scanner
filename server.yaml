@@ -8,6 +8,11 @@ database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disa
 jwt_secret: "change-me-in-production"
 api_key: "sk-change-me"
 
+# 运行模式：all（默认，API + gRPC + 后台循环）| api（仅 API/gRPC，不跑循环）| worker（仅后台循环）。
+# 水平扩展部署：1×api + N×worker（或 1×all + N×worker）共享同一 PostgreSQL，
+# 队列与单例租约由 PostgreSQL 内置 job_queue/worker_leases 协调；也可用 VULNSCAN_MODE 环境变量覆盖。
+mode: "all"
+
 # NVD 数据源（可选）。支持 nvd_api_key: "${NVD_API_KEY}" 形式；
 # 留空或未配置时自动回退到 NVD_API_KEY 环境变量。
 # 两者皆无则按 2 秒间隔限速（无需 key 也可用）。

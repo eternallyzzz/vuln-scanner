@@ -30,7 +30,7 @@ func (w *Worker) ticketLoop(ctx context.Context) {
 		case <-w.done:
 			return
 		case <-ticker.C:
-		case <-w.ticketCh:
+		case <-w.wakeCh:
 		}
 		w.processTicketCreate(ctx)
 		w.processTicketSync(ctx)
@@ -38,7 +38,7 @@ func (w *Worker) ticketLoop(ctx context.Context) {
 }
 
 func (w *Worker) processTicketCreate(ctx context.Context) {
-	pending, err := w.store.ListTicketCreatePending(ctx, ticketBatchSize, ticketMaxCreateAttempts)
+	pending, err := w.store.ClaimTicketCreatePending(ctx, ticketBatchSize, ticketMaxCreateAttempts, w.workerID, store.StaleClaimLease)
 	if err != nil {
 		slog.Error("ticket create pending lookup failed", "error", err)
 		return
@@ -47,7 +47,7 @@ func (w *Worker) processTicketCreate(ctx context.Context) {
 		ref, err := w.tickets.Create(context.Background(), ticketAlertInfo(d))
 		if err != nil {
 			msg := err.Error()
-			if e := w.store.MarkTicketCreateFailed(context.Background(), d.ID, msg); e != nil {
+			if e := w.store.MarkTicketCreateFailed(context.Background(), d.ID, msg, w.workerID); e != nil {
 				slog.Error("ticket create failure record failed", "alert_id", d.ID, "error", e)
 			}
 			w.appendTicketAudit(context.Background(), "internal/ticket/create", 500, map[string]interface{}{
@@ -56,7 +56,7 @@ func (w *Worker) processTicketCreate(ctx context.Context) {
 			slog.Warn("ticket create failed", "alert_id", d.ID, "cve", d.CVEID, "error", msg)
 			continue
 		}
-		if err := w.store.MarkTicketCreated(context.Background(), d.ID, ref.Provider, ref.Key, ref.URL); err != nil {
+		if err := w.store.MarkTicketCreated(context.Background(), d.ID, ref.Provider, ref.Key, ref.URL, w.workerID); err != nil {
 			slog.Error("ticket created marker failed", "alert_id", d.ID, "error", err)
 		}
 		w.appendTicketAudit(context.Background(), "internal/ticket/create", 200, map[string]interface{}{
@@ -68,7 +68,7 @@ func (w *Worker) processTicketCreate(ctx context.Context) {
 }
 
 func (w *Worker) processTicketSync(ctx context.Context) {
-	pending, err := w.store.ListTicketSyncPending(ctx, ticketBatchSize, ticketMaxSyncAttempts)
+	pending, err := w.store.ClaimTicketSyncPending(ctx, ticketBatchSize, ticketMaxSyncAttempts, w.workerID, store.StaleClaimLease)
 	if err != nil {
 		slog.Error("ticket sync pending lookup failed", "error", err)
 		return
@@ -82,7 +82,7 @@ func (w *Worker) processTicketSync(ctx context.Context) {
 		err := w.tickets.Sync(context.Background(), ref, d.Status)
 		if err != nil {
 			msg := err.Error()
-			if e := w.store.MarkTicketSyncFailed(context.Background(), d.ID, msg); e != nil {
+			if e := w.store.MarkTicketSyncFailed(context.Background(), d.ID, msg, w.workerID); e != nil {
 				slog.Error("ticket sync failure record failed", "alert_id", d.ID, "error", e)
 			}
 			w.appendTicketAudit(context.Background(), "internal/ticket/sync", 500, map[string]interface{}{
@@ -92,7 +92,7 @@ func (w *Worker) processTicketSync(ctx context.Context) {
 				"status", d.Status, "error", msg)
 			continue
 		}
-		if err := w.store.MarkTicketSynced(context.Background(), d.ID, d.Status); err != nil {
+		if err := w.store.MarkTicketSynced(context.Background(), d.ID, d.Status, w.workerID); err != nil {
 			slog.Error("ticket synced marker failed", "alert_id", d.ID, "error", err)
 		}
 		w.appendTicketAudit(context.Background(), "internal/ticket/sync", 200, map[string]interface{}{

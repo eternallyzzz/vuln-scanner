@@ -103,6 +103,11 @@ func userCan(role, method, path string) bool {
 	if strings.HasPrefix(path, "/api/v1/audit-logs") {
 		return role == "admin"
 	}
+	// Worker/lease topology is an infrastructure surface: only admins may
+	// inspect which instances hold which loops.
+	if strings.HasPrefix(path, "/api/v1/workers") {
+		return role == "admin"
+	}
 	// Credential management exposes sensitive remote-login material: only
 	// admins may read or mutate credentials.
 	if strings.HasPrefix(path, "/api/v1/remote/credentials") {

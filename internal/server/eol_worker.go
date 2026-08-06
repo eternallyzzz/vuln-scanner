@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -65,14 +66,27 @@ func (w *Worker) refreshAllEOL(ctx context.Context) (int, error) {
 	return len(agents), nil
 }
 
-// RefreshEOL forces an EOL re-evaluation and risk recalculation.
+// RefreshEOL forces an EOL re-evaluation and risk recalculation. It is
+// serialized across instances by a job_queue claim.
 func (w *Worker) RefreshEOL(ctx context.Context) (int, error) {
-	updated, err := w.refreshAllEOL(ctx)
+	if w.store == nil {
+		return 0, errors.New("store unavailable")
+	}
+	jobID, inserted, err := w.store.EnqueueJob(ctx, "eol_refresh", "", nil)
 	if err != nil {
 		return 0, err
 	}
-	if _, err := w.store.RecalcAllRisk(ctx); err != nil {
+	if !inserted {
+		return 0, errors.New("EOL refresh is already running")
+	}
+	updated, err := w.refreshAllEOL(ctx)
+	if err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
 		return 0, err
 	}
-	return updated, nil
+	if _, err := w.store.RecalcAllRisk(ctx); err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
+		return 0, err
+	}
+	return updated, w.store.FinishJob(ctx, jobID, "")
 }

@@ -47,16 +47,22 @@ func (s *Store) AppendSiemEvent(ctx context.Context, dedupeKey, eventType string
 	return err
 }
 
-func (s *Store) ListPendingSiemEvents(ctx context.Context, limit int) ([]SiemEvent, error) {
+// ClaimSiemEvents atomically claims up to limit pending outbox events for one
+// worker. Stale claims (crashed workers) are reclaimed after the lease.
+func (s *Store) ClaimSiemEvents(ctx context.Context, limit int, workerID string, lease time.Duration) ([]SiemEvent, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, dedupe_key, event_type, payload, status, attempt_count, last_error, created_at, sent_at
-		FROM siem_events
-		WHERE status='pending'
-		ORDER BY id LIMIT $1
-	`, limit)
+		UPDATE siem_events se SET claimed_by=$2, claimed_at=NOW()
+		WHERE se.id IN (
+			SELECT id FROM siem_events
+			WHERE status='pending' AND (claimed_at IS NULL OR claimed_at < NOW() - $3::interval)
+			ORDER BY id LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, dedupe_key, event_type, payload, status, attempt_count, last_error, created_at, sent_at
+	`, limit, workerID, lease)
 	if err != nil {
 		return nil, err
 	}
@@ -73,20 +79,22 @@ func (s *Store) ListPendingSiemEvents(ctx context.Context, limit int) ([]SiemEve
 	return out, rows.Err()
 }
 
-func (s *Store) MarkSiemEventSent(ctx context.Context, id int64) error {
+func (s *Store) MarkSiemEventSent(ctx context.Context, id int64, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE siem_events SET status='sent', sent_at=NOW(), last_error=''
-		WHERE id=$1
-	`, id)
+		UPDATE siem_events SET status='sent', sent_at=NOW(), last_error='',
+			claimed_by='', claimed_at=NULL
+		WHERE id=$1 AND claimed_by=$2
+	`, id, workerID)
 	return err
 }
 
-func (s *Store) MarkSiemEventFailed(ctx context.Context, id int64, errMsg string, maxAttempts int) error {
+func (s *Store) MarkSiemEventFailed(ctx context.Context, id int64, workerID, errMsg string, maxAttempts int) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE siem_events SET attempt_count=attempt_count+1, last_error=$2,
 			status=CASE WHEN attempt_count+1 >= $3 THEN 'failed' ELSE 'pending' END
-		WHERE id=$1
-	`, id, errMsg, maxAttempts)
+			, claimed_by='', claimed_at=NULL
+		WHERE id=$1 AND claimed_by=$4
+	`, id, errMsg, maxAttempts, workerID)
 	return err
 }
 

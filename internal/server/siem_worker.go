@@ -24,7 +24,7 @@ func (w *Worker) siemLoop(ctx context.Context) {
 		case <-w.done:
 			return
 		case <-ticker.C:
-		case <-w.siemCh:
+		case <-w.wakeCh:
 		}
 		w.processSiem(ctx)
 	}
@@ -32,7 +32,7 @@ func (w *Worker) siemLoop(ctx context.Context) {
 
 func (w *Worker) processSiem(ctx context.Context) {
 	batchSize := w.siem.Config().BatchSize
-	events, err := w.store.ListPendingSiemEvents(ctx, batchSize)
+	events, err := w.store.ClaimSiemEvents(ctx, batchSize, w.workerID, store.StaleClaimLease)
 	if err != nil {
 		slog.Error("siem pending lookup failed", "error", err)
 		return
@@ -52,7 +52,7 @@ func (w *Worker) processSiem(ctx context.Context) {
 	if err := w.siem.SendBatch(context.Background(), outbound); err != nil {
 		msg := err.Error()
 		for _, e := range events {
-			if markErr := w.store.MarkSiemEventFailed(context.Background(), e.ID, msg, w.siem.Config().MaxAttempts); markErr != nil {
+			if markErr := w.store.MarkSiemEventFailed(context.Background(), e.ID, w.workerID, msg, w.siem.Config().MaxAttempts); markErr != nil {
 				slog.Error("siem failure marker failed", "event_id", e.ID, "error", markErr)
 			}
 		}
@@ -63,7 +63,7 @@ func (w *Worker) processSiem(ctx context.Context) {
 		return
 	}
 	for _, e := range events {
-		if err := w.store.MarkSiemEventSent(context.Background(), e.ID); err != nil {
+		if err := w.store.MarkSiemEventSent(context.Background(), e.ID, w.workerID); err != nil {
 			slog.Error("siem sent marker failed", "event_id", e.ID, "error", err)
 		}
 	}

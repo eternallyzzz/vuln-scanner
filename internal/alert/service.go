@@ -28,6 +28,7 @@ type Service struct {
 	cfg        *Config
 	notifiers  map[string]Notifier
 	onNewAlert NewAlertFunc
+	workerID   string
 }
 
 func NewService(s *store.Store, cfg *Config) (*Service, error) {
@@ -57,6 +58,12 @@ func (s *Service) Enabled() bool {
 
 func (s *Service) SetOnNewAlert(fn NewAlertFunc) {
 	s.onNewAlert = fn
+}
+
+// SetWorkerID tags claimed deliveries with this instance so two workers
+// never deliver the same row concurrently.
+func (s *Service) SetWorkerID(workerID string) {
+	s.workerID = workerID
 }
 
 func (s *Service) Notifier(channel string) (Notifier, bool) {
@@ -173,7 +180,7 @@ func (s *Service) RunDeliveryLoop(ctx context.Context) {
 }
 
 func (s *Service) deliverPending(ctx context.Context, maxAttempts int) {
-	deliveries, err := s.store.ListPendingAlertDeliveries(ctx, 20)
+	deliveries, err := s.store.ClaimPendingAlertDeliveries(ctx, 20, s.workerID, store.StaleClaimLease)
 	if err != nil {
 		slog.Error("list pending deliveries failed", "error", err)
 		return
@@ -181,12 +188,12 @@ func (s *Service) deliverPending(ctx context.Context, maxAttempts int) {
 	for _, d := range deliveries {
 		notifier, ok := s.notifiers[d.Channel]
 		if !ok {
-			s.store.MarkAlertDeliveryFailed(ctx, d.ID, "channel not configured", maxAttempts)
+			s.store.MarkAlertDeliveryFailed(ctx, d.ID, s.workerID, "channel not configured", maxAttempts)
 			continue
 		}
 		detail, err := s.store.GetAlertDetail(ctx, d.AlertID)
 		if err != nil {
-			s.store.MarkAlertDeliveryFailed(ctx, d.ID, err.Error(), maxAttempts)
+			s.store.MarkAlertDeliveryFailed(ctx, d.ID, s.workerID, err.Error(), maxAttempts)
 			continue
 		}
 		payload := Payload{
@@ -208,12 +215,12 @@ func (s *Service) deliverPending(ctx context.Context, maxAttempts int) {
 		if err != nil {
 			slog.Warn("alert delivery failed", "delivery_id", d.ID,
 				"channel", d.Channel, "attempt", d.AttemptCount+1, "error", err)
-			if e := s.store.MarkAlertDeliveryFailed(ctx, d.ID, err.Error(), maxAttempts); e != nil {
+			if e := s.store.MarkAlertDeliveryFailed(ctx, d.ID, s.workerID, err.Error(), maxAttempts); e != nil {
 				slog.Error("mark delivery failed error", "error", e)
 			}
 			continue
 		}
-		if err := s.store.MarkAlertDeliverySent(ctx, d.ID); err != nil {
+		if err := s.store.MarkAlertDeliverySent(ctx, d.ID, s.workerID); err != nil {
 			slog.Error("mark delivery sent error", "error", err)
 		}
 	}

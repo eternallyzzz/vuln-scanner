@@ -345,6 +345,18 @@ func (s *Store) HasOpenPatchTask(ctx context.Context, agentID, assetName string)
 	return exists, err
 }
 
+// AutoRemediationCampaignCount returns how many auto-remediation campaigns
+// were created since the given time. It is the multi-instance replacement
+// for the old in-memory hourly limiter.
+func (s *Store) AutoRemediationCampaignCount(ctx context.Context, since time.Time) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM patch_campaigns
+		WHERE created_by='auto-remediation' AND created_at >= $1
+	`, since).Scan(&n)
+	return n, err
+}
+
 // AgentsByAssetFilters returns distinct agent ids that have at least one
 // active software asset matching tags, environments or asset names (AND of
 // non-empty selectors).

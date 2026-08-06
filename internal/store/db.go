@@ -102,6 +102,20 @@ func New(ctx context.Context, databaseURL string) (*Store, error) {
 }
 
 func (s *Store) RunMigrations(ctx context.Context) error {
+	// Serialize migrations across server instances: concurrent startups on a
+	// fresh database would otherwise race CREATE TYPE / CREATE TABLE.
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7248834501)`); err != nil {
+		return fmt.Errorf("lock migrations: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7248834501)`)
+	}()
+
 	entries, err := migrationFiles.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations: %w", err)
@@ -122,7 +136,7 @@ func (s *Store) RunMigrations(ctx context.Context) error {
 		}
 
 		slog.Info("running migration", "file", entry.Name())
-		if _, err := s.pool.Exec(ctx, string(data)); err != nil {
+		if _, err := conn.Exec(ctx, string(data)); err != nil {
 			return fmt.Errorf("run %s: %w", entry.Name(), err)
 		}
 	}

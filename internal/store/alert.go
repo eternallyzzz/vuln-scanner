@@ -437,39 +437,72 @@ func (s *Store) GetAlertDetail(ctx context.Context, alertID int64) (AlertDetail,
 	return d, err
 }
 
-// ListTicketCreatePending returns open alerts whose rule enables tickets and
-// which have not been created yet (or still have retry budget).
-func (s *Store) ListTicketCreatePending(ctx context.Context, limit, maxAttempts int) ([]AlertDetail, error) {
+// ClaimTicketCreatePending atomically claims open alerts whose rule enables
+// tickets and which have not been created yet (or still have retry budget).
+func (s *Store) ClaimTicketCreatePending(ctx context.Context, limit, maxAttempts int, workerID string, lease time.Duration) ([]AlertDetail, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
-			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
-			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
-			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
-			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
-			a.intel_threat_level, a.intel_exploited, a.edr_finding_id,
-			COALESCE(r.name,''), COALESCE(ag.hostname,'')
-		FROM alerts a
+	ids, err := claimTicketAlertIDs(ctx, s, `
+		SELECT a.id FROM alerts a
 		JOIN alert_rules r ON r.id=a.rule_id
-		LEFT JOIN agents ag ON ag.id=a.agent_id
 		WHERE r.ticket_enabled AND a.status='open' AND a.ticket_key=''
-		  AND a.ticket_attempts < $1
-		ORDER BY a.id LIMIT $2
-	`, maxAttempts, limit)
+		  AND a.ticket_attempts < $2
+		  AND (a.ticket_claimed_at IS NULL OR a.ticket_claimed_at < NOW() - $3::interval)
+		ORDER BY a.id LIMIT $4
+		FOR UPDATE SKIP LOCKED
+	`, workerID, maxAttempts, lease, limit)
+	if err != nil {
+		return nil, err
+	}
+	return s.alertDetailsByIDs(ctx, ids)
+}
+
+// ClaimTicketSyncPending atomically claims alerts with a created ticket whose
+// local status has moved to ack/resolved but has not been synced yet.
+func (s *Store) ClaimTicketSyncPending(ctx context.Context, limit, maxAttempts int, workerID string, lease time.Duration) ([]AlertDetail, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	ids, err := claimTicketAlertIDs(ctx, s, `
+		SELECT a.id FROM alerts a
+		JOIN alert_rules r ON r.id=a.rule_id
+		WHERE r.ticket_enabled AND a.ticket_key<>'' AND a.status IN ('ack','resolved')
+		  AND a.ticket_status<>a.status AND a.ticket_sync_attempts < $2
+		  AND (a.ticket_claimed_at IS NULL OR a.ticket_claimed_at < NOW() - $3::interval)
+		ORDER BY a.id LIMIT $4
+		FOR UPDATE SKIP LOCKED
+	`, workerID, maxAttempts, lease, limit)
+	if err != nil {
+		return nil, err
+	}
+	return s.alertDetailsByIDs(ctx, ids)
+}
+
+func claimTicketAlertIDs(ctx context.Context, s *Store, whereSQL string, args ...interface{}) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		UPDATE alerts a SET ticket_claimed_by=$1, ticket_claimed_at=NOW()
+		WHERE a.id IN (`+whereSQL+`)
+		RETURNING a.id
+	`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanAlertDetails(rows)
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
-// ListTicketSyncPending returns alerts with a created ticket whose local
-// status has moved to ack/resolved but has not been synced yet.
-func (s *Store) ListTicketSyncPending(ctx context.Context, limit, maxAttempts int) ([]AlertDetail, error) {
-	if limit <= 0 {
-		limit = 10
+func (s *Store) alertDetailsByIDs(ctx context.Context, ids []int64) ([]AlertDetail, error) {
+	if len(ids) == 0 {
+		return nil, nil
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
@@ -482,10 +515,9 @@ func (s *Store) ListTicketSyncPending(ctx context.Context, limit, maxAttempts in
 		FROM alerts a
 		JOIN alert_rules r ON r.id=a.rule_id
 		LEFT JOIN agents ag ON ag.id=a.agent_id
-		WHERE r.ticket_enabled AND a.ticket_key<>'' AND a.status IN ('ack','resolved')
-		  AND a.ticket_status<>a.status AND a.ticket_sync_attempts < $1
-		ORDER BY a.id LIMIT $2
-	`, maxAttempts, limit)
+		WHERE a.id = ANY($1::bigint[])
+		ORDER BY a.id
+	`, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -511,46 +543,48 @@ func scanAlertDetails(rows pgx.Rows) ([]AlertDetail, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) MarkTicketCreated(ctx context.Context, alertID int64, provider, key, url string) error {
+func (s *Store) MarkTicketCreated(ctx context.Context, alertID int64, provider, key, url, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alerts SET ticket_provider=$2, ticket_key=$3, ticket_url=$4,
 			ticket_status='open', ticket_error='', ticket_attempts=0,
-			ticket_sync_attempts=0, ticket_synced_at=NOW()
-		WHERE id=$1
-	`, alertID, provider, key, url)
+			ticket_sync_attempts=0, ticket_synced_at=NOW(),
+			ticket_claimed_by='', ticket_claimed_at=NULL
+		WHERE id=$1 AND ticket_claimed_by=$5
+	`, alertID, provider, key, url, workerID)
 	return err
 }
 
-func (s *Store) MarkTicketCreateFailed(ctx context.Context, alertID int64, errMsg string) error {
+func (s *Store) MarkTicketCreateFailed(ctx context.Context, alertID int64, errMsg, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alerts SET ticket_attempts=ticket_attempts+1, ticket_error=$2,
-			ticket_synced_at=NOW()
-		WHERE id=$1
-	`, alertID, errMsg)
+			ticket_synced_at=NOW(), ticket_claimed_by='', ticket_claimed_at=NULL
+		WHERE id=$1 AND ticket_claimed_by=$3
+	`, alertID, errMsg, workerID)
 	return err
 }
 
-func (s *Store) MarkTicketSynced(ctx context.Context, alertID int64, status string) error {
+func (s *Store) MarkTicketSynced(ctx context.Context, alertID int64, status, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alerts SET ticket_status=$2, ticket_error='', ticket_sync_attempts=0,
-			ticket_synced_at=NOW()
-		WHERE id=$1
-	`, alertID, status)
+			ticket_synced_at=NOW(), ticket_claimed_by='', ticket_claimed_at=NULL
+		WHERE id=$1 AND ticket_claimed_by=$3
+	`, alertID, status, workerID)
 	return err
 }
 
-func (s *Store) MarkTicketSyncFailed(ctx context.Context, alertID int64, errMsg string) error {
+func (s *Store) MarkTicketSyncFailed(ctx context.Context, alertID int64, errMsg, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alerts SET ticket_sync_attempts=ticket_sync_attempts+1, ticket_error=$2,
-			ticket_synced_at=NOW()
-		WHERE id=$1
-	`, alertID, errMsg)
+			ticket_synced_at=NOW(), ticket_claimed_by='', ticket_claimed_at=NULL
+		WHERE id=$1 AND ticket_claimed_by=$3
+	`, alertID, errMsg, workerID)
 	return err
 }
 
 func (s *Store) ResetTicketRetry(ctx context.Context, alertID int64) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE alerts SET ticket_attempts=0, ticket_sync_attempts=0, ticket_error=''
+		UPDATE alerts SET ticket_attempts=0, ticket_sync_attempts=0, ticket_error='',
+			ticket_claimed_by='', ticket_claimed_at=NULL
 		WHERE id=$1
 	`, alertID)
 	return err
@@ -587,13 +621,19 @@ func (s *Store) SetAlertStatus(ctx context.Context, alertID int64, status, actor
 	return nil
 }
 
-func (s *Store) ListPendingAlertDeliveries(ctx context.Context, limit int) ([]AlertDelivery, error) {
+// ClaimPendingAlertDeliveries atomically claims up to limit pending alert
+// deliveries for one worker, reclaiming stale claims after the lease.
+func (s *Store) ClaimPendingAlertDeliveries(ctx context.Context, limit int, workerID string, lease time.Duration) ([]AlertDelivery, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, alert_id, channel, status, attempt_count, last_error, sent_at
-		FROM alert_deliveries
-		WHERE status='pending'
-		ORDER BY id LIMIT $1
-	`, limit)
+		UPDATE alert_deliveries ad SET claimed_by=$2, claimed_at=NOW()
+		WHERE ad.id IN (
+			SELECT id FROM alert_deliveries
+			WHERE status='pending' AND (claimed_at IS NULL OR claimed_at < NOW() - $3::interval)
+			ORDER BY id LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, alert_id, channel, status, attempt_count, last_error, sent_at
+	`, limit, workerID, lease)
 	if err != nil {
 		return nil, err
 	}
@@ -611,18 +651,21 @@ func (s *Store) ListPendingAlertDeliveries(ctx context.Context, limit int) ([]Al
 	return out, rows.Err()
 }
 
-func (s *Store) MarkAlertDeliverySent(ctx context.Context, id int64) error {
+func (s *Store) MarkAlertDeliverySent(ctx context.Context, id int64, workerID string) error {
 	_, err := s.pool.Exec(ctx, `
-		UPDATE alert_deliveries SET status='sent', sent_at=NOW(), last_error='' WHERE id=$1
-	`, id)
+		UPDATE alert_deliveries SET status='sent', sent_at=NOW(), last_error='',
+			claimed_by='', claimed_at=NULL
+		WHERE id=$1 AND claimed_by=$2
+	`, id, workerID)
 	return err
 }
 
-func (s *Store) MarkAlertDeliveryFailed(ctx context.Context, id int64, errMsg string, maxAttempts int) error {
+func (s *Store) MarkAlertDeliveryFailed(ctx context.Context, id int64, workerID, errMsg string, maxAttempts int) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alert_deliveries SET attempt_count=attempt_count+1, last_error=$2,
 			status=CASE WHEN attempt_count+1 >= $3 THEN 'failed' ELSE 'pending' END
-		WHERE id=$1
-	`, id, errMsg, maxAttempts)
+			, claimed_by='', claimed_at=NULL
+		WHERE id=$1 AND claimed_by=$4
+	`, id, errMsg, maxAttempts, workerID)
 	return err
 }

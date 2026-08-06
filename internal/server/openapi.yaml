@@ -477,6 +477,28 @@ paths:
           content:
             text/csv:
               schema: {type: string}
+  /api/v1/workers:
+    get:
+      tags: [system]
+      summary: Worker 租约与任务队列状态（仅 admin）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 当前单例循环租约与各 kind 的 pending 任务数
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leases:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkerLease'
+                  queues:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      format: int64
   /api/v1/agents:
     get:
       tags: [agents]
@@ -3249,6 +3271,16 @@ components:
         approved_by: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    WorkerLease:
+      type: object
+      properties:
+        loop: {type: string}
+        worker_id: {type: string}
+        hostname: {type: string}
+        pid: {type: integer}
+        acquired_at: {type: string, format: date-time}
+        heartbeat_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
     PatchTaskEvent:
       type: object
       properties:

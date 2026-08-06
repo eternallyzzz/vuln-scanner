@@ -142,9 +142,6 @@ func main() {
 	mw := server.NewAuthInterceptor(auth)
 
 	feed := cve.NewFeedManager(db)
-	if err := feed.SyncCustomIntel(ctx, db); err != nil {
-		slog.Error("custom intel sync failed", "error", err)
-	}
 	msrcClient := cve.NewMSRCClient()
 	nvdClient := cve.NewNVDClient(cfg.CVE.NVDAPIKey)
 	osvClient := cve.NewOSVClient()
@@ -164,6 +161,10 @@ func main() {
 	}
 
 	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch, feedCfg)
+	if err := worker.SetMode(cfg.Mode); err != nil {
+		slog.Error("invalid worker mode", "error", err)
+		os.Exit(1)
+	}
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
 	worker.ConfigureRemoteScanning(cfg.RemoteScan)
 	worker.ConfigureTicketing(cfg.Ticketing)
@@ -175,28 +176,34 @@ func main() {
 		smtpCfg = cfg.Alerting.SMTP
 	}
 	worker.ConfigureReporting(cfg.Reporting, smtpCfg)
-	worker.Start(ctx)
-
-	grpcSrv := grpc.NewServer(
-		grpc.UnaryInterceptor(mw.Unary()),
-	)
-	reflection.Register(grpcSrv)
-
-	agentGRPC := server.NewAgentGRPCServer(auth, db, worker, cfg.Patch)
-	pb.RegisterAgentServiceServer(grpcSrv, agentGRPC)
-
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		slog.Error("grpc listen failed", "addr", cfg.GRPCAddr, "error", err)
-		os.Exit(1)
+	if cfg.Mode != "api" {
+		worker.Start(ctx)
 	}
 
-	go func() {
-		slog.Info("gRPC server listening", "addr", cfg.GRPCAddr)
-		if err := grpcSrv.Serve(lis); err != nil {
-			slog.Error("grpc serve failed", "error", err)
+	var grpcSrv *grpc.Server
+	var httpSrv *http.Server
+	if cfg.Mode != "worker" {
+		grpcSrv = grpc.NewServer(
+			grpc.UnaryInterceptor(mw.Unary()),
+		)
+		reflection.Register(grpcSrv)
+
+		agentGRPC := server.NewAgentGRPCServer(auth, db, worker, cfg.Patch)
+		pb.RegisterAgentServiceServer(grpcSrv, agentGRPC)
+
+		lis, err := net.Listen("tcp", cfg.GRPCAddr)
+		if err != nil {
+			slog.Error("grpc listen failed", "addr", cfg.GRPCAddr, "error", err)
+			os.Exit(1)
 		}
-	}()
+
+		go func() {
+			slog.Info("gRPC server listening", "addr", cfg.GRPCAddr)
+			if err := grpcSrv.Serve(lis); err != nil {
+				slog.Error("grpc serve failed", "error", err)
+			}
+		}()
+	}
 
 	if cfg.LLMEnabled() {
 		analyzer := llm.NewAnalyzer(db, cfg.LLM)
@@ -209,33 +216,40 @@ func main() {
 		slog.Info("LLM disabled, not configured")
 	}
 
-	rest := server.NewRESTServer(db, auth, cfg, worker, alertSvc)
-	if ticketSvc := worker.TicketService(); ticketSvc != nil {
-		rest.SetTicketService(ticketSvc)
-	}
-	httpSrv := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: rest.Handler(),
-	}
-
-	go func() {
-		slog.Info("HTTP server listening", "addr", cfg.HTTPAddr)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("http serve failed", "error", err)
+	if cfg.Mode != "worker" {
+		rest := server.NewRESTServer(db, auth, cfg, worker, alertSvc)
+		if ticketSvc := worker.TicketService(); ticketSvc != nil {
+			rest.SetTicketService(ticketSvc)
 		}
-	}()
+		httpSrv = &http.Server{
+			Addr:    cfg.HTTPAddr,
+			Handler: rest.Handler(),
+		}
+
+		go func() {
+			slog.Info("HTTP server listening", "addr", cfg.HTTPAddr)
+			if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("http serve failed", "error", err)
+			}
+		}()
+	}
 
 	slog.Info("vuln-scanner server started",
 		"http", cfg.HTTPAddr,
 		"grpc", cfg.GRPCAddr,
+		"mode", cfg.Mode,
 		"version", "1.0.0")
 
 	<-ctx.Done()
 	slog.Info("shutting down")
 
 	worker.Stop()
-	httpSrv.Shutdown(context.Background())
-	grpcSrv.GracefulStop()
+	if httpSrv != nil {
+		_ = httpSrv.Shutdown(context.Background())
+	}
+	if grpcSrv != nil {
+		grpcSrv.GracefulStop()
+	}
 
 	fmt.Fprintln(os.Stdout, "bye")
 }

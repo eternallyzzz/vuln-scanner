@@ -28,17 +28,13 @@ func (w *Worker) ConfigureContainerScanning(cfg *container.Config) {
 	}
 	w.containerCfg = cfg
 	w.containerScanner = container.NewScanner(cfg)
-	w.containerCh = make(chan struct{}, 1)
 }
 
 func (w *Worker) TriggerContainerScan() {
-	if w.containerCh == nil {
+	if w.containerCfg == nil {
 		return
 	}
-	select {
-	case w.containerCh <- struct{}{}:
-	default:
-	}
+	w.enqueue("container_scan", "", nil)
 }
 
 func (w *Worker) containerScanLoop(ctx context.Context) {
@@ -62,8 +58,18 @@ func (w *Worker) containerScanLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			w.runContainerScan(ctx)
-		case <-w.containerCh:
-			w.runContainerScan(ctx)
+		case <-w.wakeCh:
+			jobs, err := w.store.ClaimJobs(ctx, []string{"container_scan"}, w.workerID, 1)
+			if err != nil {
+				slog.Error("claim container scan jobs failed", "error", err)
+				continue
+			}
+			for _, j := range jobs {
+				w.runContainerScan(ctx)
+				if err := w.store.FinishJob(ctx, j.ID, ""); err != nil {
+					slog.Error("finish container scan job failed", "job_id", j.ID, "error", err)
+				}
+			}
 		}
 	}
 }

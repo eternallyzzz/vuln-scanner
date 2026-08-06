@@ -32,6 +32,16 @@ func (f *FeedManager) SyncCustomIntel(ctx context.Context, st *store.Store) erro
 	return nil
 }
 
+// SyncCustomIntel mirrors enabled built-in intel rules into cve_feed. It is
+// invoked by the lease-holding feed loop so concurrent instances never race
+// the full mirror rebuild.
+func (l *Loader) SyncCustomIntel(ctx context.Context) error {
+	if l.feed == nil || l.store == nil {
+		return nil
+	}
+	return l.feed.SyncCustomIntel(ctx, l.store)
+}
+
 // customIntelFeedEntries converts enabled rules to feed rows. Rules with
 // invalid affected payloads are skipped with a warning instead of blocking
 // startup.

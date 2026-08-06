@@ -32,36 +32,28 @@ type Worker struct {
 	patchCfg *patch.Config
 	feedCfg  *cve.Config
 
+	mode     string
+	workerID string
+	hostname string
+
 	done             chan struct{}
-	matchCh          chan string
-	remediationCh    chan remediationRequest
-	rateLimiter      *hourlyLimiter
+	wakeCh           chan struct{}
 	containerCfg     *container.Config
 	containerScanner *container.Scanner
-	containerCh      chan struct{}
 	containerMu      sync.Mutex
 	containerState   containerScanState
-	mu               sync.Mutex
-	matching         bool
-	matchPending     bool
-	ready            chan struct{}
 	reportCfg        *report.Config
 	reportSMTP       *alert.SMTPConfig
 	reportMu         sync.Mutex
 	reportRunning    bool
 	remoteCfg        *remotescan.Config
 	remoteKey        []byte
-	remoteCh         chan struct{}
 	tickets          *ticket.Service
-	ticketCh         chan struct{}
 	siem             *siem.Service
-	siemCh           chan struct{}
 	cloudCfg         *cloudscan.Config
 	cloudKey         []byte
-	cloudCh          chan int64
 	webdbCfg         *webdbscan.Config
 	webdbKey         []byte
-	webdbCh          chan struct{}
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -69,20 +61,19 @@ func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts 
 	if len(feedCfg) > 0 && feedCfg[0] != nil {
 		cfg = feedCfg[0].Normalized()
 	}
+	hostname, _ := os.Hostname()
 	w := &Worker{
-		store:         s,
-		loader:        loader,
-		match:         matcher,
-		alerts:        alerts,
-		patchCfg:      patchCfg,
-		feedCfg:       cfg,
-		done:          make(chan struct{}),
-		matchCh:       make(chan string, 64),
-		remediationCh: make(chan remediationRequest, 64),
-		ready:         make(chan struct{}),
-	}
-	if patchCfg != nil && patchCfg.AutoRemediation != nil {
-		w.rateLimiter = &hourlyLimiter{max: patchCfg.AutoRemediation.MaxCampaignsPerHourResolved()}
+		store:    s,
+		loader:   loader,
+		match:    matcher,
+		alerts:   alerts,
+		patchCfg: patchCfg,
+		feedCfg:  cfg,
+		mode:     "all",
+		hostname: hostname,
+		workerID: fmt.Sprintf("%s-%d-%s", sanitizeHostname(hostname), os.Getpid(), randSuffix(4)),
+		done:     make(chan struct{}),
+		wakeCh:   make(chan struct{}, 1),
 	}
 	if alerts != nil {
 		alerts.SetOnNewAlert(w.handleNewAlert)
@@ -90,16 +81,75 @@ func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts 
 	return w
 }
 
+func sanitizeHostname(h string) string {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range h {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
+func randSuffix(n int) string {
+	const chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var b strings.Builder
+	seed := uint64(time.Now().UnixNano())
+	for i := 0; i < n; i++ {
+		seed = seed*6364136223846793005 + 1442695040888963407
+		b.WriteByte(chars[seed>>33%uint64(len(chars))])
+	}
+	return b.String()
+}
+
+// SetMode sets the instance role: all (default), api (HTTP/gRPC only) or
+// worker (background loops only). It must be called before Start.
+func (w *Worker) SetMode(mode string) error {
+	switch mode {
+	case "all", "api", "worker":
+		w.mode = mode
+		return nil
+	default:
+		return fmt.Errorf("invalid mode %q: must be all, api or worker", mode)
+	}
+}
+
 func (w *Worker) Start(ctx context.Context) {
-	go w.feedLoop(ctx)
-	go w.matchLoop(ctx)
-	go w.archiveLoop(ctx)
-	go w.scanPolicyLoop(ctx)
-	go w.remediationLoop(ctx)
-	go w.slaLoop(ctx)
-	go w.eolLoop(ctx)
-	go w.containerScanLoop(ctx)
-	go w.reportLoop(ctx)
+	if w.mode == "api" {
+		slog.Info("api mode: background loops disabled", "worker", w.workerID)
+		return
+	}
+	slog.Info("worker starting", "mode", w.mode, "worker", w.workerID)
+	if w.alerts != nil {
+		w.alerts.SetWorkerID(w.workerID)
+	}
+	go w.jobNotifyListener(ctx)
+	go w.jobMaintenanceLoop(ctx)
+
+	// Single-runner loops (lease elected).
+	go w.runLeaseLoop(ctx, "feed", w.feedLoop)
+	go w.runLeaseLoop(ctx, "match", w.matchCycleLoop)
+	go w.runLeaseLoop(ctx, "scan_policy", w.scanPolicyLoop)
+	go w.runLeaseLoop(ctx, "sla", w.slaLoop)
+	go w.runLeaseLoop(ctx, "eol", w.eolLoop)
+	if w.reportCfg != nil && w.reportCfg.Enabled {
+		go w.runLeaseLoop(ctx, "report", w.reportLoop)
+	}
+	if w.containerCfg != nil && w.containerCfg.Enabled {
+		go w.runLeaseLoop(ctx, "container", w.containerScanLoop)
+	}
+	go w.runLeaseLoop(ctx, "archive", w.archiveLoop)
+	go w.runLeaseLoop(ctx, "reap_patch", w.reapPatchLoop)
+
+	// Parallel loops (DB-claimed, safe on every worker).
+	go w.matchJobLoop(ctx)
+	go w.remediationJobLoop(ctx)
 	go w.remoteScanLoop(ctx)
 	if w.tickets != nil {
 		go w.ticketLoop(ctx)
@@ -116,7 +166,6 @@ func (w *Worker) Start(ctx context.Context) {
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
-	go w.reapPatchLoop(ctx)
 }
 
 // ConfigureCloudScanning enables the background cloud asset discovery loop.
@@ -132,21 +181,18 @@ func (w *Worker) ConfigureCloudScanning(cfg *cloudscan.Config) {
 	}
 	w.cloudCfg = cfg.Normalized()
 	w.cloudKey = key
-	w.cloudCh = make(chan int64, 16)
 	slog.Info("cloud scan enabled",
 		"concurrency", w.cloudCfg.Concurrency,
 		"default_refresh_interval_minutes", w.cloudCfg.DefaultRefreshIntervalMinutes)
 }
 
-// TriggerCloudRefresh wakes the cloud worker for one account.
+// TriggerCloudRefresh enqueues one coalesced cloud refresh job.
 func (w *Worker) TriggerCloudRefresh(accountID int64) {
-	if w.cloudCh == nil {
+	if w.cloudCfg == nil {
 		return
 	}
-	select {
-	case w.cloudCh <- accountID:
-	default:
-	}
+	w.enqueue("cloud_refresh", fmt.Sprintf("%d", accountID),
+		map[string]interface{}{"account_id": accountID})
 }
 
 // ConfigureWebDBScanning enables the background web/database scan worker.
@@ -164,21 +210,17 @@ func (w *Worker) ConfigureWebDBScanning(cfg *webdbscan.Config) {
 	}
 	w.webdbCfg = cfg.Normalized()
 	w.webdbKey = key
-	w.webdbCh = make(chan struct{}, 1)
 	slog.Info("webdb scan enabled",
 		"concurrency", w.webdbCfg.Concurrency,
 		"timeout_seconds", w.webdbCfg.TimeoutSeconds)
 }
 
-// TriggerWebDBScan wakes the worker loop to claim pending tasks.
+// TriggerWebDBScan wakes the webdb worker loop via the shared job channel.
 func (w *Worker) TriggerWebDBScan() {
-	if w.webdbCh == nil {
+	if w.webdbCfg == nil {
 		return
 	}
-	select {
-	case w.webdbCh <- struct{}{}:
-	default:
-	}
+	w.enqueue("webdb_wakeup", "", nil)
 }
 
 // ConfigureSIEM enables the background SIEM/SOAR outbox worker.
@@ -192,22 +234,18 @@ func (w *Worker) ConfigureSIEM(cfg *siem.Config) {
 		return
 	}
 	w.siem = svc
-	w.siemCh = make(chan struct{}, 1)
 	w.store.SetSiemEnabled(true)
 	slog.Info("siem enabled",
 		"interval_seconds", svc.Config().DeliveryIntervalSeconds,
 		"batch_size", svc.Config().BatchSize)
 }
 
-// TriggerSIEM wakes the SIEM worker loop immediately.
+// TriggerSIEM wakes the SIEM worker loop via the shared job channel.
 func (w *Worker) TriggerSIEM() {
-	if w.siemCh == nil {
+	if w.siem == nil {
 		return
 	}
-	select {
-	case w.siemCh <- struct{}{}:
-	default:
-	}
+	w.enqueue("siem_wakeup", "", nil)
 }
 
 // ConfigureRemoteScanning enables the server-side credential scan worker.
@@ -225,7 +263,6 @@ func (w *Worker) ConfigureRemoteScanning(cfg *remotescan.Config) {
 	}
 	w.remoteCfg = cfg.Normalized()
 	w.remoteKey = key
-	w.remoteCh = make(chan struct{}, 1)
 	slog.Info("remote scan enabled",
 		"concurrency", w.remoteCfg.Concurrency, "timeout_seconds", w.remoteCfg.TimeoutSeconds)
 }
@@ -241,7 +278,6 @@ func (w *Worker) ConfigureTicketing(cfg *ticket.Config) {
 		return
 	}
 	w.tickets = svc
-	w.ticketCh = make(chan struct{}, 1)
 	slog.Info("ticketing enabled",
 		"provider", svc.Config().Provider, "base_url", svc.Config().BaseURL)
 }
@@ -254,26 +290,20 @@ func (w *Worker) TicketService() *ticket.Service {
 	return w.tickets
 }
 
-// TriggerTicket wakes the ticket worker loop immediately.
+// TriggerTicket wakes the ticket worker loop via the shared job channel.
 func (w *Worker) TriggerTicket() {
-	if w.ticketCh == nil {
+	if w.tickets == nil {
 		return
 	}
-	select {
-	case w.ticketCh <- struct{}{}:
-	default:
-	}
+	w.enqueue("ticket_wakeup", "", nil)
 }
 
-// TriggerRemoteScan wakes the worker loop to claim pending tasks.
+// TriggerRemoteScan wakes the remote scan worker via the shared job channel.
 func (w *Worker) TriggerRemoteScan() {
-	if w.remoteCh == nil {
+	if w.remoteCfg == nil {
 		return
 	}
-	select {
-	case w.remoteCh <- struct{}{}:
-	default:
-	}
+	w.enqueue("remote_scan_wakeup", "", nil)
 }
 
 // remoteScanLoop polls pending remote scan tasks every 10 seconds and runs
@@ -294,7 +324,7 @@ func (w *Worker) remoteScanLoop(ctx context.Context) {
 		case <-w.done:
 			return
 		case <-ticker.C:
-		case <-w.remoteCh:
+		case <-w.wakeCh:
 		}
 		tasks, err := w.store.ClaimRemoteScanTasks(ctx, cfg.Concurrency)
 		if err != nil {
@@ -453,11 +483,9 @@ func (w *Worker) Stop() {
 	close(w.done)
 }
 
+// TriggerMatch enqueues one coalesced single-agent match job.
 func (w *Worker) TriggerMatch(agentID string) {
-	select {
-	case w.matchCh <- agentID:
-	default:
-	}
+	w.enqueue("match_agent", agentID, map[string]interface{}{"agent_id": agentID})
 }
 
 func (w *Worker) RefreshFeeds(ctx context.Context) {
@@ -467,7 +495,14 @@ func (w *Worker) RefreshFeeds(ctx context.Context) {
 	go w.loader.RefreshRedHat(context.Background(), agents)
 }
 
+// feedLoop runs on the "feed" lease holder: it mirrors custom intel, loads
+// the recent MSRC feed, marks the cross-instance feed-ready state, and then
+// keeps every external feed refreshed on its own cadence.
 func (w *Worker) feedLoop(ctx context.Context) {
+	slog.Info("feed: syncing custom intel...")
+	if err := w.loader.SyncCustomIntel(ctx); err != nil {
+		slog.Error("feed: custom intel sync failed", "error", err)
+	}
 	slog.Info("feed: loading recent MSRC (last 12 months)...")
 	if err := w.loader.LoadMSRCAll(ctx); err != nil {
 		slog.Error("feed: recent msrc load failed", "error", err)
@@ -476,7 +511,9 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	}
 	go validateKBLinks(context.Background(), w.store)
 	go resolveActiveKBDownloads(context.Background(), w.store, patch.NewCatalogResolver())
-	close(w.ready)
+	if err := w.store.SetWorkerState(ctx, "feed_ready", true); err != nil {
+		slog.Error("feed: feed_ready marker failed", "error", err)
+	}
 	slog.Info("feed: recent MSRC loaded, match can start now")
 
 	go func() {
@@ -564,11 +601,8 @@ func (w *Worker) feedLoop(ctx context.Context) {
 			agents := w.collectAgentSummaries(ctx)
 			go w.loader.RefreshRedHat(context.Background(), agents)
 		case <-intelTicker.C:
-			if err := w.loader.RefreshIntel(ctx); err != nil {
+			if err := w.RefreshIntel(ctx); err != nil {
 				slog.Error("feed: intel refresh failed", "error", err)
-			}
-			if _, err := w.store.RecalcAllRisk(ctx); err != nil {
-				slog.Error("feed: risk recalc failed", "error", err)
 			}
 		case <-kbLinkTicker.C:
 			validateKBLinks(ctx, w.store)
@@ -598,17 +632,12 @@ func (w *Worker) collectAgentSummaries(ctx context.Context) []cve.AgentSnapshotS
 	return summaries
 }
 
-func (w *Worker) matchLoop(ctx context.Context) {
-	slog.Info("match loop waiting for feed ready")
-	select {
-	case <-w.ready:
-		slog.Info("match loop: feed ready")
-	case <-ctx.Done():
-		return
-	case <-w.done:
+// matchCycleLoop runs the full-match cycle on the "match" lease holder.
+// Per-agent jobs are handled in parallel by every worker's matchJobLoop.
+func (w *Worker) matchCycleLoop(ctx context.Context) {
+	if !w.waitFeedReady(ctx) {
 		return
 	}
-
 	w.RunMatchCycle(ctx)
 
 	ticker := time.NewTicker(5 * time.Minute)
@@ -620,8 +649,6 @@ func (w *Worker) matchLoop(ctx context.Context) {
 			return
 		case <-w.done:
 			return
-		case agentID := <-w.matchCh:
-			w.runSingleMatch(ctx, agentID)
 		case <-ticker.C:
 			w.RunMatchCycle(ctx)
 		}
@@ -688,32 +715,41 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 }
 
 // RefreshIntel triggers an EPSS/KEV refresh and a full risk recalculation.
+// It is serialized across instances by a job_queue claim.
 func (w *Worker) RefreshIntel(ctx context.Context) error {
-	if err := w.loader.RefreshIntel(ctx); err != nil {
+	jobID, inserted, err := w.store.EnqueueJob(ctx, "intel_refresh", "", nil)
+	if err != nil {
 		return err
 	}
-	_, err := w.store.RecalcAllRisk(ctx)
-	return err
+	if !inserted {
+		return errors.New("intel refresh is already running")
+	}
+	if err := w.loader.RefreshIntel(ctx); err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
+		return err
+	}
+	if _, err := w.store.RecalcAllRisk(ctx); err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
+		return err
+	}
+	return w.store.FinishJob(ctx, jobID, "")
 }
 
+// RunMatchCycle runs one full matching pass over all online agents. It is
+// serialized across instances by a job_queue claim.
 func (w *Worker) RunMatchCycle(ctx context.Context) {
-	w.mu.Lock()
-	if w.matching {
-		w.mu.Unlock()
-		slog.Info("match cycle skipped, previous still running")
+	jobID, inserted, err := w.store.EnqueueJob(ctx, "match_full", "", nil)
+	if err != nil {
+		slog.Error("match: enqueue full cycle failed", "error", err)
 		return
 	}
-	w.matching = true
-	w.mu.Unlock()
-
+	if !inserted {
+		slog.Info("match cycle skipped, already running")
+		return
+	}
 	defer func() {
-		w.mu.Lock()
-		w.matching = false
-		pending := w.matchPending
-		w.matchPending = false
-		w.mu.Unlock()
-		if pending {
-			w.TriggerMatch("")
+		if err := w.store.FinishJob(ctx, jobID, ""); err != nil {
+			slog.Error("match: finish job failed", "job_id", jobID, "error", err)
 		}
 	}()
 
@@ -812,6 +848,11 @@ func (w *Worker) archiveLoop(ctx context.Context) {
 				slog.Error("archive agents failed", "error", err)
 			} else if n > 0 {
 				slog.Info("archived stale agents", "count", n)
+			}
+			if cleaned, err := w.store.CleanupFinishedJobs(ctx, 24*time.Hour); err != nil {
+				slog.Warn("cleanup finished jobs failed", "error", err)
+			} else if cleaned > 0 {
+				slog.Info("cleaned finished jobs", "count", cleaned)
 			}
 		}
 	}

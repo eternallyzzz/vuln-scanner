@@ -129,13 +129,20 @@ func (s *Store) DisableCloudAccount(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) CloudAccountsDue(ctx context.Context, now time.Time) ([]CloudAccount, error) {
+// ClaimCloudAccountsDue atomically claims enabled accounts whose refresh is
+// due for one worker, reclaiming stale claims after the lease.
+func (s *Store) ClaimCloudAccountsDue(ctx context.Context, now time.Time, workerID string, lease time.Duration) ([]CloudAccount, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+cloudAccountColumns+`
-		FROM cloud_accounts
-		WHERE enabled AND (last_refresh_at IS NULL OR
-			last_refresh_at + (refresh_interval_minutes * interval '1 minute') <= $1)
-		ORDER BY id`, now)
+		UPDATE cloud_accounts ca SET claimed_by=$2, claimed_at=NOW()
+		WHERE ca.id IN (
+			SELECT id FROM cloud_accounts
+			WHERE enabled AND (last_refresh_at IS NULL OR
+				last_refresh_at + (refresh_interval_minutes * interval '1 minute') <= $1)
+			  AND (claimed_at IS NULL OR claimed_at < NOW() - $3::interval)
+			ORDER BY id LIMIT $4
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING `+cloudAccountColumns, now, workerID, lease, 100)
 	if err != nil {
 		return nil, err
 	}
@@ -154,12 +161,15 @@ func (s *Store) CloudAccountsDue(ctx context.Context, now time.Time) ([]CloudAcc
 func (s *Store) MarkCloudAccountRefreshed(ctx context.Context, id int64, errText string) error {
 	if errText == "" {
 		_, err := s.pool.Exec(ctx, `
-			UPDATE cloud_accounts SET last_refresh_at=NOW(), last_error='', updated_at=NOW()
+			UPDATE cloud_accounts SET last_refresh_at=NOW(), last_error='', updated_at=NOW(),
+				claimed_by='', claimed_at=NULL
 			WHERE id=$1`, id)
 		return err
 	}
 	_, err := s.pool.Exec(ctx, `
-		UPDATE cloud_accounts SET last_error=$2, updated_at=NOW() WHERE id=$1`, id, errText)
+		UPDATE cloud_accounts SET last_error=$2, updated_at=NOW(),
+			claimed_by='', claimed_at=NULL
+		WHERE id=$1`, id, errText)
 	return err
 }
 

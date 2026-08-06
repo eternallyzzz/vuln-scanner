@@ -68,10 +68,18 @@ func (w *Worker) SendReportNow(ctx context.Context) (time.Time, error) {
 	if w.store == nil {
 		return time.Time{}, errors.New("report store unavailable")
 	}
+	jobID, inserted, err := w.store.EnqueueJob(ctx, "report_now", "", nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !inserted {
+		return time.Time{}, errors.New("report is already running")
+	}
 
 	w.reportMu.Lock()
 	if w.reportRunning {
 		w.reportMu.Unlock()
+		_ = w.store.FinishJob(ctx, jobID, "report already running locally")
 		return time.Time{}, errors.New("report is already running")
 	}
 	w.reportRunning = true
@@ -84,14 +92,17 @@ func (w *Worker) SendReportNow(ctx context.Context) (time.Time, error) {
 
 	data, err := report.Build(ctx, w.store)
 	if err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
 		return time.Time{}, err
 	}
 	htmlBody, err := report.RenderHTML(*data)
 	if err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
 		return time.Time{}, err
 	}
 	csvData, err := report.BuildCSV(*data)
 	if err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
 		return time.Time{}, err
 	}
 	subject := fmt.Sprintf("[VulnScanner] Daily Security Report %s", data.Period)
@@ -102,8 +113,9 @@ func (w *Worker) SendReportNow(ctx context.Context) (time.Time, error) {
 		Data:        csvData,
 	}}
 	if err := notifier.SendMail(ctx, subject, htmlBody, w.reportCfg.To, attachments); err != nil {
+		_ = w.store.FinishJob(ctx, jobID, err.Error())
 		return time.Time{}, err
 	}
 	slog.Info("report sent", "period", data.Period, "recipients", len(w.reportCfg.To))
-	return data.GeneratedAt, nil
+	return data.GeneratedAt, w.store.FinishJob(ctx, jobID, "")
 }
