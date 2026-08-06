@@ -211,7 +211,7 @@ webdb_scan:
 
 ### Agent (`~/.vuln-scanner/agent.yaml`)
 
-Set `agent.patch_enabled: true` to enable patch task polling / 开启补丁任务轮询。
+Agent patch task polling is enabled by default (`agent.patch_enabled: true`); set it to `false` to disable / Agent 补丁任务轮询默认开启，可设为 `false` 关闭。
 
 网络扫描（可选）：启用后 Agent 按周期对目标网段做 TCP 发现与服务指纹，结果上报 Server 并进入
 现有 CVE 匹配/风险/告警链路；也可由 Server 通过 `POST /api/v1/network/scan` 下发一次性任务。

@@ -60,6 +60,7 @@ func registerAgent(ctx context.Context, serverURL, code string) (*agent.Config, 
 	cfg.Agent.Hostname = hostname
 	cfg.Agent.WUAEnabled = true
 	cfg.Agent.WUATimeoutSeconds = 60
+	cfg.Agent.PatchEnabled = true
 
 	return cfg, nil
 }

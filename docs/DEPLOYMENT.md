@@ -120,6 +120,9 @@ curl http://localhost:8080/health
 Server 镜像内已内置 4 个平台的 agent 安装包，通过 `/dl/agent/<platform>` 下载：
 `linux-amd64`、`linux-arm64`、`windows-amd64.exe`、`windows-arm64.exe`。
 
+Agent 安装后默认开启补丁任务轮询（`agent.patch_enabled: true`），与服务端核心补丁配置对应；
+需要关闭时在 `~/.vuln-scanner/agent.yaml` 设置 `patch_enabled: false`。
+
 ### 2.1 生成注册命令
 
 先用 API Key 获取一台 Agent 的安装命令（返回 `install_cmd` 与 `code`）：

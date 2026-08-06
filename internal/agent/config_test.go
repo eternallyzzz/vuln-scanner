@@ -15,6 +15,7 @@ server:
 agent:
   wua_collect: false
   wua_timeout_seconds: 45
+  patch_enabled: false
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +34,9 @@ agent:
 	if cfg.Agent.WUATimeoutSeconds != 45 {
 		t.Fatalf("wua_timeout_seconds wrong: %d", cfg.Agent.WUATimeoutSeconds)
 	}
+	if cfg.Agent.PatchEnabled {
+		t.Fatal("patch_enabled: false must disable patch polling")
+	}
 	if cfg.EDRScan.Enabled {
 		t.Fatal("edr_scan must default to disabled")
 	}
@@ -50,6 +54,9 @@ func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	if !cfg.Agent.WUAEnabled || cfg.Agent.WUATimeoutSeconds != 60 {
 		t.Fatalf("WUA defaults wrong: enabled=%v timeout=%d",
 			cfg.Agent.WUAEnabled, cfg.Agent.WUATimeoutSeconds)
+	}
+	if !cfg.Agent.PatchEnabled {
+		t.Fatal("patch_enabled must default to true for the core closed loop")
 	}
 	if cfg.EDRScan.Enabled || cfg.EDRScan.TimeoutSeconds != 120 {
 		t.Fatalf("EDR scan defaults wrong: enabled=%v timeout=%d",

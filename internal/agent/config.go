@@ -68,6 +68,7 @@ func configPath() string {
 func LoadConfig() (*Config, error) {
 	cfg := &Config{}
 	cfg.Agent.CollectionInterval = 3600
+	cfg.Agent.PatchEnabled = true
 	cfg.Agent.PatchTimeoutSeconds = 600
 	cfg.Agent.WUAEnabled = true
 	cfg.Agent.WUATimeoutSeconds = 60

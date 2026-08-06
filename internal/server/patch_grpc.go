@@ -85,7 +85,9 @@ func (s *AgentGRPCServer) ReportPatchTask(ctx context.Context, req *pb.ReportPat
 		// Close the loop: a successful patch invalidates the current CVE
 		// snapshot, so re-match this agent immediately (risk recalc and
 		// alert evaluation run inside the match pipeline).
-		go s.worker.TriggerMatch(agentID)
+		if s.worker != nil {
+			go s.worker.TriggerMatch(agentID)
+		}
 	}
 	return &pb.ReportPatchTaskResponse{Ok: true}, nil
 }
