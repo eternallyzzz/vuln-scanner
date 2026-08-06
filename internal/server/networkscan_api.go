@@ -39,7 +39,12 @@ func (s *RESTServer) listNetworkScanTasks(w http.ResponseWriter, r *http.Request
 	if offset < 0 {
 		offset = 0
 	}
-	tasks, total, err := s.store.ListNetworkScanTasks(r.Context(), status, limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	tasks, total, err := s.store.ListNetworkScanTasks(r.Context(), status, limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -52,8 +57,9 @@ func (s *RESTServer) listNetworkScanTasks(w http.ResponseWriter, r *http.Request
 
 func (s *RESTServer) createNetworkScan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Target string  `json:"target"`
-		Ports  []int32 `json:"ports"`
+		Target   string  `json:"target"`
+		Ports    []int32 `json:"ports"`
+		TenantID int64   `json:"tenant_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, 400, "invalid body: "+err.Error())
@@ -76,7 +82,12 @@ func (s *RESTServer) createNetworkScan(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	task, err := s.store.CreateNetworkScanTask(r.Context(), target, ports, actorFromRequest(r))
+	tenantID, err := s.effectiveTenant(r, in.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	task, err := s.store.CreateNetworkScanTask(r.Context(), target, ports, actorFromRequest(r), tenantID)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

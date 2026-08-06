@@ -16,6 +16,7 @@ type Config struct {
 	TrivyCacheVolume    string   `mapstructure:"trivy_cache_volume"`
 	AgentID             string   `mapstructure:"agent_id"`
 	AgentHostname       string   `mapstructure:"agent_hostname"`
+	TenantID            int64    `mapstructure:"tenant_id"`
 	ScanIntervalMinutes int      `mapstructure:"scan_interval_minutes"`
 	TimeoutMinutes      int      `mapstructure:"timeout_minutes"`
 	MaxImages           int      `mapstructure:"max_images"`
@@ -40,6 +41,9 @@ func (c *Config) Validate() error {
 	}
 	if c.AgentHostname == "" {
 		c.AgentHostname = "docker-host"
+	}
+	if c.TenantID <= 0 {
+		c.TenantID = 1
 	}
 	if c.ScanIntervalMinutes == 0 {
 		c.ScanIntervalMinutes = 360

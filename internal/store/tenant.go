@@ -27,9 +27,53 @@ func scanTenant(row pgx.Row) (Tenant, error) {
 }
 
 func (s *Store) CreateTenant(ctx context.Context, name, slug string) (Tenant, error) {
-	return scanTenant(s.pool.QueryRow(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Tenant{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	t, err := scanTenant(tx.QueryRow(ctx, `
 		INSERT INTO tenants (name, slug) VALUES ($1,$2)
 		RETURNING `+tenantColumns, name, slug))
+	if err != nil {
+		return Tenant{}, err
+	}
+
+	// Provision the new tenant from the tenant-1 template (snapshot
+	// semantics): alert rules, SLA policies, and the default report row.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO alert_rules (name, enabled, severity_filter, source_filter,
+			agent_id_filter, asset_filter, min_cvss, cooldown_minutes, channels,
+			asset_tag_filter, environment_filter, auto_remediate, ticket_enabled,
+			tenant_id)
+		SELECT name, enabled, severity_filter, source_filter, agent_id_filter,
+			asset_filter, min_cvss, cooldown_minutes, channels, asset_tag_filter,
+			environment_filter, auto_remediate, ticket_enabled, $1
+		FROM alert_rules WHERE tenant_id = 1
+	`, t.ID); err != nil {
+		return Tenant{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sla_policies (name, severity, max_remediation_hours, enabled, tenant_id)
+		SELECT name, severity, max_remediation_hours, enabled, $1
+		FROM sla_policies WHERE tenant_id = 1
+		ON CONFLICT (tenant_id, severity) DO NOTHING
+	`, t.ID); err != nil {
+		return Tenant{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tenant_reports (tenant_id, enabled, schedule, timezone, recipients)
+		SELECT $1, enabled, schedule, timezone, recipients
+		FROM tenant_reports WHERE tenant_id = 1
+		ON CONFLICT (tenant_id) DO NOTHING
+	`, t.ID); err != nil {
+		return Tenant{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Tenant{}, err
+	}
+	return t, nil
 }
 
 func (s *Store) ListTenants(ctx context.Context) ([]Tenant, error) {

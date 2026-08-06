@@ -17,6 +17,7 @@ import (
 // as AES-GCM ciphertext.
 type CloudAccount struct {
 	ID                     int64      `json:"id"`
+	TenantID               int64      `json:"tenant_id"`
 	Provider               string     `json:"provider"`
 	Name                   string     `json:"name"`
 	AccountID              string     `json:"account_id"`
@@ -48,7 +49,7 @@ type CloudResource struct {
 	LastSeen     time.Time         `json:"last_seen"`
 }
 
-const cloudAccountColumns = `id, provider, name, account_id, regions,
+const cloudAccountColumns = `id, tenant_id, provider, name, account_id, regions,
 	credential_ciphertext, enabled, refresh_interval_minutes, last_refresh_at,
 	last_error, created_by, created_at, updated_at`
 
@@ -57,7 +58,7 @@ const cloudResourceColumns = `id, account_id, provider, resource_type, resource_
 
 func scanCloudAccount(row pgx.Row) (*CloudAccount, error) {
 	var a CloudAccount
-	if err := row.Scan(&a.ID, &a.Provider, &a.Name, &a.AccountID, &a.Regions,
+	if err := row.Scan(&a.ID, &a.TenantID, &a.Provider, &a.Name, &a.AccountID, &a.Regions,
 		&a.CredentialCiphertext, &a.Enabled, &a.RefreshIntervalMinutes,
 		&a.LastRefreshAt, &a.LastError, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
@@ -78,19 +79,25 @@ func scanCloudResource(row pgx.Row) (*CloudResource, error) {
 	return &r, nil
 }
 
-func (s *Store) CreateCloudAccount(ctx context.Context, provider, name, accountID string,
+func (s *Store) CreateCloudAccount(ctx context.Context, tenantID int64, provider, name, accountID string,
 	regions []string, credCipher string, refreshMinutes int, createdBy string) (*CloudAccount, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO cloud_accounts (provider, name, account_id, regions, credential_ciphertext, refresh_interval_minutes, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO cloud_accounts (tenant_id, provider, name, account_id, regions, credential_ciphertext, refresh_interval_minutes, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING `+cloudAccountColumns,
-		provider, name, accountID, regions, credCipher, refreshMinutes, createdBy)
+		tenantID, provider, name, accountID, regions, credCipher, refreshMinutes, createdBy)
 	return scanCloudAccount(row)
 }
 
-func (s *Store) ListCloudAccounts(ctx context.Context) ([]CloudAccount, error) {
+func (s *Store) ListCloudAccounts(ctx context.Context, tenantID *int64) ([]CloudAccount, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+cloudAccountColumns+` FROM cloud_accounts ORDER BY id DESC`)
+		SELECT `+cloudAccountColumns+` FROM cloud_accounts
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id DESC
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,19 +310,22 @@ func CloudAssetKey(provider, accountID, resourceType, resourceID string) string 
 	return "cloud:" + provider + ":" + hex.EncodeToString(h[:])[:16]
 }
 
-func (s *Store) UpsertCloudAgent(ctx context.Context, provider, accountID, name string) error {
+func (s *Store) UpsertCloudAgent(ctx context.Context, provider, accountID, name string, tenantID int64) error {
 	id := CloudAgentID(provider, accountID)
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO agents (id, hostname, os_type, os_version, status)
-		VALUES ($1,$2,$3,'', 'active')
+		INSERT INTO agents (id, hostname, os_type, os_version, status, tenant_id)
+		VALUES ($1,$2,$3,'', 'active', $4)
 		ON CONFLICT (id) DO UPDATE SET hostname=$2, status='active', updated_at=NOW()
-	`, id, name, provider)
+	`, id, name, provider, tenantID)
 	return err
 }
 
 func (s *Store) SyncCloudCMDB(ctx context.Context, account CloudAccount, resources []cloudscan.Resource) error {
 	agentID := CloudAgentID(account.Provider, account.AccountID)
-	if err := s.UpsertCloudAgent(ctx, account.Provider, account.AccountID, account.Name); err != nil {
+	if err := s.UpsertCloudAgent(ctx, account.Provider, account.AccountID, account.Name, account.TenantID); err != nil {
 		return err
 	}
 	tx, err := s.pool.Begin(ctx)

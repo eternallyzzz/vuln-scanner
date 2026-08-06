@@ -68,8 +68,20 @@ func (s *RESTServer) auditMiddleware(next http.Handler) http.Handler {
 // default tenant. Invalid headers fall back to 1 (best effort; validation
 // happens in the scoped handlers).
 func requestTenantID(r *http.Request) int64 {
-	if u := userFromContext(r.Context()); u != nil && u.TenantID > 0 {
-		return u.TenantID
+	if u := userFromContext(r.Context()); u != nil {
+		if u.Role == "admin" {
+			if h := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); h != "" {
+				if id, err := strconv.ParseInt(h, 10, 64); err == nil && id > 0 {
+					return id
+				}
+			}
+		}
+		if u.TenantID > 0 {
+			return u.TenantID
+		}
+	}
+	if bound := apiKeyTenantFromContext(r.Context()); bound > 0 {
+		return bound
 	}
 	if h := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); h != "" {
 		if id, err := strconv.ParseInt(h, 10, 64); err == nil && id > 0 {

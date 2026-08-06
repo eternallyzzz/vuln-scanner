@@ -139,6 +139,7 @@ container_scan:
   trivy_image: "aquasec/trivy:latest"
   trivy_cache_volume: "vulnscan-trivy-cache"
   agent_id: "agent-container-docker"
+  tenant_id: 1               # 合成容器 agent 的归属租户（默认 1）
   scan_interval_minutes: 360
   timeout_minutes: 20
   max_images: 100
@@ -339,7 +340,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
 - EOL：`GET /api/v1/eol/summary`、`GET /api/v1/eol/agents`、`POST /api/v1/admin/refresh-eol`（管理员手动重算，服务端默认每 6 小时自动刷新）；生命周期数据基于公开资料静态种子表（`os_lifecycle`），日期以厂商为准
 - 审计日志：`GET /api/v1/audit-logs`（admin，支持 `actor/method/path/since/until/limit/offset`，返回 `total + entries`）、`GET /api/v1/audit-logs/export.csv`（admin，最新 5000 条）；所有 `POST/PUT/DELETE/PATCH` 自动记录操作人、方法、路径、状态码、来源 IP 与耗时，登录成功/失败亦入审计
-- 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送
+- 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送；多租户部署通过 `GET/PUT /api/v1/tenants/{tenantId}/report`（admin）维护每租户 schedule/timezone/收件人，`POST /api/v1/tenants/{tenantId}/report/send`（admin）可手动发送指定租户日报
 - 合规基线：Agent 侧执行 CIS 风格精简检查（v1 为双平台各 10 项，非官方认证）并自动上报；`GET /api/v1/compliance/summary`（fleet 平均分、最低/最高分、失败检查 Top）、`GET /api/v1/compliance/agents`（每 agent 评分行）、`GET /api/v1/compliance/agents/{id}`（检查明细）、`GET /api/v1/compliance/export.csv`；所有登录角色可读，日报 HTML 含合规概览
 - OpenAPI 规范：`GET /openapi.yaml`（免鉴权）返回完整 OpenAPI 3.0.3 规范，覆盖全部 REST 端点、鉴权方案与 `x-roles` 角色标注；人类阅读版见 [docs/API.md](docs/API.md)
 
@@ -379,8 +380,10 @@ LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/
   数据以 Agent 为锚点过滤；`X-API-Key` 可带 `X-Tenant-ID` 头做租户级自动化（缺省保持
   全局）；租户管理仅 admin：`GET/POST /api/v1/tenants`、
   `PUT /api/v1/users/{userId}/tenant`、`PUT /api/v1/agents/{agentId}/tenant`。
-- 系统级配置（alert_rules、内置情报、SLA/扫描策略、报表、云/远程/WebDB 凭据）v1 保持
-  全局；消息队列/分布式 worker 留作后续。
+- 多租户（v2）：alert_rules、SLA 策略、报表设置为每租户独立行（建租户时从租户 1 快照复制模板），
+  合成 agent（网络/远程/云/WebDB/容器）按来源归属租户；新增租户级 API key
+  （`GET/POST /api/v1/api-keys`、`DELETE /api/v1/api-keys/{keyId}`，明文仅创建时返回一次），
+  旧全局 `api_key` 与 `X-Tenant-ID` 头保持向后兼容；扫描策略随 agent 天然租户化。
 - 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
 - LDAP 登录（可选）：`POST /api/v1/auth/ldap/login`（body 同 `/auth/login`）由服务端完成目录绑定认证，按 `role_groups` 映射 admin/operator/viewer；首次登录自动建号（`auto_provision: true` 时），已有本地用户保留本地角色与状态（禁用即拒绝），登录成功后复用同一 JWT/RBAC/审计链路。未命中任何角色映射的目录用户返回 403，本地密码登录不受影响。
 - 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。

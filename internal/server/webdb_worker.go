@@ -105,7 +105,7 @@ func (w *Worker) runWebDBTask(ctx context.Context, task store.WebDBTask, cfg *we
 	}
 
 	assets := webDBAssetsJSON(task.Kind, task.Target, products)
-	if err := w.store.UpsertWebDBAgent(ctx, agentID, task.Target); err != nil {
+	if err := w.store.UpsertWebDBAgent(ctx, agentID, task.Target, task.TenantID); err != nil {
 		w.finishWebDBTask(ctx, task, errors.New("upsert webdb agent: "+err.Error()), nil)
 		return
 	}

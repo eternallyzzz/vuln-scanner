@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -158,7 +159,12 @@ func (s *RESTServer) revokeException(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) listSLAPolicies(w http.ResponseWriter, r *http.Request) {
-	policies, err := s.store.ListSLAPolicies(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	policies, err := s.store.ListSLAPolicies(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -185,13 +191,23 @@ func (s *RESTServer) updateSLAPolicy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "max_remediation_hours must be positive")
 		return
 	}
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	existing, err := s.store.GetSLAPolicy(r.Context(), id, tid)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	enabled := true
 	if in.Enable != nil {
 		enabled = *in.Enable
 	}
-	policy, err := s.store.UpdateSLAPolicy(r.Context(), id, in.Name, in.Hours, enabled)
+	policy, err := s.store.UpdateSLAPolicy(r.Context(), id, existing.TenantID, in.Name, in.Hours, enabled)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, 404, "policy not found")
 			return
 		}

@@ -333,6 +333,118 @@ paths:
                   tenant_id: {type: integer, format: int64}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/api-keys:
+    get:
+      tags: [auth]
+      summary: API key 列表（仅系统管理员）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: API key 列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/APIKey'
+    post:
+      tags: [auth]
+      summary: 创建 API key（明文仅返回一次）
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKeyCreateRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeyCreateResponse'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/api-keys/{keyId}:
+    delete:
+      tags: [auth]
+      summary: 撤销 API key（仅系统管理员）
+      x-roles: [admin]
+      parameters:
+        - {name: keyId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已撤销
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key_id: {type: integer, format: int64}
+                  revoked: {type: boolean}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/tenants/{tenantId}/report:
+    get:
+      tags: [admin]
+      summary: 租户报表设置（仅系统管理员）
+      x-roles: [admin]
+      parameters:
+        - {name: tenantId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 租户报表设置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantReport'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    put:
+      tags: [admin]
+      summary: 更新租户报表设置（仅系统管理员）
+      x-roles: [admin]
+      parameters:
+        - {name: tenantId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantReportInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantReport'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/tenants/{tenantId}/report/send:
+    post:
+      tags: [admin]
+      summary: 手动发送指定租户的日报（仅系统管理员）
+      x-roles: [admin]
+      parameters:
+        - {name: tenantId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已发送
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string}
+                  tenant_id: {type: integer, format: int64}
+                  generated_at: {type: string, format: date-time}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /api/v1/users:
     get:
       tags: [auth]
@@ -2940,6 +3052,51 @@ components:
       properties:
         name: {type: string}
         slug: {type: string, pattern: '^[a-z0-9-]+$'}
+    APIKey:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        tenant_id: {type: integer, format: int64, nullable: true}
+        enabled: {type: boolean}
+        created_by: {type: string}
+        last_used_at: {type: string, format: date-time, nullable: true}
+        revoked_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    APIKeyCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        tenant_id: {type: integer, format: int64}
+    APIKeyCreateResponse:
+      type: object
+      properties:
+        key: {type: string, description: 明文 key，仅此一次返回}
+        api_key:
+          $ref: '#/components/schemas/APIKey'
+    TenantReport:
+      type: object
+      properties:
+        tenant_id: {type: integer, format: int64}
+        enabled: {type: boolean}
+        schedule: {type: string}
+        timezone: {type: string}
+        to:
+          type: array
+          items: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TenantReportInput:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        schedule: {type: string}
+        timezone: {type: string}
+        to:
+          type: array
+          items: {type: string}
     UpdateUserRequest:
       type: object
       properties:
@@ -3196,6 +3353,7 @@ components:
       type: object
       properties:
         id: {type: integer, format: int64}
+        tenant_id: {type: integer, format: int64}
         name: {type: string}
         enabled: {type: boolean}
         severity_filter: {type: string}
@@ -3219,6 +3377,7 @@ components:
       type: object
       required: [name]
       properties:
+        tenant_id: {type: integer, format: int64}
         name: {type: string}
         enabled: {type: boolean}
         severity_filter: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
@@ -3398,6 +3557,7 @@ components:
       type: object
       properties:
         id: {type: integer, format: int64}
+        tenant_id: {type: integer, format: int64}
         name: {type: string}
         severity: {type: string}
         max_remediation_hours: {type: integer}

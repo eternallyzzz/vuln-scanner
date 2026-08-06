@@ -15,6 +15,7 @@ import (
 )
 
 type alertRuleInput struct {
+	TenantID          *int64   `json:"tenant_id"`
 	Name              string   `json:"name"`
 	Enabled           *bool    `json:"enabled"`
 	SeverityFilter    string   `json:"severity_filter"`
@@ -106,6 +107,9 @@ func (s *RESTServer) ruleFromInput(in *alertRuleInput) store.AlertRule {
 		AutoRemediate:     in.AutoRemediate != nil && *in.AutoRemediate,
 		TicketEnabled:     in.TicketEnabled != nil && *in.TicketEnabled,
 	}
+	if in.TenantID != nil && *in.TenantID > 0 {
+		r.TenantID = *in.TenantID
+	}
 	if in.Enabled != nil {
 		r.Enabled = *in.Enabled
 	} else {
@@ -129,7 +133,12 @@ func dedupTags(tags []string) []string {
 }
 
 func (s *RESTServer) listAlertRules(w http.ResponseWriter, r *http.Request) {
-	rules, err := s.store.ListAlertRules(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	rules, err := s.store.ListAlertRules(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -147,7 +156,14 @@ func (s *RESTServer) createAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
-	rule, err := s.store.CreateAlertRule(r.Context(), s.ruleFromInput(&in))
+	ruleInput := s.ruleFromInput(&in)
+	tenantID, err := s.effectiveTenant(r, ruleInput.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	ruleInput.TenantID = tenantID
+	rule, err := s.store.CreateAlertRule(r.Context(), ruleInput)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -159,19 +175,36 @@ func ruleIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "ruleId"), 10, 64)
 }
 
+// requireAlertRule loads one rule and rejects access when the caller's
+// tenant scope does not include the rule's tenant.
+func (s *RESTServer) requireAlertRule(r *http.Request, id int64) (store.AlertRule, error) {
+	rule, err := s.store.GetAlertRule(r.Context(), id, nil)
+	if err != nil {
+		return rule, err
+	}
+	tenantID, restrict, err := s.scope(r)
+	if err != nil {
+		return rule, err
+	}
+	if restrict && rule.TenantID != tenantID {
+		return rule, errTenantForbidden
+	}
+	return rule, nil
+}
+
 func (s *RESTServer) getAlertRule(w http.ResponseWriter, r *http.Request) {
 	id, err := ruleIDParam(r)
 	if err != nil {
 		writeError(w, 400, "invalid rule id")
 		return
 	}
-	rule, err := s.store.GetAlertRule(r.Context(), id)
+	rule, err := s.requireAlertRule(r, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "rule not found")
 		return
 	}
 	if err != nil {
-		writeError(w, 500, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	writeJSON(w, 200, rule)
@@ -192,7 +225,14 @@ func (s *RESTServer) updateAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, err.Error())
 		return
 	}
-	rule, err := s.store.UpdateAlertRule(r.Context(), id, s.ruleFromInput(&in))
+	existing, err := s.requireAlertRule(r, id)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	ruleInput := s.ruleFromInput(&in)
+	ruleInput.TenantID = existing.TenantID
+	rule, err := s.store.UpdateAlertRule(r.Context(), id, ruleInput)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "rule not found")
 		return
@@ -210,7 +250,12 @@ func (s *RESTServer) deleteAlertRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid rule id")
 		return
 	}
-	if err := s.store.DeleteAlertRule(r.Context(), id); err != nil {
+	existing, err := s.requireAlertRule(r, id)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	if err := s.store.DeleteAlertRule(r.Context(), id, existing.TenantID); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}
@@ -304,7 +349,7 @@ func (s *RESTServer) retryAlertTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
-	rule, err := s.store.GetAlertRule(r.Context(), detail.RuleID)
+	rule, err := s.store.GetAlertRule(r.Context(), detail.RuleID, nil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "alert rule not found")
 		return

@@ -42,7 +42,7 @@ INSERT INTO sla_policies (name, severity, max_remediation_hours) VALUES
     ('High SLA', 'HIGH', 72),
     ('Medium SLA', 'MEDIUM', 168),
     ('Low SLA', 'LOW', 720)
-ON CONFLICT (severity) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 ALTER TABLE cve_results ADD COLUMN IF NOT EXISTS canonical_cve_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE cve_results ADD COLUMN IF NOT EXISTS epss_score DOUBLE PRECISION NOT NULL DEFAULT 0;

@@ -33,14 +33,20 @@ func (s *RESTServer) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	filter := store.AuditLogFilter{
-		Actor:  strings.TrimSpace(q.Get("actor")),
-		Method: strings.ToUpper(strings.TrimSpace(q.Get("method"))),
-		Path:   q.Get("path"),
-		Since:  since,
-		Until:  until,
-		Limit:  limit,
-		Offset: offset,
+		Actor:    strings.TrimSpace(q.Get("actor")),
+		Method:   strings.ToUpper(strings.TrimSpace(q.Get("method"))),
+		Path:     q.Get("path"),
+		Since:    since,
+		Until:    until,
+		TenantID: tid,
+		Limit:    limit,
+		Offset:   offset,
 	}
 
 	entries, err := s.store.ListAuditLogs(r.Context(), filter)

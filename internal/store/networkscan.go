@@ -17,6 +17,7 @@ import (
 // agent. ports is stored as a comma-separated string for portability.
 type NetworkScanTask struct {
 	ID              int64           `json:"id"`
+	TenantID        int64           `json:"tenant_id"`
 	Target          string          `json:"target"`
 	Ports           []int32         `json:"ports"`
 	Status          string          `json:"status"`
@@ -43,7 +44,7 @@ type NetworkHost struct {
 	LastSeen       time.Time         `json:"last_seen"`
 }
 
-const networkTaskColumns = `id, target, ports, status, assigned_agent_id, created_by, error, COALESCE(result_summary, '{}'), created_at, started_at, finished_at`
+const networkTaskColumns = `id, tenant_id, target, ports, status, assigned_agent_id, created_by, error, COALESCE(result_summary, '{}'), created_at, started_at, finished_at`
 
 const networkHostColumns = `id, ip, hostname, os_type, services, scanner_agent_id, agent_id, status, first_seen, last_seen`
 
@@ -80,7 +81,7 @@ func scanNetworkTask(row interface{ Scan(...interface{}) error }) (*NetworkScanT
 	var t NetworkScanTask
 	var ports string
 	var summary []byte
-	if err := row.Scan(&t.ID, &t.Target, &ports, &t.Status, &t.AssignedAgentID,
+	if err := row.Scan(&t.ID, &t.TenantID, &t.Target, &ports, &t.Status, &t.AssignedAgentID,
 		&t.CreatedBy, &t.Error, &summary, &t.CreatedAt, &t.StartedAt, &t.FinishedAt); err != nil {
 		return nil, err
 	}
@@ -89,13 +90,23 @@ func scanNetworkTask(row interface{ Scan(...interface{}) error }) (*NetworkScanT
 	return &t, nil
 }
 
-func (s *Store) CreateNetworkScanTask(ctx context.Context, target string, ports []int32, createdBy string) (*NetworkScanTask, error) {
+func (s *Store) CreateNetworkScanTask(ctx context.Context, target string, ports []int32, createdBy string, tenantID int64) (*NetworkScanTask, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO network_scan_tasks (target, ports, created_by)
-		VALUES ($1,$2,$3)
+		INSERT INTO network_scan_tasks (tenant_id, target, ports, created_by)
+		VALUES ($1,$2,$3,$4)
 		RETURNING `+networkTaskColumns,
-		target, formatPorts(ports), createdBy)
+		tenantID, target, formatPorts(ports), createdBy)
 	return scanNetworkTask(row)
+}
+
+// GetNetworkScanTask returns one network scan task by id.
+func (s *Store) GetNetworkScanTask(ctx context.Context, id int64) (*NetworkScanTask, error) {
+	return scanNetworkTask(s.pool.QueryRow(ctx, `
+		SELECT `+networkTaskColumns+` FROM network_scan_tasks WHERE id=$1
+	`, id))
 }
 
 // ClaimNetworkScanTasks atomically assigns pending tasks to an agent.
@@ -146,12 +157,21 @@ func (s *Store) CompleteNetworkScanTask(ctx context.Context, id int64, scanErr s
 	return err
 }
 
-func (s *Store) ListNetworkScanTasks(ctx context.Context, status string, limit, offset int) ([]NetworkScanTask, int64, error) {
+func (s *Store) ListNetworkScanTasks(ctx context.Context, status string, limit, offset int, tenantID *int64) ([]NetworkScanTask, int64, error) {
 	where := ""
 	args := []interface{}{}
 	if status != "" {
 		where = " WHERE status=$1"
 		args = append(args, status)
+	}
+	if tenantID != nil {
+		if where == "" {
+			where = " WHERE "
+		} else {
+			where += " AND "
+		}
+		args = append(args, *tenantID)
+		where += fmt.Sprintf("tenant_id=$%d", len(args))
 	}
 	var total int64
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM network_scan_tasks`+where, args...).Scan(&total); err != nil {
@@ -247,17 +267,20 @@ func (s *Store) ListNetworkHosts(ctx context.Context, limit, offset int, tenantI
 }
 
 // UpsertNetworkAgent creates or refreshes the synthetic agent that carries
-// one discovered host's match results.
-func (s *Store) UpsertNetworkAgent(ctx context.Context, id, hostname, ip, osType string) error {
+// one discovered host's match results. Tenant is set on first creation only.
+func (s *Store) UpsertNetworkAgent(ctx context.Context, id, hostname, ip, osType string, tenantID int64) error {
 	if osType == "" {
 		osType = "unknown"
 	}
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO agents (id, hostname, os_type, os_version, arch, agent_ver, ip,
-			token_hash, status, fingerprint_hash, last_seen, created_at, updated_at)
-		VALUES ($1,$2,$3,'','','network-scanner',$4,'','online','',NOW(),NOW(),NOW())
+			token_hash, status, fingerprint_hash, tenant_id, last_seen, created_at, updated_at)
+		VALUES ($1,$2,$3,'','','network-scanner',$4,'','online','',$5,NOW(),NOW(),NOW())
 		ON CONFLICT (id) DO UPDATE
 		SET hostname=$2, os_type=$3, ip=$4, status='online', last_seen=NOW(), updated_at=NOW()
-	`, id, hostname, osType, ip)
+	`, id, hostname, osType, ip, tenantID)
 	return err
 }

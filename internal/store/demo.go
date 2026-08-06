@@ -54,8 +54,9 @@ type DemoSummary struct {
 	GeneratedAt time.Time       `json:"generated_at"`
 }
 
-// DemoSummary gathers the global counts shown on the showcase page.
-func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
+// DemoSummary gathers the counts shown on the showcase page, optionally
+// scoped to one tenant.
+func (s *Store) DemoSummary(ctx context.Context, tenantID *int64) (DemoSummary, error) {
 	var ds DemoSummary
 	ds.GeneratedAt = time.Now()
 	ds.Agents.ByOS = map[string]int{}
@@ -69,8 +70,10 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT os_type, COUNT(*), COUNT(*) FILTER (WHERE status='online')
-		FROM agents GROUP BY os_type ORDER BY os_type
-	`)
+		FROM agents
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		GROUP BY os_type ORDER BY os_type
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -91,8 +94,11 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 	}
 
 	groups, err := scanCountGroups(ctx, s, `
-		SELECT asset_type, COUNT(*) FROM assets GROUP BY asset_type ORDER BY asset_type
-	`)
+		SELECT asset_type, COUNT(*) FROM assets
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=assets.agent_id AND ag.tenant_id=$1))
+		GROUP BY asset_type ORDER BY asset_type
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -102,8 +108,11 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 	}
 
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT lifecycle, COUNT(*) FROM assets GROUP BY lifecycle ORDER BY lifecycle
-	`)
+		SELECT lifecycle, COUNT(*) FROM assets
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=assets.agent_id AND ag.tenant_id=$1))
+		GROUP BY lifecycle ORDER BY lifecycle
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -111,12 +120,19 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 		ds.Assets.ByLifecycle[k] = v
 	}
 
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM cve_results`).Scan(&ds.CVEs.Total); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM cve_results
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=cve_results.agent_id AND ag.tenant_id=$1))
+	`, tenantID).Scan(&ds.CVEs.Total); err != nil {
 		return ds, err
 	}
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT status, COUNT(*) FROM cve_results GROUP BY status ORDER BY status
-	`)
+		SELECT status, COUNT(*) FROM cve_results
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=cve_results.agent_id AND ag.tenant_id=$1))
+		GROUP BY status ORDER BY status
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -129,9 +145,11 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 		}
 	}
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT severity, COUNT(*) FROM cve_results WHERE status='active'
+		SELECT severity, COUNT(*) FROM cve_results
+		WHERE status='active' AND ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=cve_results.agent_id AND ag.tenant_id=$1))
 		GROUP BY severity ORDER BY severity
-	`)
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -139,9 +157,11 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 		ds.CVEs.BySeverity[k] = v
 	}
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT source, COUNT(*) FROM cve_results WHERE status='active'
+		SELECT source, COUNT(*) FROM cve_results
+		WHERE status='active' AND ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=cve_results.agent_id AND ag.tenant_id=$1))
 		GROUP BY source ORDER BY source
-	`)
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -150,8 +170,11 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 	}
 
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT status, COUNT(*) FROM alerts GROUP BY status ORDER BY status
-	`)
+		SELECT status, COUNT(*) FROM alerts
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=alerts.agent_id AND ag.tenant_id=$1))
+		GROUP BY status ORDER BY status
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
@@ -160,33 +183,44 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 		ds.Alerts.Total += v
 	}
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT severity, COUNT(*) FROM alerts WHERE status='open'
+		SELECT severity, COUNT(*) FROM alerts
+		WHERE status='open' AND ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=alerts.agent_id AND ag.tenant_id=$1))
 		GROUP BY severity ORDER BY severity
-	`)
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
 	for k, v := range groups {
 		ds.Alerts.OpenBySeverity[k] = v
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM alert_rules`).Scan(&ds.Alerts.Rules); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM alert_rules
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&ds.Alerts.Rules); err != nil {
 		return ds, err
 	}
 
 	groups, err = scanCountGroups(ctx, s, `
-		SELECT status, COUNT(*) FROM patch_tasks GROUP BY status ORDER BY status
-	`)
+		SELECT status, COUNT(*) FROM patch_tasks
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents ag WHERE ag.id=patch_tasks.agent_id AND ag.tenant_id=$1))
+		GROUP BY status ORDER BY status
+	`, tenantID)
 	if err != nil {
 		return ds, err
 	}
 	for k, v := range groups {
 		ds.Patch.TasksByStatus[k] = v
 	}
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM patch_campaigns`).Scan(&ds.Patch.Campaigns); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM patch_campaigns
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&ds.Patch.Campaigns); err != nil {
 		return ds, err
 	}
 
-	ds.CMDB, err = s.CMDBReconcileReport(ctx)
+	ds.CMDB, err = s.CMDBReconcileReport(ctx, tenantID)
 	if err != nil {
 		return ds, err
 	}

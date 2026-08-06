@@ -9,7 +9,7 @@ func (s *RESTServer) sendReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "worker not available")
 		return
 	}
-	sentAt, err := s.worker.SendReportNow(r.Context())
+	sentAt, err := s.worker.SendReportNow(r.Context(), nil)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

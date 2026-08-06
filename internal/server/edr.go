@@ -196,7 +196,17 @@ func syncEDRFindingAlert(ctx context.Context, st *store.Store, finding store.EDR
 	if !edr.ShouldAlert(finding.Severity) {
 		return nil
 	}
-	rule, err := st.GetAlertRuleByName(ctx, "edr-malware")
+	tenantID := int64(1)
+	assetName := finding.AgentID
+	if agent, err := st.GetAgent(ctx, finding.AgentID); err == nil && agent != nil {
+		if agent.TenantID > 0 {
+			tenantID = agent.TenantID
+		}
+		if agent.Hostname != "" {
+			assetName = agent.Hostname
+		}
+	}
+	rule, err := st.GetAlertRuleByName(ctx, tenantID, "edr-malware")
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -205,10 +215,6 @@ func syncEDRFindingAlert(ctx context.Context, st *store.Store, finding store.EDR
 	}
 	if !rule.Enabled {
 		return nil
-	}
-	assetName := finding.AgentID
-	if agent, err := st.GetAgent(ctx, finding.AgentID); err == nil && agent != nil && agent.Hostname != "" {
-		assetName = agent.Hostname
 	}
 	alertID, created, err := st.UpsertEDRFindingAlert(ctx, rule.ID,
 		finding.AgentID, assetName, finding.Severity, finding.ID)

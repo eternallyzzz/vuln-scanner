@@ -26,6 +26,7 @@ var (
 // AES-GCM ciphertext and are never exposed by the API.
 type WebDBCredential struct {
 	ID                 int64      `json:"id"`
+	TenantID           int64      `json:"tenant_id"`
 	Name               string     `json:"name"`
 	Username           string     `json:"username"`
 	PasswordCiphertext string     `json:"-"`
@@ -46,6 +47,7 @@ type WebDBTaskInput struct {
 // WebDBTask is one server-side web/database scan run.
 type WebDBTask struct {
 	ID            int64           `json:"id"`
+	TenantID      int64           `json:"tenant_id"`
 	Kind          string          `json:"kind"`
 	Target        string          `json:"target"`
 	DBType        string          `json:"db_type"`
@@ -75,15 +77,15 @@ type WebDBTarget struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
-const webDBCredentialColumns = `id, name, username, password_ciphertext, created_by, created_at, updated_at, revoked_at`
+const webDBCredentialColumns = `id, tenant_id, name, username, password_ciphertext, created_by, created_at, updated_at, revoked_at`
 
-const webDBTaskColumns = `id, kind, target, db_type, COALESCE(credential_id, 0), status, created_by, error, COALESCE(result_summary, '{}'), created_at, started_at, finished_at`
+const webDBTaskColumns = `id, tenant_id, kind, target, db_type, COALESCE(credential_id, 0), status, created_by, error, COALESCE(result_summary, '{}'), created_at, started_at, finished_at`
 
 const webDBTargetColumns = `id, kind, target, db_type, credential_id, agent_id, status, title, COALESCE(detail, '{}'), first_seen, last_seen, updated_at`
 
 func scanWebDBCredential(row interface{ Scan(...interface{}) error }) (*WebDBCredential, error) {
 	var c WebDBCredential
-	if err := row.Scan(&c.ID, &c.Name, &c.Username, &c.PasswordCiphertext,
+	if err := row.Scan(&c.ID, &c.TenantID, &c.Name, &c.Username, &c.PasswordCiphertext,
 		&c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RevokedAt); err != nil {
 		return nil, err
 	}
@@ -93,7 +95,7 @@ func scanWebDBCredential(row interface{ Scan(...interface{}) error }) (*WebDBCre
 func scanWebDBTask(row interface{ Scan(...interface{}) error }) (*WebDBTask, error) {
 	var t WebDBTask
 	var summary []byte
-	if err := row.Scan(&t.ID, &t.Kind, &t.Target, &t.DBType, &t.CredentialID, &t.Status,
+	if err := row.Scan(&t.ID, &t.TenantID, &t.Kind, &t.Target, &t.DBType, &t.CredentialID, &t.Status,
 		&t.CreatedBy, &t.Error, &summary, &t.CreatedAt, &t.StartedAt, &t.FinishedAt); err != nil {
 		return nil, err
 	}
@@ -101,13 +103,16 @@ func scanWebDBTask(row interface{ Scan(...interface{}) error }) (*WebDBTask, err
 	return &t, nil
 }
 
-// CreateWebDBCredential stores an encrypted credential.
-func (s *Store) CreateWebDBCredential(ctx context.Context, name, username, passwordCipher, createdBy string) (*WebDBCredential, error) {
+// CreateWebDBCredential stores an encrypted credential for one tenant.
+func (s *Store) CreateWebDBCredential(ctx context.Context, tenantID int64, name, username, passwordCipher, createdBy string) (*WebDBCredential, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO webdb_credentials (name, username, password_ciphertext, created_by)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO webdb_credentials (tenant_id, name, username, password_ciphertext, created_by)
+		VALUES ($1,$2,$3,$4,$5)
 		RETURNING `+webDBCredentialColumns,
-		name, username, passwordCipher, createdBy)
+		tenantID, name, username, passwordCipher, createdBy)
 	return scanWebDBCredential(row)
 }
 
@@ -123,11 +128,15 @@ func (s *Store) GetWebDBCredential(ctx context.Context, id int64) (*WebDBCredent
 	return c, err
 }
 
-// ListWebDBCredentials returns all credentials without filtering revoked
-// ones; the API masks secret fields and exposes revoked_at.
-func (s *Store) ListWebDBCredentials(ctx context.Context) ([]WebDBCredential, error) {
+// ListWebDBCredentials returns credentials (optionally scoped to one
+// tenant) without filtering revoked ones; the API masks secret fields and
+// exposes revoked_at.
+func (s *Store) ListWebDBCredentials(ctx context.Context, tenantID *int64) ([]WebDBCredential, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+webDBCredentialColumns+` FROM webdb_credentials ORDER BY id DESC`)
+		SELECT `+webDBCredentialColumns+` FROM webdb_credentials
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id DESC
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,16 +180,24 @@ func (s *Store) RevokeWebDBCredential(ctx context.Context, id int64) error {
 
 // CreateWebDBScanTasks validates optional credentials and inserts one pending
 // task per input. Unknown or revoked credentials are rejected.
-func (s *Store) CreateWebDBScanTasks(ctx context.Context, inputs []WebDBTaskInput, createdBy string) ([]WebDBTask, error) {
+func (s *Store) CreateWebDBScanTasks(ctx context.Context, inputs []WebDBTaskInput, createdBy string, defaultTenantID int64) ([]WebDBTask, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if defaultTenantID <= 0 {
+		defaultTenantID = 1
+	}
 
-	checked := map[int64]*time.Time{}
+	type webdbCredCheck struct {
+		revoked  *time.Time
+		tenantID int64
+	}
+	checked := map[int64]webdbCredCheck{}
 	var tasks []WebDBTask
 	for _, in := range inputs {
+		taskTenantID := defaultTenantID
 		kind := strings.ToLower(strings.TrimSpace(in.Kind))
 		if kind != "web" && kind != "db" {
 			return nil, fmt.Errorf("kind must be web or db")
@@ -189,28 +206,38 @@ func (s *Store) CreateWebDBScanTasks(ctx context.Context, inputs []WebDBTaskInpu
 			return nil, fmt.Errorf("db_type is required for db tasks")
 		}
 		if in.CredentialID > 0 {
-			revoked, ok := checked[in.CredentialID]
+			check, ok := checked[in.CredentialID]
 			if !ok {
 				var r *time.Time
-				err := tx.QueryRow(ctx, `SELECT revoked_at FROM webdb_credentials WHERE id=$1`, in.CredentialID).Scan(&r)
+				var credTenantID int64
+				err := tx.QueryRow(ctx, `
+					SELECT revoked_at, tenant_id FROM webdb_credentials WHERE id=$1
+				`, in.CredentialID).Scan(&r, &credTenantID)
 				if errors.Is(err, pgx.ErrNoRows) {
 					return nil, ErrWebDBCredentialNotFound
 				}
 				if err != nil {
 					return nil, err
 				}
-				checked[in.CredentialID] = r
-				revoked = r
+				if credTenantID > 0 {
+					taskTenantID = credTenantID
+				}
+				check = webdbCredCheck{revoked: r, tenantID: credTenantID}
+				checked[in.CredentialID] = check
+			} else {
+				if check.tenantID > 0 {
+					taskTenantID = check.tenantID
+				}
 			}
-			if revoked != nil {
+			if check.revoked != nil {
 				return nil, ErrWebDBCredentialRevoked
 			}
 		}
 		row := tx.QueryRow(ctx, `
-			INSERT INTO webdb_scan_tasks (kind, target, db_type, credential_id, created_by)
-			VALUES ($1,$2,$3,NULLIF($4,0),$5)
+			INSERT INTO webdb_scan_tasks (tenant_id, kind, target, db_type, credential_id, created_by)
+			VALUES ($1,$2,$3,$4,NULLIF($5,0),$6)
 			RETURNING `+webDBTaskColumns,
-			kind, in.Target, in.DBType, in.CredentialID, createdBy)
+			taskTenantID, kind, in.Target, in.DBType, in.CredentialID, createdBy)
 		t, err := scanWebDBTask(row)
 		if err != nil {
 			return nil, err
@@ -274,8 +301,8 @@ func (s *Store) CompleteWebDBScanTask(ctx context.Context, id int64, scanErr str
 }
 
 // ListWebDBScanTasks returns tasks newest first with optional status/kind
-// filters.
-func (s *Store) ListWebDBScanTasks(ctx context.Context, status, kind string, limit, offset int) ([]WebDBTask, int64, error) {
+// and tenant filters.
+func (s *Store) ListWebDBScanTasks(ctx context.Context, status, kind string, limit, offset int, tenantID *int64) ([]WebDBTask, int64, error) {
 	where := []string{}
 	args := []interface{}{}
 	if status != "" {
@@ -285,6 +312,10 @@ func (s *Store) ListWebDBScanTasks(ctx context.Context, status, kind string, lim
 	if kind != "" {
 		args = append(args, kind)
 		where = append(where, fmt.Sprintf("kind=$%d", len(args)))
+	}
+	if tenantID != nil {
+		args = append(args, *tenantID)
+		where = append(where, fmt.Sprintf("tenant_id=$%d", len(args)))
 	}
 	whereSQL := ""
 	if len(where) > 0 {
@@ -395,15 +426,18 @@ func WebAgentID(kind, target string) string {
 }
 
 // UpsertWebDBAgent creates or refreshes the synthetic agent carrying one
-// web/db target's match results.
-func (s *Store) UpsertWebDBAgent(ctx context.Context, id, target string) error {
+// web/db target's match results. Tenant is set on first creation only.
+func (s *Store) UpsertWebDBAgent(ctx context.Context, id, target string, tenantID int64) error {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO agents (id, hostname, os_type, os_version, arch, agent_ver, ip,
-			token_hash, status, fingerprint_hash, last_seen, created_at, updated_at)
-		VALUES ($1,$2,'unknown','','','webdb-scanner',$2,'','online','',NOW(),NOW(),NOW())
+			token_hash, status, fingerprint_hash, tenant_id, last_seen, created_at, updated_at)
+		VALUES ($1,$2,'unknown','','','webdb-scanner',$2,'','online','',$3,NOW(),NOW(),NOW())
 		ON CONFLICT (id) DO UPDATE
 		SET hostname=$2, os_type='unknown', os_version='', arch='', ip=$2,
 			status='online', last_seen=NOW(), updated_at=NOW()
-	`, id, target)
+	`, id, target, tenantID)
 	return err
 }

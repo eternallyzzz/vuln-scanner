@@ -42,16 +42,33 @@ func (c *Config) SLACheckInterval() time.Duration {
 	return time.Duration(minutes) * time.Minute
 }
 
-// EnsureDefaultRules idempotently seeds global alert rules (CRITICAL/HIGH/
-// MEDIUM) plus the internal sla-breach rule, using the channels configured at
-// runtime. Existing rules with the same name are never overwritten.
+// EnsureDefaultRules idempotently seeds the default alert rules for every
+// tenant (CRITICAL/HIGH/MEDIUM plus the internal sla-breach rule), using the
+// channels configured at runtime. Existing rules with the same name are
+// never overwritten.
 func (s *Service) EnsureDefaultRules(ctx context.Context) error {
 	if !s.cfg.Enabled {
 		return nil
 	}
+	tenants, err := s.store.ListTenants(ctx)
+	if err != nil {
+		return err
+	}
+	for _, t := range tenants {
+		if err := s.ensureDefaultRulesTenant(ctx, t.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensureDefaultRulesTenant(ctx context.Context, tenantID int64) error {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	channels := s.cfg.ChannelNames()
 	for _, d := range defaultRuleSpecs {
-		if _, err := s.store.GetAlertRuleByName(ctx, d.name); err == nil {
+		if _, err := s.store.GetAlertRuleByName(ctx, tenantID, d.name); err == nil {
 			continue
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -66,10 +83,11 @@ func (s *Service) EnsureDefaultRules(ctx context.Context) error {
 			Channels:        channels,
 			AssetTagFilter:  []string{},
 			AutoRemediate:   false,
+			TenantID:        tenantID,
 		}); err != nil {
 			return err
 		}
-		slog.Info("alert: default rule created", "rule", d.name)
+		slog.Info("alert: default rule created", "rule", d.name, "tenant_id", tenantID)
 	}
 	return nil
 }
@@ -81,9 +99,10 @@ type SLACheckResult struct {
 	Resolved int `json:"resolved"`
 }
 
-// CheckSLA scans active CVEs past their SLA deadline, creates/refreshes
-// sla-breach alerts (delivering only on first breach), and resolves SLA
-// alerts whose CVE is no longer overdue (fixed/resolved/exempt/policy off).
+// CheckSLA scans active CVEs past their SLA deadline for every tenant,
+// creates/refreshes sla-breach alerts (delivering only on first breach), and
+// resolves SLA alerts whose CVE is no longer overdue
+// (fixed/resolved/exempt/policy off).
 func (s *Service) CheckSLA(ctx context.Context) (SLACheckResult, error) {
 	var res SLACheckResult
 	if !s.cfg.Enabled {
@@ -92,11 +111,36 @@ func (s *Service) CheckSLA(ctx context.Context) (SLACheckResult, error) {
 	if err := s.EnsureDefaultRules(ctx); err != nil {
 		return res, err
 	}
-	rule, err := s.store.GetAlertRuleByName(ctx, slaRuleName)
+	tenants, err := s.store.ListTenants(ctx)
 	if err != nil {
 		return res, err
 	}
-	overdue, err := s.store.OverdueCVEs(ctx)
+	for _, t := range tenants {
+		r, err := s.checkSLATenant(ctx, t.ID)
+		if err != nil {
+			return res, err
+		}
+		res.Created += r.Created
+		res.Updated += r.Updated
+		res.Resolved += r.Resolved
+	}
+	if res.Created+res.Updated+res.Resolved > 0 {
+		slog.Info("sla: check completed", "created", res.Created,
+			"updated", res.Updated, "resolved", res.Resolved)
+	}
+	return res, nil
+}
+
+func (s *Service) checkSLATenant(ctx context.Context, tenantID int64) (SLACheckResult, error) {
+	var res SLACheckResult
+	if tenantID <= 0 {
+		tenantID = 1
+	}
+	rule, err := s.store.GetAlertRuleByName(ctx, tenantID, slaRuleName)
+	if err != nil {
+		return res, err
+	}
+	overdue, err := s.store.OverdueCVEs(ctx, tenantID)
 	if err != nil {
 		return res, err
 	}
@@ -137,9 +181,5 @@ func (s *Service) CheckSLA(ctx context.Context) (SLACheckResult, error) {
 		return res, err
 	}
 	res.Resolved = int(resolved)
-	if res.Created+res.Updated+res.Resolved > 0 {
-		slog.Info("sla: check completed", "created", res.Created,
-			"updated", res.Updated, "resolved", res.Resolved)
-	}
 	return res, nil
 }

@@ -54,6 +54,18 @@ func (s *AgentGRPCServer) SyncNetworkScan(ctx context.Context, req *pb.SyncNetwo
 		return nil, status.Error(codes.PermissionDenied, "agent_id mismatch")
 	}
 
+	tenantID := int64(1)
+	if req.GetTaskId() > 0 {
+		task, err := s.store.GetNetworkScanTask(ctx, req.GetTaskId())
+		if err == nil && task != nil && task.TenantID > 0 {
+			tenantID = task.TenantID
+		} else {
+			slog.Warn("network scan task tenant lookup failed", "task_id", req.GetTaskId(), "error", err)
+		}
+	} else if agent, err := s.store.GetAgent(ctx, agentID); err == nil && agent != nil && agent.TenantID > 0 {
+		tenantID = agent.TenantID
+	}
+
 	complete := func(scanErr string, summary map[string]interface{}) {
 		if req.GetTaskId() <= 0 {
 			return
@@ -102,7 +114,7 @@ func (s *AgentGRPCServer) SyncNetworkScan(ctx context.Context, req *pb.SyncNetwo
 
 	for i, h := range hosts {
 		netAgentID := agentIDs[i]
-		if err := s.store.UpsertNetworkAgent(ctx, netAgentID, h.GetHostname(), h.GetIp(), h.GetOsType()); err != nil {
+		if err := s.store.UpsertNetworkAgent(ctx, netAgentID, h.GetHostname(), h.GetIp(), h.GetOsType(), tenantID); err != nil {
 			slog.Error("upsert network agent failed", "agent_id", netAgentID, "error", err)
 			continue
 		}

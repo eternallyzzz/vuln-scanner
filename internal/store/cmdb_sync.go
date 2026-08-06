@@ -286,12 +286,14 @@ func uniqueLowerNonEmpty(list []string) []string {
 
 // CMDBReconcileReport builds the external-vs-scanned host report from the
 // current ledger.
-func (s *Store) CMDBReconcileReport(ctx context.Context) (ReconcileReport, error) {
+func (s *Store) CMDBReconcileReport(ctx context.Context, tenantID *int64) (ReconcileReport, error) {
 	var external []string
 	rows, err := s.pool.Query(ctx, `
 		SELECT name FROM assets
 		WHERE source='cmdb_import' AND asset_type='host' AND lifecycle='active' AND name <> ''
-	`)
+		  AND ($1::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents ag WHERE ag.hostname=assets.name AND ag.tenant_id=$1))
+	`, tenantID)
 	if err != nil {
 		return ReconcileReport{}, err
 	}
@@ -309,7 +311,10 @@ func (s *Store) CMDBReconcileReport(ctx context.Context) (ReconcileReport, error
 	}
 
 	var scanned []string
-	rows, err = s.pool.Query(ctx, `SELECT hostname FROM agents WHERE hostname <> ''`)
+	rows, err = s.pool.Query(ctx, `
+		SELECT hostname FROM agents
+		WHERE hostname <> '' AND ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID)
 	if err != nil {
 		return ReconcileReport{}, err
 	}

@@ -21,7 +21,12 @@ import (
 const maxRemoteTargets = 100
 
 func (s *RESTServer) listRemoteCredentials(w http.ResponseWriter, r *http.Request) {
-	creds, err := s.store.ListRemoteCredentials(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	creds, err := s.store.ListRemoteCredentials(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -41,6 +46,7 @@ func (s *RESTServer) createRemoteCredential(w http.ResponseWriter, r *http.Reque
 		Password   string `json:"password"`
 		PrivateKey string `json:"private_key"`
 		Passphrase string `json:"passphrase"`
+		TenantID   int64  `json:"tenant_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
@@ -68,7 +74,12 @@ func (s *RESTServer) createRemoteCredential(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	cred, err := s.store.CreateRemoteCredential(r.Context(), name, username, authType, pwdCipher, keyCipher, passCipher, actorFromRequest(r))
+	tenantID, err := s.effectiveTenant(r, in.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	cred, err := s.store.CreateRemoteCredential(r.Context(), tenantID, name, username, authType, pwdCipher, keyCipher, passCipher, actorFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -102,13 +113,13 @@ func (s *RESTServer) updateRemoteCredential(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusServiceUnavailable, "remote scan is disabled or the master key is not configured")
 		return
 	}
-	existing, err := s.store.GetRemoteCredential(r.Context(), id)
+	existing, err := s.requireRemoteCredential(r, id)
 	if errors.Is(err, store.ErrRemoteCredentialNotFound) {
 		writeError(w, http.StatusNotFound, "credential not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 
@@ -185,12 +196,12 @@ func (s *RESTServer) deleteRemoteCredential(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid credential id")
 		return
 	}
-	if _, err := s.store.GetRemoteCredential(r.Context(), id); err != nil {
+	if _, err := s.requireRemoteCredential(r, id); err != nil {
 		if errors.Is(err, store.ErrRemoteCredentialNotFound) {
 			writeError(w, http.StatusNotFound, "credential not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.RevokeRemoteCredential(r.Context(), id); err != nil {
@@ -239,6 +250,14 @@ func (s *RESTServer) createRemoteScan(w http.ResponseWriter, r *http.Request) {
 		}
 		addresses = append(addresses, addr)
 	}
+	if _, err := s.requireRemoteCredential(r, in.CredentialID); err != nil {
+		if errors.Is(err, store.ErrRemoteCredentialNotFound) {
+			writeError(w, http.StatusNotFound, "credential not found")
+			return
+		}
+		writeScopeError(w, err)
+		return
+	}
 	tasks, err := s.store.CreateRemoteScanTasks(r.Context(), in.CredentialID, addresses, actorFromRequest(r))
 	if errors.Is(err, store.ErrRemoteCredentialNotFound) {
 		writeError(w, http.StatusNotFound, "credential not found")
@@ -268,7 +287,12 @@ func (s *RESTServer) listRemoteScanTasks(w http.ResponseWriter, r *http.Request)
 	if offset < 0 {
 		offset = 0
 	}
-	tasks, total, err := s.store.ListRemoteScanTasks(r.Context(), status, limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	tasks, total, err := s.store.ListRemoteScanTasks(r.Context(), status, limit, offset, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -379,6 +403,7 @@ func normalizeRemoteTarget(raw string, defaultPort int) (string, error) {
 func remoteCredentialView(c *store.RemoteCredential) map[string]interface{} {
 	return map[string]interface{}{
 		"id":         c.ID,
+		"tenant_id":  c.TenantID,
 		"name":       c.Name,
 		"username":   c.Username,
 		"auth_type":  c.AuthType,
@@ -387,4 +412,21 @@ func remoteCredentialView(c *store.RemoteCredential) map[string]interface{} {
 		"updated_at": c.UpdatedAt,
 		"revoked_at": c.RevokedAt,
 	}
+}
+
+// requireRemoteCredential loads one credential and rejects access when the
+// caller's tenant scope does not include the credential's tenant.
+func (s *RESTServer) requireRemoteCredential(r *http.Request, id int64) (*store.RemoteCredential, error) {
+	cred, err := s.store.GetRemoteCredential(r.Context(), id)
+	if err != nil {
+		return cred, err
+	}
+	tenantID, restrict, err := s.scope(r)
+	if err != nil {
+		return cred, err
+	}
+	if restrict && cred.TenantID != tenantID {
+		return cred, errTenantForbidden
+	}
+	return cred, nil
 }

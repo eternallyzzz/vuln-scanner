@@ -83,7 +83,11 @@ func (s *Service) Evaluate(ctx context.Context, agentID string, results []Result
 }
 
 func (s *Service) evaluate(ctx context.Context, agentID string, results []Result) error {
-	rules, err := s.store.ListEnabledAlertRules(ctx)
+	tenantID := int64(1)
+	if agent, err := s.store.GetAgent(ctx, agentID); err == nil && agent != nil && agent.TenantID > 0 {
+		tenantID = agent.TenantID
+	}
+	rules, err := s.store.ListEnabledAlertRules(ctx, tenantID)
 	if err != nil {
 		return fmt.Errorf("list alert rules: %w", err)
 	}

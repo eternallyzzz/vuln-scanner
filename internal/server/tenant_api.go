@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,37 +17,74 @@ var (
 	errTenantForbidden = errors.New("forbidden: resource belongs to another tenant")
 )
 
+type apiKeyTenantCtxKeyType int
+
+const apiKeyTenantCtxKey apiKeyTenantCtxKeyType = iota + 1
+
+// apiKeyTenantFromContext returns the tenant bound to a DB-backed API key,
+// or 0 when the key is global.
+func apiKeyTenantFromContext(ctx context.Context) int64 {
+	id, _ := ctx.Value(apiKeyTenantCtxKey).(int64)
+	return id
+}
+
 // scope resolves the effective tenant scope of a request:
-//   - admin user: global (no restriction)
+//   - admin user: global unless X-Tenant-ID is supplied
 //   - operator/viewer: their own tenant
 //   - API key without X-Tenant-ID: global (legacy behavior)
+//   - tenant-bound API key: that tenant; X-Tenant-ID must match
 //   - API key with X-Tenant-ID: that tenant, validated against the tenants table
 func (s *RESTServer) scope(r *http.Request) (int64, bool, error) {
 	if u := userFromContext(r.Context()); u != nil {
 		if u.Role == "admin" {
-			return 0, false, nil
+			header := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+			if header == "" {
+				return 0, false, nil
+			}
+			id, err := s.validatedTenantID(r, header)
+			if err != nil {
+				return 0, false, err
+			}
+			return id, true, nil
 		}
 		return u.TenantID, true, nil
 	}
 	header := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if bound := apiKeyTenantFromContext(r.Context()); bound > 0 {
+		if header != "" {
+			id, err := strconv.ParseInt(header, 10, 64)
+			if err != nil || id != bound {
+				return 0, false, errTenantForbidden
+			}
+		}
+		return bound, true, nil
+	}
 	if header == "" {
 		return 0, false, nil
 	}
-	if s.store == nil {
-		return 0, false, errInvalidTenant
-	}
-	id, err := strconv.ParseInt(header, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, false, errInvalidTenant
-	}
-	exists, err := s.store.TenantExists(r.Context(), id)
+	id, err := s.validatedTenantID(r, header)
 	if err != nil {
 		return 0, false, err
 	}
-	if !exists {
-		return 0, false, errInvalidTenant
-	}
 	return id, true, nil
+}
+
+func (s *RESTServer) validatedTenantID(r *http.Request, header string) (int64, error) {
+	if s.store == nil {
+		return 0, errInvalidTenant
+	}
+	id, err := strconv.ParseInt(header, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, errInvalidTenant
+	}
+	exists, err := s.store.TenantExists(r.Context(), id)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, errInvalidTenant
+	}
+	return id, nil
 }
 
 // tid returns the tenant filter to pass to store list methods (nil = all).

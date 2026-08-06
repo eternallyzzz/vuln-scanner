@@ -8,6 +8,11 @@ database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disa
 jwt_secret: "change-me-in-production"
 api_key: "sk-change-me"
 
+# 多租户 v2：旧全局 api_key 仍作为全局 key 兼容；租户级 API key 通过
+# GET/POST /api/v1/api-keys 与 DELETE /api/v1/api-keys/{keyId} 管理。
+# alert_rules / sla_policies / tenant_reports 均为每租户独立行，
+# 建租户时自动从租户 1 当前配置快照复制模板。
+
 # 运行模式：all（默认，API + gRPC + 后台循环）| api（仅 API/gRPC，不跑循环）| worker（仅后台循环）。
 # 水平扩展部署：1×api + N×worker（或 1×all + N×worker）共享同一 PostgreSQL，
 # 队列与单例租约由 PostgreSQL 内置 job_queue/worker_leases 协调；也可用 VULNSCAN_MODE 环境变量覆盖。

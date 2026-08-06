@@ -77,17 +77,39 @@ func TestUserCanTenantEndpoints(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/tenants",
 		"/api/v1/tenants/1",
+		"/api/v1/tenants/1/report",
+		"/api/v1/tenants/1/report/send",
 		"/api/v1/users/1/tenant",
 		"/api/v1/agents/agent-1/tenant",
+		"/api/v1/api-keys",
+		"/api/v1/api-keys/1",
 	} {
 		if !userCan("admin", http.MethodGet, path) && !userCan("admin", http.MethodPost, path) &&
-			!userCan("admin", http.MethodPut, path) {
+			!userCan("admin", http.MethodPut, path) && !userCan("admin", http.MethodDelete, path) {
 			t.Fatalf("admin must access %s", path)
 		}
 		if userCan("operator", http.MethodGet, path) || userCan("viewer", http.MethodGet, path) ||
-			userCan("operator", http.MethodPut, path) {
+			userCan("operator", http.MethodPut, path) || userCan("operator", http.MethodDelete, path) {
 			t.Fatalf("tenant endpoints must be admin-only: %s", path)
 		}
+	}
+}
+
+func TestScopeTenantBoundAPIKey(t *testing.T) {
+	s := NewRESTServer(nil, nil, DefaultConfig(), nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	req = req.WithContext(context.WithValue(req.Context(), apiKeyTenantCtxKey, int64(7)))
+
+	if id, restrict, err := s.scope(req); err != nil || id != 7 || !restrict {
+		t.Fatalf("tenant-bound API key scope = (%d,%v,%v), want (7,true,nil)", id, restrict, err)
+	}
+	req.Header.Set("X-Tenant-ID", "7")
+	if id, restrict, err := s.scope(req); err != nil || id != 7 || !restrict {
+		t.Fatalf("matching X-Tenant-ID scope = (%d,%v,%v), want (7,true,nil)", id, restrict, err)
+	}
+	req.Header.Set("X-Tenant-ID", "8")
+	if _, _, err := s.scope(req); err != errTenantForbidden {
+		t.Fatalf("mismatched X-Tenant-ID = %v, want errTenantForbidden", err)
 	}
 }
 

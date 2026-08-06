@@ -91,6 +91,7 @@ type VulnerabilityException struct {
 // SLAPolicy maps a severity to a remediation deadline.
 type SLAPolicy struct {
 	ID                  int64     `json:"id"`
+	TenantID            int64     `json:"tenant_id"`
 	Name                string    `json:"name"`
 	Severity            string    `json:"severity"`
 	MaxRemediationHours int       `json:"max_remediation_hours"`
@@ -508,11 +509,11 @@ func (s *Store) RiskSummary(ctx context.Context, tenantID *int64) (RiskSummary, 
 	}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM cve_results cr
-		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled
+		JOIN agents a ON a.id=cr.agent_id
+		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled AND sp.tenant_id=a.tenant_id
 		WHERE cr.status='active' AND
 			cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') < NOW()
-		  AND ($1::bigint IS NULL OR EXISTS (
-		      SELECT 1 FROM agents a WHERE a.id=cr.agent_id AND a.tenant_id=$1))
+		  AND ($1::bigint IS NULL OR a.tenant_id=$1)
 	`, tenantID).Scan(&sum.Overdue); err != nil {
 		return sum, err
 	}
@@ -565,7 +566,7 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 		return nil, err
 	}
 	defer rows.Close()
-	sla, err := s.SLAHours(ctx)
+	sla, err := s.SLAHours(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -597,11 +598,13 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 	return out, rows.Err()
 }
 
-// SLAHours returns severity -> remediation hours for enabled policies.
-func (s *Store) SLAHours(ctx context.Context) (map[string]int, error) {
+// SLAHours returns severity -> remediation hours for enabled policies,
+// optionally scoped to one tenant.
+func (s *Store) SLAHours(ctx context.Context, tenantID *int64) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT severity, max_remediation_hours FROM sla_policies WHERE enabled
-	`)
+		SELECT severity, max_remediation_hours FROM sla_policies
+		WHERE enabled AND ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -630,16 +633,20 @@ type OverdueCVE struct {
 
 // OverdueCVEs returns the active CVEs past their SLA deadline, using the same
 // detected_at + max_remediation_hours rule as the risk summary.
-func (s *Store) OverdueCVEs(ctx context.Context) ([]OverdueCVE, error) {
+func (s *Store) OverdueCVEs(ctx context.Context, tenantID int64) ([]OverdueCVE, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT cr.agent_id, cr.cve_id, cr.asset_name, cr.severity, cr.cvss_score,
 			cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') AS due_at
 		FROM cve_results cr
-		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled
-		WHERE cr.status='active'
+		JOIN agents a ON a.id=cr.agent_id
+		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled AND sp.tenant_id=a.tenant_id
+		WHERE cr.status='active' AND a.tenant_id=$1
 		  AND cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') < NOW()
 		ORDER BY due_at ASC
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -823,13 +830,16 @@ func (s *Store) IsExempt(ctx context.Context, agentID, assetName, cveID string) 
 	return exists, err
 }
 
-// ListSLAPolicies returns all SLA policies ordered by severity.
-func (s *Store) ListSLAPolicies(ctx context.Context) ([]SLAPolicy, error) {
+// ListSLAPolicies returns SLA policies ordered by severity, optionally
+// scoped to one tenant.
+func (s *Store) ListSLAPolicies(ctx context.Context, tenantID *int64) ([]SLAPolicy, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, severity, max_remediation_hours, enabled, updated_at
-		FROM sla_policies ORDER BY CASE severity
+		SELECT id, tenant_id, name, severity, max_remediation_hours, enabled, updated_at
+		FROM sla_policies
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY CASE severity
 			WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -837,7 +847,7 @@ func (s *Store) ListSLAPolicies(ctx context.Context) ([]SLAPolicy, error) {
 	var out []SLAPolicy
 	for rows.Next() {
 		var p SLAPolicy
-		if err := rows.Scan(&p.ID, &p.Name, &p.Severity, &p.MaxRemediationHours,
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.Severity, &p.MaxRemediationHours,
 			&p.Enabled, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -846,15 +856,29 @@ func (s *Store) ListSLAPolicies(ctx context.Context) ([]SLAPolicy, error) {
 	return out, rows.Err()
 }
 
-// UpdateSLAPolicy updates one SLA policy.
-func (s *Store) UpdateSLAPolicy(ctx context.Context, id int64, name string,
-	hours int, enabled bool) (*SLAPolicy, error) {
+// GetSLAPolicy returns one SLA policy, optionally scoped to one tenant.
+func (s *Store) GetSLAPolicy(ctx context.Context, id int64, tenantID *int64) (SLAPolicy, error) {
 	var p SLAPolicy
 	err := s.pool.QueryRow(ctx, `
-		UPDATE sla_policies SET name=$2, max_remediation_hours=$3, enabled=$4, updated_at=NOW()
-		WHERE id=$1
-		RETURNING id, name, severity, max_remediation_hours, enabled, updated_at
-	`, id, name, hours, enabled).Scan(&p.ID, &p.Name, &p.Severity,
+		SELECT id, tenant_id, name, severity, max_remediation_hours, enabled, updated_at
+		FROM sla_policies WHERE id=$1 AND ($2::bigint IS NULL OR tenant_id=$2)
+	`, id, tenantID).Scan(&p.ID, &p.TenantID, &p.Name, &p.Severity,
+		&p.MaxRemediationHours, &p.Enabled, &p.UpdatedAt)
+	return p, err
+}
+
+// UpdateSLAPolicy updates one SLA policy.
+func (s *Store) UpdateSLAPolicy(ctx context.Context, id, tenantID int64, name string,
+	hours int, enabled bool) (*SLAPolicy, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
+	var p SLAPolicy
+	err := s.pool.QueryRow(ctx, `
+		UPDATE sla_policies SET name=$3, max_remediation_hours=$4, enabled=$5, updated_at=NOW()
+		WHERE id=$1 AND tenant_id=$2
+		RETURNING id, tenant_id, name, severity, max_remediation_hours, enabled, updated_at
+	`, id, tenantID, name, hours, enabled).Scan(&p.ID, &p.TenantID, &p.Name, &p.Severity,
 		&p.MaxRemediationHours, &p.Enabled, &p.UpdatedAt)
 	return &p, err
 }

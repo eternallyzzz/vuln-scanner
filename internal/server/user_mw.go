@@ -98,6 +98,11 @@ func userCan(role, method, path string) bool {
 		strings.HasSuffix(path, "/tenant") {
 		return role == "admin"
 	}
+	// API key lifecycle is a system-level surface: only admins may manage
+	// automation credentials.
+	if strings.HasPrefix(path, "/api/v1/api-keys") {
+		return role == "admin"
+	}
 	// The unified audit trail is a governance surface: only admins may read
 	// or export it, regardless of the generic GET permissions below.
 	if strings.HasPrefix(path, "/api/v1/audit-logs") {

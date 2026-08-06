@@ -35,7 +35,12 @@ func (s *RESTServer) serveDemo(w http.ResponseWriter, r *http.Request) {
 
 // demoSummary merges the store aggregates with worker-owned container state.
 func (s *RESTServer) demoSummary(w http.ResponseWriter, r *http.Request) {
-	ds, err := s.store.DemoSummary(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	ds, err := s.store.DemoSummary(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

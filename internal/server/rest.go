@@ -133,6 +133,12 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/auth/change-password", s.changePassword)
 		r.Get("/tenants", s.listTenants)
 		r.Post("/tenants", s.createTenant)
+		r.Get("/tenants/{tenantId}/report", s.getTenantReport)
+		r.Put("/tenants/{tenantId}/report", s.updateTenantReport)
+		r.Post("/tenants/{tenantId}/report/send", s.sendTenantReport)
+		r.Get("/api-keys", s.listAPIKeys)
+		r.Post("/api-keys", s.createAPIKey)
+		r.Delete("/api-keys/{keyId}", s.revokeAPIKey)
 		r.Get("/users", s.listUsers)
 		r.Post("/users", s.createUser)
 		r.Put("/users/{userId}", s.updateUser)
@@ -302,12 +308,29 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		if s.apiKey != "" {
-			key := r.Header.Get("X-API-Key")
-			if key != s.apiKey {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		key := r.Header.Get("X-API-Key")
+		if key != "" && s.store != nil {
+			k, err := s.store.GetAPIKeyByHash(r.Context(), store.HashAPIKey(key))
+			if err != nil {
+				slog.Warn("api key lookup failed", "error", err)
+			} else if k != nil {
+				if !k.Enabled || k.RevokedAt != nil {
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+				if err := s.store.TouchAPIKeyLastUsed(r.Context(), k.ID); err != nil {
+					slog.Warn("api key last_used update failed", "key_id", k.ID, "error", err)
+				}
+				if k.TenantID != nil {
+					r = r.WithContext(context.WithValue(r.Context(), apiKeyTenantCtxKey, *k.TenantID))
+				}
+				next.ServeHTTP(w, r)
 				return
 			}
+		}
+		if s.apiKey != "" && key != s.apiKey {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})

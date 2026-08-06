@@ -16,7 +16,12 @@ import (
 const maxWebDBTargets = 100
 
 func (s *RESTServer) listWebDBCredentials(w http.ResponseWriter, r *http.Request) {
-	creds, err := s.store.ListWebDBCredentials(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	creds, err := s.store.ListWebDBCredentials(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -33,6 +38,7 @@ func (s *RESTServer) createWebDBCredential(w http.ResponseWriter, r *http.Reques
 		Name     string `json:"name"`
 		Username string `json:"username"`
 		Password string `json:"password"`
+		TenantID int64  `json:"tenant_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
@@ -56,7 +62,12 @@ func (s *RESTServer) createWebDBCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cred, err := s.store.CreateWebDBCredential(r.Context(), name, strings.TrimSpace(in.Username), cipher, actorFromRequest(r))
+	tenantID, err := s.effectiveTenant(r, in.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	cred, err := s.store.CreateWebDBCredential(r.Context(), tenantID, name, strings.TrimSpace(in.Username), cipher, actorFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -83,13 +94,13 @@ func (s *RESTServer) updateWebDBCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusServiceUnavailable, "web/db scan is disabled or the master key is not configured")
 		return
 	}
-	existing, err := s.store.GetWebDBCredential(r.Context(), id)
+	existing, err := s.requireWebDBCredential(r, id)
 	if errors.Is(err, store.ErrWebDBCredentialNotFound) {
 		writeError(w, http.StatusNotFound, "credential not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	name := strings.TrimSpace(in.Name)
@@ -131,12 +142,12 @@ func (s *RESTServer) deleteWebDBCredential(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid credential id")
 		return
 	}
-	if _, err := s.store.GetWebDBCredential(r.Context(), id); err != nil {
+	if _, err := s.requireWebDBCredential(r, id); err != nil {
 		if errors.Is(err, store.ErrWebDBCredentialNotFound) {
 			writeError(w, http.StatusNotFound, "credential not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.RevokeWebDBCredential(r.Context(), id); err != nil {
@@ -148,8 +159,9 @@ func (s *RESTServer) deleteWebDBCredential(w http.ResponseWriter, r *http.Reques
 
 func (s *RESTServer) createWebDBScan(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Web []string `json:"web"`
-		DB  []struct {
+		Web      []string `json:"web"`
+		TenantID int64    `json:"tenant_id"`
+		DB       []struct {
 			Target       string `json:"target"`
 			DBType       string `json:"db_type"`
 			CredentialID int64  `json:"credential_id"`
@@ -208,7 +220,24 @@ func (s *RESTServer) createWebDBScan(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	tasks, err := s.store.CreateWebDBScanTasks(r.Context(), inputs, actorFromRequest(r))
+	for _, in := range inputs {
+		if in.CredentialID > 0 {
+			if _, err := s.requireWebDBCredential(r, in.CredentialID); err != nil {
+				if errors.Is(err, store.ErrWebDBCredentialNotFound) {
+					writeError(w, http.StatusNotFound, "credential not found")
+					return
+				}
+				writeScopeError(w, err)
+				return
+			}
+		}
+	}
+	tenantID, err := s.effectiveTenant(r, in.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	tasks, err := s.store.CreateWebDBScanTasks(r.Context(), inputs, actorFromRequest(r), tenantID)
 	if errors.Is(err, store.ErrWebDBCredentialNotFound) {
 		writeError(w, http.StatusNotFound, "credential not found")
 		return
@@ -238,7 +267,12 @@ func (s *RESTServer) listWebDBScanTasks(w http.ResponseWriter, r *http.Request) 
 	if offset < 0 {
 		offset = 0
 	}
-	tasks, total, err := s.store.ListWebDBScanTasks(r.Context(), status, kind, limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	tasks, total, err := s.store.ListWebDBScanTasks(r.Context(), status, kind, limit, offset, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -270,6 +304,7 @@ func (s *RESTServer) listWebDBTargets(w http.ResponseWriter, r *http.Request) {
 func webDBCredentialView(c *store.WebDBCredential) map[string]interface{} {
 	return map[string]interface{}{
 		"id":         c.ID,
+		"tenant_id":  c.TenantID,
 		"name":       c.Name,
 		"username":   c.Username,
 		"created_by": c.CreatedBy,
@@ -277,4 +312,21 @@ func webDBCredentialView(c *store.WebDBCredential) map[string]interface{} {
 		"updated_at": c.UpdatedAt,
 		"revoked_at": c.RevokedAt,
 	}
+}
+
+// requireWebDBCredential loads one credential and rejects access when the
+// caller's tenant scope does not include the credential's tenant.
+func (s *RESTServer) requireWebDBCredential(r *http.Request, id int64) (*store.WebDBCredential, error) {
+	cred, err := s.store.GetWebDBCredential(r.Context(), id)
+	if err != nil {
+		return cred, err
+	}
+	tenantID, restrict, err := s.scope(r)
+	if err != nil {
+		return cred, err
+	}
+	if restrict && cred.TenantID != tenantID {
+		return cred, errTenantForbidden
+	}
+	return cred, nil
 }

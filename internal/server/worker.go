@@ -396,7 +396,7 @@ func (w *Worker) runRemoteScanTask(ctx context.Context, task store.RemoteScanTas
 	}
 
 	agentID := store.RemoteAgentID(task.Address)
-	if err := w.store.UpsertRemoteAgent(ctx, agentID, inv.Hostname, task.Address, inv.OS, inv.Version, inv.Arch); err != nil {
+	if err := w.store.UpsertRemoteAgent(ctx, agentID, inv.Hostname, task.Address, inv.OS, inv.Version, inv.Arch, cred.TenantID); err != nil {
 		w.finishRemoteTask(ctx, task, fmt.Errorf("upsert remote agent: %w", err), nil)
 		return
 	}

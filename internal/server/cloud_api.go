@@ -35,7 +35,12 @@ type cloudAccountInput struct {
 }
 
 func (s *RESTServer) listCloudAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts, err := s.store.ListCloudAccounts(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	accounts, err := s.store.ListCloudAccounts(r.Context(), tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -98,8 +103,17 @@ func (s *RESTServer) createCloudAccount(w http.ResponseWriter, r *http.Request) 
 	if refresh <= 0 {
 		refresh = s.cfg.CloudScan.DefaultRefreshIntervalMinutes
 	}
-	account, err := s.store.CreateCloudAccount(r.Context(), provider, name, accountID,
-		dedupTags(in.Regions), ciphertext, refresh, actorFromRequest(r))
+	regions := dedupTags(in.Regions)
+	if regions == nil {
+		regions = []string{}
+	}
+	tenantID, err := s.effectiveTenant(r, 0)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	account, err := s.store.CreateCloudAccount(r.Context(), tenantID, provider, name, accountID,
+		regions, ciphertext, refresh, actorFromRequest(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -113,13 +127,13 @@ func (s *RESTServer) updateCloudAccount(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid account id")
 		return
 	}
-	existing, err := s.store.GetCloudAccount(r.Context(), id)
+	existing, err := s.requireCloudAccount(r, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "account not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	if s.cloudCipher == nil {
@@ -183,12 +197,12 @@ func (s *RESTServer) deleteCloudAccount(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid account id")
 		return
 	}
-	if _, err := s.store.GetCloudAccount(r.Context(), id); err != nil {
+	if _, err := s.requireCloudAccount(r, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "account not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.DisableCloudAccount(r.Context(), id); err != nil {
@@ -208,13 +222,13 @@ func (s *RESTServer) refreshCloudAccount(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid account id")
 		return
 	}
-	account, err := s.store.GetCloudAccount(r.Context(), id)
+	account, err := s.requireCloudAccount(r, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "account not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeScopeError(w, err)
 		return
 	}
 	if !account.Enabled {
@@ -281,6 +295,7 @@ func (s *RESTServer) exportCloudResourcesCSV(w http.ResponseWriter, r *http.Requ
 func cloudAccountView(a *store.CloudAccount) map[string]interface{} {
 	return map[string]interface{}{
 		"id":                       a.ID,
+		"tenant_id":                a.TenantID,
 		"provider":                 a.Provider,
 		"name":                     a.Name,
 		"account_id":               a.AccountID,
@@ -293,6 +308,23 @@ func cloudAccountView(a *store.CloudAccount) map[string]interface{} {
 		"created_at":               a.CreatedAt,
 		"updated_at":               a.UpdatedAt,
 	}
+}
+
+// requireCloudAccount loads one account and rejects access when the
+// caller's tenant scope does not include the account's tenant.
+func (s *RESTServer) requireCloudAccount(r *http.Request, id int64) (*store.CloudAccount, error) {
+	account, err := s.store.GetCloudAccount(r.Context(), id)
+	if err != nil {
+		return account, err
+	}
+	tenantID, restrict, err := s.scope(r)
+	if err != nil {
+		return account, err
+	}
+	if restrict && account.TenantID != tenantID {
+		return account, errTenantForbidden
+	}
+	return account, nil
 }
 
 func applyCloudCredentialOverrides(cred *cloudscan.Credentials, in *cloudAccountInput) {

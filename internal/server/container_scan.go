@@ -104,7 +104,7 @@ func (w *Worker) runContainerScan(ctx context.Context) {
 		w.containerMu.Unlock()
 	}()
 
-	if err := w.store.UpsertContainerAgent(ctx, agentID, cfg.AgentHostname, "docker", "amd64"); err != nil {
+	if err := w.store.UpsertContainerAgent(ctx, agentID, cfg.AgentHostname, "docker", "amd64", cfg.TenantID); err != nil {
 		lastErr = fmt.Errorf("upsert container agent: %w", err)
 		slog.Error("container scan: agent upsert failed", "error", err)
 		return

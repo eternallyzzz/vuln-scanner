@@ -30,13 +30,14 @@ type AuditLog struct {
 // AuditLogFilter narrows the unified audit log. Empty fields are ignored;
 // Since/Until are inclusive RFC3339 instants.
 type AuditLogFilter struct {
-	Actor  string
-	Method string
-	Path   string
-	Since  *time.Time
-	Until  *time.Time
-	Limit  int
-	Offset int
+	Actor    string
+	Method   string
+	Path     string
+	Since    *time.Time
+	Until    *time.Time
+	TenantID *int64
+	Limit    int
+	Offset   int
 }
 
 const auditLogColumns = `id, created_at, actor, method, path, status, ip, duration_ms, detail, tenant_id`
@@ -168,6 +169,10 @@ func auditLogWhere(f AuditLogFilter) (string, []interface{}) {
 	if f.Until != nil {
 		args = append(args, *f.Until)
 		conds = append(conds, fmt.Sprintf("created_at <= $%d", len(args)))
+	}
+	if f.TenantID != nil {
+		args = append(args, *f.TenantID)
+		conds = append(conds, fmt.Sprintf("tenant_id = $%d", len(args)))
 	}
 	return strings.Join(conds, " AND "), args
 }

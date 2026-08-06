@@ -11,6 +11,7 @@ import (
 
 type AlertRule struct {
 	ID                int64     `json:"id"`
+	TenantID          int64     `json:"tenant_id"`
 	Name              string    `json:"name"`
 	Enabled           bool      `json:"enabled"`
 	SeverityFilter    string    `json:"severity_filter"`
@@ -76,7 +77,7 @@ type AlertDelivery struct {
 func scanAlertRule(row pgx.Row) (AlertRule, error) {
 	var r AlertRule
 	var channelsRaw []byte
-	err := row.Scan(&r.ID, &r.Name, &r.Enabled, &r.SeverityFilter, &r.SourceFilter,
+	err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.Enabled, &r.SeverityFilter, &r.SourceFilter,
 		&r.AgentIDFilter, &r.AssetFilter, &r.MinCVSS, &r.CooldownMinutes,
 		&channelsRaw, &r.AssetTagFilter, &r.EnvironmentFilter, &r.AutoRemediate,
 		&r.TicketEnabled,
@@ -88,7 +89,7 @@ func scanAlertRule(row pgx.Row) (AlertRule, error) {
 	return r, nil
 }
 
-const alertRuleColumns = `id, name, enabled, severity_filter, source_filter, agent_id_filter,
+const alertRuleColumns = `id, tenant_id, name, enabled, severity_filter, source_filter, agent_id_filter,
 	asset_filter, min_cvss, cooldown_minutes, channels, asset_tag_filter,
 	environment_filter, auto_remediate, ticket_enabled, created_at, updated_at`
 
@@ -98,11 +99,14 @@ const alertColumns = `id, rule_id, agent_id, cve_id, asset_name, severity, cvss_
 	ticket_status, ticket_error, ticket_attempts, ticket_sync_attempts, ticket_synced_at,
 	edr_finding_id`
 
-func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error) {
+func (s *Store) ListEnabledAlertRules(ctx context.Context, tenantID int64) ([]AlertRule, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+alertRuleColumns+`
-		FROM alert_rules WHERE enabled = TRUE ORDER BY id
-	`)
+		FROM alert_rules WHERE enabled = TRUE AND tenant_id=$1 ORDER BY id
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -119,11 +123,13 @@ func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error) 
 	return rules, rows.Err()
 }
 
-func (s *Store) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
+func (s *Store) ListAlertRules(ctx context.Context, tenantID *int64) ([]AlertRule, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+alertRuleColumns+`
-		FROM alert_rules ORDER BY id
-	`)
+		FROM alert_rules
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,35 +146,41 @@ func (s *Store) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 	return rules, rows.Err()
 }
 
-func (s *Store) GetAlertRule(ctx context.Context, id int64) (AlertRule, error) {
+func (s *Store) GetAlertRule(ctx context.Context, id int64, tenantID *int64) (AlertRule, error) {
 	return scanAlertRule(s.pool.QueryRow(ctx, `
 		SELECT `+alertRuleColumns+`
-		FROM alert_rules WHERE id=$1
-	`, id))
+		FROM alert_rules WHERE id=$1 AND ($2::bigint IS NULL OR tenant_id=$2)
+	`, id, tenantID))
 }
 
 // GetAlertRuleByName returns the rule with the given name.
-func (s *Store) GetAlertRuleByName(ctx context.Context, name string) (AlertRule, error) {
+func (s *Store) GetAlertRuleByName(ctx context.Context, tenantID int64, name string) (AlertRule, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	return scanAlertRule(s.pool.QueryRow(ctx, `
 		SELECT `+alertRuleColumns+`
-		FROM alert_rules WHERE name=$1
-	`, name))
+		FROM alert_rules WHERE tenant_id=$1 AND name=$2
+	`, tenantID, name))
 }
 
 func (s *Store) CreateAlertRule(ctx context.Context, r AlertRule) (AlertRule, error) {
 	if r.AssetTagFilter == nil {
 		r.AssetTagFilter = []string{}
 	}
+	if r.TenantID <= 0 {
+		r.TenantID = 1
+	}
 	channels, _ := json.Marshal(r.Channels)
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO alert_rules (name, enabled, severity_filter, source_filter, agent_id_filter,
 			asset_filter, min_cvss, cooldown_minutes, channels, asset_tag_filter,
-			environment_filter, auto_remediate, ticket_enabled)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			environment_filter, auto_remediate, ticket_enabled, tenant_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING `+alertRuleColumns,
 		r.Name, r.Enabled, r.SeverityFilter, r.SourceFilter, r.AgentIDFilter,
 		r.AssetFilter, r.MinCVSS, r.CooldownMinutes, channels, r.AssetTagFilter,
-		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled)
+		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled, r.TenantID)
 	return scanAlertRule(row)
 }
 
@@ -176,22 +188,28 @@ func (s *Store) UpdateAlertRule(ctx context.Context, id int64, r AlertRule) (Ale
 	if r.AssetTagFilter == nil {
 		r.AssetTagFilter = []string{}
 	}
+	if r.TenantID <= 0 {
+		r.TenantID = 1
+	}
 	channels, _ := json.Marshal(r.Channels)
 	row := s.pool.QueryRow(ctx, `
 		UPDATE alert_rules SET name=$2, enabled=$3, severity_filter=$4, source_filter=$5,
 			agent_id_filter=$6, asset_filter=$7, min_cvss=$8, cooldown_minutes=$9,
 			channels=$10, asset_tag_filter=$11, environment_filter=$12,
-			auto_remediate=$13, ticket_enabled=$14, updated_at=NOW()
-		WHERE id=$1
+			auto_remediate=$13, ticket_enabled=$14, tenant_id=$15, updated_at=NOW()
+		WHERE id=$1 AND tenant_id=$15
 		RETURNING `+alertRuleColumns,
 		id, r.Name, r.Enabled, r.SeverityFilter, r.SourceFilter, r.AgentIDFilter,
 		r.AssetFilter, r.MinCVSS, r.CooldownMinutes, channels, r.AssetTagFilter,
-		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled)
+		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled, r.TenantID)
 	return scanAlertRule(row)
 }
 
-func (s *Store) DeleteAlertRule(ctx context.Context, id int64) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM alert_rules WHERE id=$1`, id)
+func (s *Store) DeleteAlertRule(ctx context.Context, id, tenantID int64) error {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
+	_, err := s.pool.Exec(ctx, `DELETE FROM alert_rules WHERE id=$1 AND tenant_id=$2`, id, tenantID)
 	return err
 }
 

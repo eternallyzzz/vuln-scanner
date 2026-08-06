@@ -26,6 +26,7 @@ var (
 // ciphertext and are never exposed by the API.
 type RemoteCredential struct {
 	ID                   int64      `json:"id"`
+	TenantID             int64      `json:"tenant_id"`
 	Name                 string     `json:"name"`
 	Username             string     `json:"username"`
 	AuthType             string     `json:"auth_type"`
@@ -69,7 +70,7 @@ type RemoteScanTask struct {
 	FinishedAt    *time.Time      `json:"finished_at"`
 }
 
-const remoteCredentialColumns = `id, name, username, auth_type, password_ciphertext, private_key_ciphertext, passphrase_ciphertext, created_by, created_at, updated_at, revoked_at`
+const remoteCredentialColumns = `id, tenant_id, name, username, auth_type, password_ciphertext, private_key_ciphertext, passphrase_ciphertext, created_by, created_at, updated_at, revoked_at`
 
 const remoteTaskColumns = `id, credential_id, address, status, created_by, error, COALESCE(result_summary, '{}'), created_at, started_at, finished_at`
 
@@ -77,7 +78,7 @@ const remoteHostColumns = `id, address, credential_id, agent_id, hostname, os_ty
 
 func scanRemoteCredential(row interface{ Scan(...interface{}) error }) (*RemoteCredential, error) {
 	var c RemoteCredential
-	if err := row.Scan(&c.ID, &c.Name, &c.Username, &c.AuthType,
+	if err := row.Scan(&c.ID, &c.TenantID, &c.Name, &c.Username, &c.AuthType,
 		&c.PasswordCiphertext, &c.PrivateKeyCiphertext, &c.PassphraseCiphertext,
 		&c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RevokedAt); err != nil {
 		return nil, err
@@ -96,13 +97,16 @@ func scanRemoteTask(row interface{ Scan(...interface{}) error }) (*RemoteScanTas
 	return &t, nil
 }
 
-// CreateRemoteCredential stores an encrypted credential.
-func (s *Store) CreateRemoteCredential(ctx context.Context, name, username, authType, passwordCipher, keyCipher, passCipher, createdBy string) (*RemoteCredential, error) {
+// CreateRemoteCredential stores an encrypted credential for one tenant.
+func (s *Store) CreateRemoteCredential(ctx context.Context, tenantID int64, name, username, authType, passwordCipher, keyCipher, passCipher, createdBy string) (*RemoteCredential, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO remote_credentials (name, username, auth_type, password_ciphertext, private_key_ciphertext, passphrase_ciphertext, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO remote_credentials (tenant_id, name, username, auth_type, password_ciphertext, private_key_ciphertext, passphrase_ciphertext, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING `+remoteCredentialColumns,
-		name, username, authType, passwordCipher, keyCipher, passCipher, createdBy)
+		tenantID, name, username, authType, passwordCipher, keyCipher, passCipher, createdBy)
 	return scanRemoteCredential(row)
 }
 
@@ -118,11 +122,15 @@ func (s *Store) GetRemoteCredential(ctx context.Context, id int64) (*RemoteCrede
 	return c, err
 }
 
-// ListRemoteCredentials returns all credentials without filtering revoked
-// ones; the API masks secret fields and exposes revoked_at.
-func (s *Store) ListRemoteCredentials(ctx context.Context) ([]RemoteCredential, error) {
+// ListRemoteCredentials returns credentials (optionally scoped to one
+// tenant) without filtering revoked ones; the API masks secret fields and
+// exposes revoked_at.
+func (s *Store) ListRemoteCredentials(ctx context.Context, tenantID *int64) ([]RemoteCredential, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+remoteCredentialColumns+` FROM remote_credentials ORDER BY id DESC`)
+		SELECT `+remoteCredentialColumns+` FROM remote_credentials
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id DESC
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -255,13 +263,23 @@ func (s *Store) CompleteRemoteScanTask(ctx context.Context, id int64, scanErr st
 	return err
 }
 
-// ListRemoteScanTasks returns tasks newest first with optional status filter.
-func (s *Store) ListRemoteScanTasks(ctx context.Context, status string, limit, offset int) ([]RemoteScanTask, int64, error) {
+// ListRemoteScanTasks returns tasks newest first with optional status and
+// tenant filters.
+func (s *Store) ListRemoteScanTasks(ctx context.Context, status string, limit, offset int, tenantID *int64) ([]RemoteScanTask, int64, error) {
 	where := ""
 	args := []interface{}{}
 	if status != "" {
 		where = " WHERE status=$1"
 		args = append(args, status)
+	}
+	if tenantID != nil {
+		if where == "" {
+			where = " WHERE "
+		} else {
+			where += " AND "
+		}
+		args = append(args, *tenantID)
+		where += fmt.Sprintf("EXISTS (SELECT 1 FROM remote_credentials rc WHERE rc.id=remote_scan_tasks.credential_id AND rc.tenant_id=$%d)", len(args))
 	}
 	var total int64
 	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM remote_scan_tasks`+where, args...).Scan(&total); err != nil {
@@ -383,18 +401,21 @@ func (s *Store) ListRemoteHosts(ctx context.Context, limit, offset int, tenantID
 }
 
 // UpsertRemoteAgent creates or refreshes the synthetic agent carrying one
-// remote host's match results.
-func (s *Store) UpsertRemoteAgent(ctx context.Context, id, hostname, address, osType, osVersion, arch string) error {
+// remote host's match results. Tenant is set on first creation only.
+func (s *Store) UpsertRemoteAgent(ctx context.Context, id, hostname, address, osType, osVersion, arch string, tenantID int64) error {
 	if osType == "" {
 		osType = "unknown"
 	}
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO agents (id, hostname, os_type, os_version, arch, agent_ver, ip,
-			token_hash, status, fingerprint_hash, last_seen, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,'remote-scanner',$6,'','online','',NOW(),NOW(),NOW())
+			token_hash, status, fingerprint_hash, tenant_id, last_seen, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,'remote-scanner',$6,'','online','',$7,NOW(),NOW(),NOW())
 		ON CONFLICT (id) DO UPDATE
 		SET hostname=$2, os_type=$3, os_version=$4, arch=$5, ip=$6,
 			status='online', last_seen=NOW(), updated_at=NOW()
-	`, id, hostname, osType, osVersion, arch, address)
+	`, id, hostname, osType, osVersion, arch, address, tenantID)
 	return err
 }

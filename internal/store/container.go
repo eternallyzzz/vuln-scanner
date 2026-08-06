@@ -10,15 +10,18 @@ import (
 
 // UpsertContainerAgent creates or refreshes the synthetic agent that carries
 // container scan results. It never participates in heartbeat or patch loops.
-func (s *Store) UpsertContainerAgent(ctx context.Context, id, hostname, osVersion, arch string) error {
+func (s *Store) UpsertContainerAgent(ctx context.Context, id, hostname, osVersion, arch string, tenantID int64) error {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO agents (id, hostname, os_type, os_version, arch, agent_ver, ip,
-			token_hash, status, fingerprint_hash, last_seen, created_at, updated_at)
-		VALUES ($1,$2,'container',$3,$4,'container-scanner','','','online','',NOW(),NOW(),NOW())
+			token_hash, status, fingerprint_hash, tenant_id, last_seen, created_at, updated_at)
+		VALUES ($1,$2,'container',$3,$4,'container-scanner','','','online','',$5,NOW(),NOW(),NOW())
 		ON CONFLICT (id) DO UPDATE
 		SET hostname=$2, os_type='container', os_version=$3, arch=$4,
 			status='online', last_seen=NOW(), updated_at=NOW()
-	`, id, hostname, osVersion, arch)
+	`, id, hostname, osVersion, arch, tenantID)
 	return err
 }
 

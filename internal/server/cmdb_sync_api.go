@@ -229,7 +229,12 @@ func (s *RESTServer) importAssets(w http.ResponseWriter, r *http.Request) {
 
 // reconcileReport returns the external-vs-scanned host matching summary.
 func (s *RESTServer) reconcileReport(w http.ResponseWriter, r *http.Request) {
-	report, err := s.store.CMDBReconcileReport(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	report, err := s.store.CMDBReconcileReport(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

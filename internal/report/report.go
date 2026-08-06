@@ -48,18 +48,19 @@ type Summary struct {
 	ComplianceAvgScore float64
 }
 
-// Build gathers every data source used by the daily report. HTML and CSV are
-// rendered separately from the same snapshot so both formats agree.
-func Build(ctx context.Context, s *store.Store) (*Data, error) {
-	ds, err := s.DemoSummary(ctx)
+// Build gathers every data source used by the daily report, optionally
+// scoped to one tenant. HTML and CSV are rendered separately from the same
+// snapshot so both formats agree.
+func Build(ctx context.Context, s *store.Store, tenantID *int64) (*Data, error) {
+	ds, err := s.DemoSummary(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	risk, err := s.RiskSummary(ctx, nil)
+	risk, err := s.RiskSummary(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	risks, err := s.RiskTop(ctx, csvRiskLimit, "", false, nil)
+	risks, err := s.RiskTop(ctx, csvRiskLimit, "", false, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -67,11 +68,11 @@ func Build(ctx context.Context, s *store.Store) (*Data, error) {
 	if len(topRisks) > htmlTopRisks {
 		topRisks = topRisks[:htmlTopRisks]
 	}
-	trend, err := s.RiskTrend(ctx, trendDays, nil)
+	trend, err := s.RiskTrend(ctx, trendDays, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	eolAll, err := s.ListAgentsEOL(ctx, nil)
+	eolAll, err := s.ListAgentsEOL(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,16 +80,19 @@ func Build(ctx context.Context, s *store.Store) (*Data, error) {
 	if len(eolAgents) > eolTop {
 		eolAgents = eolAgents[:eolTop]
 	}
-	comp, err := s.ComplianceSummary(ctx, nil)
+	comp, err := s.ComplianceSummary(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	alerts, err := s.ListAlerts(ctx, "open", "", "", "", alertTop, 0, nil)
+	alerts, err := s.ListAlerts(ctx, "open", "", "", "", alertTop, 0, tenantID)
 	if err != nil {
 		return nil, err
 	}
 	since := time.Now().Add(-24 * time.Hour)
-	auditCount, err := s.CountAuditLogs(ctx, store.AuditLogFilter{Since: &since})
+	auditCount, err := s.CountAuditLogs(ctx, store.AuditLogFilter{
+		Since:    &since,
+		TenantID: tenantID,
+	})
 	if err != nil {
 		return nil, err
 	}
