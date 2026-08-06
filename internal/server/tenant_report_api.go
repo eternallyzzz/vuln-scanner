@@ -19,10 +19,28 @@ func tenantIDParam(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "tenantId"), 10, 64)
 }
 
+// requireReportTenant ensures the path tenant is the caller's own restricted
+// tenant. Admin users and global API keys without X-Tenant-ID remain
+// unrestricted, preserving the existing full-admin behavior.
+func (s *RESTServer) requireReportTenant(r *http.Request, tenantID int64) error {
+	id, restrict, err := s.scope(r)
+	if err != nil {
+		return err
+	}
+	if restrict && id != tenantID {
+		return errTenantForbidden
+	}
+	return nil
+}
+
 func (s *RESTServer) getTenantReport(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := tenantIDParam(r)
 	if err != nil || tenantID <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid tenant id")
+		return
+	}
+	if err := s.requireReportTenant(r, tenantID); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	report, err := s.store.GetTenantReport(r.Context(), tenantID)
@@ -41,6 +59,10 @@ func (s *RESTServer) updateTenantReport(w http.ResponseWriter, r *http.Request) 
 	tenantID, err := tenantIDParam(r)
 	if err != nil || tenantID <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid tenant id")
+		return
+	}
+	if err := s.requireReportTenant(r, tenantID); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	var in struct {
@@ -107,6 +129,10 @@ func (s *RESTServer) sendTenantReport(w http.ResponseWriter, r *http.Request) {
 	tenantID, err := tenantIDParam(r)
 	if err != nil || tenantID <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid tenant id")
+		return
+	}
+	if err := s.requireReportTenant(r, tenantID); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	if _, err := s.store.GetTenantReport(r.Context(), tenantID); err != nil {

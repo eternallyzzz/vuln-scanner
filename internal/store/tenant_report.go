@@ -91,3 +91,26 @@ func (s *Store) ListEnabledTenantReports(ctx context.Context) ([]TenantReport, e
 	}
 	return out, rows.Err()
 }
+
+// ListTenantReports returns settings for every tenant report row, including
+// disabled and empty-recipient rows. The report scheduler uses this to
+// reconcile crons so disabled/deleted/empty settings stop running schedules.
+func (s *Store) ListTenantReports(ctx context.Context) ([]TenantReport, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+tenantReportColumns+` FROM tenant_reports
+		ORDER BY tenant_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TenantReport
+	for rows.Next() {
+		r, err := scanTenantReport(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

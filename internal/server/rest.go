@@ -323,6 +323,7 @@ func (s *RESTServer) apiKeyMiddleware(next http.Handler) http.Handler {
 				}
 				if k.TenantID != nil {
 					r = r.WithContext(context.WithValue(r.Context(), apiKeyTenantCtxKey, *k.TenantID))
+					r = r.WithContext(context.WithValue(r.Context(), apiKeyScopedCtxKey, true))
 				}
 				next.ServeHTTP(w, r)
 				return

@@ -119,3 +119,82 @@ func TestPublicUserIncludesTenant(t *testing.T) {
 		t.Fatalf("publicUser tenant_id = %v, want 9", u["tenant_id"])
 	}
 }
+
+func TestTenantAPIKeyCan(t *testing.T) {
+	allowed := []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/agents"},
+		{http.MethodPost, "/api/v1/alert-rules"},
+		{http.MethodPut, "/api/v1/sla-policies/3"},
+		{http.MethodGet, "/api/v1/remote/credentials"},
+		{http.MethodPost, "/api/v1/remote/scan"},
+		{http.MethodPost, "/api/v1/webdb/scan"},
+		{http.MethodPost, "/api/v1/network/scan"},
+		{http.MethodPost, "/api/v1/cloud/accounts"},
+		{http.MethodGet, "/api/v1/edr/findings"},
+		{http.MethodGet, "/api/v1/dashboard"},
+		{http.MethodGet, "/api/v1/tenants/7/report"},
+		{http.MethodPut, "/api/v1/tenants/7/report"},
+		{http.MethodPost, "/api/v1/tenants/7/report/send"},
+	}
+	for _, tc := range allowed {
+		if !tenantAPIKeyCan(tc.method, tc.path, 7) {
+			t.Errorf("tenantAPIKeyCan(%s %s) = false, want true", tc.method, tc.path)
+		}
+	}
+
+	forbidden := []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/tenants"},
+		{http.MethodPost, "/api/v1/tenants"},
+		{http.MethodGet, "/api/v1/tenants/8/report"},
+		{http.MethodPut, "/api/v1/tenants/8/report"},
+		{http.MethodPost, "/api/v1/tenants/8/report/send"},
+		{http.MethodGet, "/api/v1/users"},
+		{http.MethodPost, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/api-keys"},
+		{http.MethodPost, "/api/v1/api-keys"},
+		{http.MethodGet, "/api/v1/audit-logs"},
+		{http.MethodGet, "/api/v1/audit-logs/export.csv"},
+		{http.MethodGet, "/api/v1/workers"},
+		{http.MethodPost, "/api/v1/admin/report/send"},
+		{http.MethodPut, "/api/v1/users/1/tenant"},
+		{http.MethodPut, "/api/v1/agents/agent-1/tenant"},
+	}
+	for _, tc := range forbidden {
+		if tenantAPIKeyCan(tc.method, tc.path, 7) {
+			t.Errorf("tenantAPIKeyCan(%s %s) = true, want false", tc.method, tc.path)
+		}
+	}
+}
+
+func TestEnforceRBACTenantScopedKey(t *testing.T) {
+	srv := NewRESTServer(nil, nil, DefaultConfig(), nil, nil)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := srv.enforceRBAC(next)
+
+	allowed := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	allowed = allowed.WithContext(context.WithValue(allowed.Context(), apiKeyTenantCtxKey, int64(7)))
+	allowed = allowed.WithContext(context.WithValue(allowed.Context(), apiKeyScopedCtxKey, true))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, allowed)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("tenant-scoped allowed path status = %d, want 200", rr.Code)
+	}
+
+	denied := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	denied = denied.WithContext(context.WithValue(denied.Context(), apiKeyTenantCtxKey, int64(7)))
+	denied = denied.WithContext(context.WithValue(denied.Context(), apiKeyScopedCtxKey, true))
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, denied)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("tenant-scoped denied path status = %d, want 403", rr.Code)
+	}
+
+	global := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, global)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unscoped API key status = %d, want 200", rr.Code)
+	}
+}

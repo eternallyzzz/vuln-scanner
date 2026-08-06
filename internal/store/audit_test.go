@@ -25,12 +25,14 @@ func TestNormalizeAuditLimit(t *testing.T) {
 
 func TestAuditLogWhere(t *testing.T) {
 	now := time.Now()
+	tid := int64(7)
 	where, args := auditLogWhere(AuditLogFilter{
-		Actor:  "alice",
-		Method: "POST",
-		Path:   "users",
-		Since:  &now,
-		Until:  &now,
+		Actor:    "alice",
+		Method:   "POST",
+		Path:     "users",
+		Since:    &now,
+		Until:    &now,
+		TenantID: &tid,
 	})
 	for _, want := range []string{
 		"actor = $1",
@@ -38,13 +40,14 @@ func TestAuditLogWhere(t *testing.T) {
 		"POSITION(LOWER($3) IN LOWER(path)) > 0",
 		"created_at >= $4",
 		"created_at <= $5",
+		"tenant_id = $6",
 	} {
 		if !strings.Contains(where, want) {
 			t.Errorf("where %q missing %q", where, want)
 		}
 	}
-	if len(args) != 5 {
-		t.Fatalf("args = %d, want 5: %#v", len(args), args)
+	if len(args) != 6 {
+		t.Fatalf("args = %d, want 6: %#v", len(args), args)
 	}
 
 	where, args = auditLogWhere(AuditLogFilter{})

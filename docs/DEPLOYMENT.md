@@ -238,10 +238,10 @@ docker compose -f deploy/docker-compose/docker-compose.yml up -d --build
 租户 v2 把以下配置从“全局单份”改为“每租户独立行”，建租户时自动从租户 1 当前配置快照复制模板（快照语义，后续修改租户 1 不影响已建租户）：
 
 - `alert_rules` 与 `sla_policies` 增加 `tenant_id`（默认 1）；alert 评估按 Agent 所属租户选规则，SLA 检查循环逐租户执行。
-- `tenant_reports` 保存每租户报表的 `enabled/schedule/timezone/to`；`reporting.enabled` 与 `alerting.smtp` 仍为全局总开关/SMTP 配置。`reportLoop` 为每个启用租户注册独立 cron，并按该租户收件人投递。
+- `tenant_reports` 保存每租户报表的 `enabled/schedule/timezone/to`；`reporting.enabled` 与 `alerting.smtp` 仍为全局总开关/SMTP 配置。`reportLoop` 每 60 秒 reconcile 一次，仅当 `enabled/schedule/timezone/收件人` 变化时重建对应 cron，并按该租户收件人投递。
 - 合成 Agent 按来源归属租户：远程继承 `remote_credentials.tenant_id`，云继承 `cloud_accounts.tenant_id`，WebDB 继承任务/凭据租户，网络继承上报 Agent 或任务租户，容器使用 `container_scan.tenant_id`（默认 1）。同一确定性 Agent ID 只保留首次扫描来源的租户。
-- API key：新增 `api_keys` 表（仅存 SHA-256，明文创建时返回一次）。租户级 key 自动把请求限定到该租户；`X-Tenant-ID` 若存在必须一致。旧全局 `api_key`（`API_KEY`/`server.yaml api_key`）继续作为全局 key 兼容。
-- 管理入口（均仅 admin）：`GET/POST /api/v1/api-keys`、`DELETE /api/v1/api-keys/{keyId}`；`GET/PUT /api/v1/tenants/{tenantId}/report`、`POST /api/v1/tenants/{tenantId}/report/send`；全局手动发送仍为 `POST /api/v1/admin/report/send`。
+- API key：新增 `api_keys` 表（仅存 SHA-256，明文创建时返回一次）。租户级 key 自动把请求限定到该租户，并收口为“租户内管理员”：可管理本租户数据、配置、凭据、扫描、告警规则、SLA 与 `/api/v1/tenants/{ownTenantId}/report` 及 `/report/send`；禁止 `/api/v1/tenants`、`/api/v1/users*`、`/api/v1/api-keys*`、`/api/v1/audit-logs*`、`/api/v1/workers*`、`/api/v1/admin/*`、`/tenant` 迁移端点及跨租户报表路径。`X-Tenant-ID` 若存在必须一致。全局 DB key 与旧全局 `api_key`（`API_KEY`/`server.yaml api_key`）继续作为全局 admin key 兼容。
+- 全局管理入口（admin / 全局 key）：`GET/POST /api/v1/api-keys`、`DELETE /api/v1/api-keys/{keyId}`；租户报表 `GET/PUT /api/v1/tenants/{tenantId}/report`、`POST /api/v1/tenants/{tenantId}/report/send` 可由本租户管理员 key 访问自己的租户；全局手动发送仍为 `POST /api/v1/admin/report/send`。
 
 ## 5. Kubernetes（参考）/ Kubernetes (Reference)
 

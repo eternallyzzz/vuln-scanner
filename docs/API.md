@@ -14,7 +14,9 @@ gRPC（规范见 [`api/proto/vulnscan/v1/agent.proto`](../api/proto/vulnscan/v1/
 
 所有 `/api/v1/*` 端点（除 `/register`、`/auth/login`、`/auth/ldap/login`）二选一：
 
-1. `X-API-Key: <key>`——admin 级自动化凭证，等价 admin 角色；
+1. `X-API-Key: <key>`——admin 级自动化凭证：DB 全局 key 与旧 `api_key` 等价 admin 角色；租户级 DB key
+   仅为本租户内管理员（可管理本租户数据/配置/凭据/扫描/告警规则/SLA/自有报表，禁止租户、用户、API key、
+   审计日志、worker、`/api/v1/admin/*`、`/tenant` 迁移端点及跨租户报表路径）；
 2. `Authorization: Bearer <jwt>`——用户登录返回的 JWT，按用户角色鉴权。
 
 ```bash

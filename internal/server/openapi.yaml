@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     VulnScanner 资产漏洞扫描与管理平台 REST API。
-    - 鉴权：请求头 `X-API-Key`（admin 级自动化凭证）或用户登录返回的 `Authorization: Bearer <token>`（按角色鉴权），二者任选其一。
+    - 鉴权：请求头 `X-API-Key`（全局 DB key 与旧 `api_key` 为 admin 级自动化凭证；租户级 DB key 为租户内管理员，可管理本租户数据、配置、凭据、扫描、告警规则、SLA 与自有报表，禁止系统级管理面）或用户登录返回的 `Authorization: Bearer <token>`（按角色鉴权），二者任选其一。
     - 角色：`admin` 全部操作；`operator` 日常运维写操作；`viewer` 只读（`/audit-logs*` 仅 admin 可见）。
     - 公开端点：`/health`、`/demo`、`/dl/*`、`/r/*`、`/api/v1/register`、`/api/v1/auth/login`、`/api/v1/auth/ldap/login`、`/openapi.yaml`。
     - 错误格式统一为 `{"error": "<message>"}`。

@@ -19,13 +19,24 @@ var (
 
 type apiKeyTenantCtxKeyType int
 
-const apiKeyTenantCtxKey apiKeyTenantCtxKeyType = iota + 1
+const (
+	apiKeyTenantCtxKey apiKeyTenantCtxKeyType = iota + 1
+	apiKeyScopedCtxKey
+)
 
 // apiKeyTenantFromContext returns the tenant bound to a DB-backed API key,
 // or 0 when the key is global.
 func apiKeyTenantFromContext(ctx context.Context) int64 {
 	id, _ := ctx.Value(apiKeyTenantCtxKey).(int64)
 	return id
+}
+
+// apiKeyScopedFromContext reports whether the request was authenticated with
+// a tenant-scoped DB API key. The value is true only for keys with a
+// non-null tenant_id; global DB keys and the legacy api_key stay unscoped.
+func apiKeyScopedFromContext(ctx context.Context) (bool, int64) {
+	scoped, _ := ctx.Value(apiKeyScopedCtxKey).(bool)
+	return scoped, apiKeyTenantFromContext(ctx)
 }
 
 // scope resolves the effective tenant scope of a request:

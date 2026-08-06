@@ -384,11 +384,16 @@ LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/
   合成 agent（网络/远程/云/WebDB/容器）按来源归属租户；新增租户级 API key
   （`GET/POST /api/v1/api-keys`、`DELETE /api/v1/api-keys/{keyId}`，明文仅创建时返回一次），
   旧全局 `api_key` 与 `X-Tenant-ID` 头保持向后兼容；扫描策略随 agent 天然租户化。
+- 租户级 API key 安全收口：租户级 DB key 仅拥有“本租户内管理员”权限，可管理本租户数据、配置、凭据、
+  扫描、告警规则、SLA 与 `/api/v1/tenants/{ownTenantId}/report` 及 `/report/send`；禁止租户列表/创建、
+  用户、API key、审计日志、worker、`/api/v1/admin/*`、`/tenant` 迁移端点及跨租户报表路径。
+  全局 DB key 与旧 `api_key` 保持原有全 admin 行为不变。
 - 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
 - LDAP 登录（可选）：`POST /api/v1/auth/ldap/login`（body 同 `/auth/login`）由服务端完成目录绑定认证，按 `role_groups` 映射 admin/operator/viewer；首次登录自动建号（`auto_provision: true` 时），已有本地用户保留本地角色与状态（禁用即拒绝），登录成功后复用同一 JWT/RBAC/审计链路。未命中任何角色映射的目录用户返回 403，本地密码登录不受影响。
 - 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。
 - 首启引导：`users` 表为空且设置 `ADMIN_PASSWORD` 环境变量时自动创建第一个 `admin` 用户（用户名默认 `admin`，可用 `ADMIN_USERNAME` 覆盖）；未设置则控制台登录不可用。
-- 兼容性：`X-API-Key` 继续作为 admin 级自动化凭证；请求带用户 Bearer token 时优先按用户角色鉴权。禁用用户只阻止新登录，已签发 token 到期前仍有效。
+- 兼容性：全局 `X-API-Key`（DB 全局 key 或旧 `api_key`）继续作为 admin 级自动化凭证；租户级 DB key
+  按“租户内管理员”收口；请求带用户 Bearer token 时优先按用户角色鉴权。禁用用户只阻止新登录，已签发 token 到期前仍有效。
 
 ## Security Model / 安全模型
 

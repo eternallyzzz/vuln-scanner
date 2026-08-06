@@ -67,7 +67,12 @@ func (s *RESTServer) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 // exportAuditLogs streams the latest 5000 audit entries as CSV.
 func (s *RESTServer) exportAuditLogs(w http.ResponseWriter, r *http.Request) {
-	data, err := s.store.AuditExportCSV(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	data, err := s.store.AuditExportCSV(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

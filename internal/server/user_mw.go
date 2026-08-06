@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"vuln-scanner/internal/store"
@@ -59,11 +60,19 @@ func (s *RESTServer) userAuthMiddleware(next http.Handler) http.Handler {
 }
 
 // enforceRBAC applies the role permission matrix to authenticated dashboard
-// requests. Anonymous (X-API-Key) requests pass through untouched.
+// requests. Anonymous X-API-Key requests from tenant-bound DB keys are
+// narrowed to tenant-admin surfaces; global DB keys and the legacy api_key
+// keep their full admin behavior.
 func (s *RESTServer) enforceRBAC(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := userFromContext(r.Context())
 		if u == nil {
+			if scoped, tenantID := apiKeyScopedFromContext(r.Context()); scoped && tenantID > 0 {
+				if !tenantAPIKeyCan(r.Method, r.URL.Path, tenantID) {
+					writeError(w, http.StatusForbidden, "forbidden: tenant API key cannot access this system-level endpoint")
+					return
+				}
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -73,6 +82,29 @@ func (s *RESTServer) enforceRBAC(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// tenantAPIKeyCan is the permission matrix for tenant-scoped DB API keys.
+// A tenant key behaves as an administrator inside its own tenant: it can
+// manage that tenant's data, config, credentials, scans, alert rules, SLA
+// policies and report delivery, but cannot touch system-level management
+// surfaces or other tenants.
+func tenantAPIKeyCan(method, path string, tenantID int64) bool {
+	// The tenant report endpoints are tenant-internal when they name the
+	// key's own tenant; every other /tenants path is system management.
+	if strings.HasPrefix(path, "/api/v1/tenants") {
+		report := "/api/v1/tenants/" + strconv.FormatInt(tenantID, 10) + "/report"
+		return path == report || path == report+"/send"
+	}
+	if strings.HasPrefix(path, "/api/v1/users") ||
+		strings.HasPrefix(path, "/api/v1/api-keys") ||
+		strings.HasPrefix(path, "/api/v1/audit-logs") ||
+		strings.HasPrefix(path, "/api/v1/workers") ||
+		strings.HasPrefix(path, "/api/v1/admin/") ||
+		strings.HasSuffix(path, "/tenant") {
+		return false
+	}
+	return true
 }
 
 // actorFromRequest returns the accountable actor for mutating operations:

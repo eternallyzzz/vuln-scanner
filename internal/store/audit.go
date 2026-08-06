@@ -105,12 +105,15 @@ func (s *Store) CountAuditLogs(ctx context.Context, f AuditLogFilter) (int64, er
 	return n, err
 }
 
-// AuditExportCSV renders the latest 5000 audit entries as CSV bytes.
-func (s *Store) AuditExportCSV(ctx context.Context) ([]byte, error) {
+// AuditExportCSV renders the latest 5000 audit entries as CSV bytes. A
+// non-nil tenantID restricts the export to that tenant; nil exports all
+// tenants (the historical full-admin behavior).
+func (s *Store) AuditExportCSV(ctx context.Context, tenantID *int64) ([]byte, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+auditLogColumns+` FROM audit_logs
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
 		ORDER BY id DESC LIMIT 5000
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
