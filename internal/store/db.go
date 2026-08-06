@@ -68,6 +68,9 @@ type CVEResult struct {
 	AssetCriticality   float64   `json:"asset_criticality,omitempty"`
 	RiskScore          float64   `json:"risk_score,omitempty"`
 	RiskLevel          string    `json:"risk_level,omitempty"`
+	IntelThreatLevel   string    `json:"intel_threat_level,omitempty"`
+	IntelExploited     bool      `json:"intel_exploited,omitempty"`
+	IntelNotes         string    `json:"intel_notes,omitempty"`
 }
 
 type AnalysisLog struct {

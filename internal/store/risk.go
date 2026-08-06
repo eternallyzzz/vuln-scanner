@@ -135,6 +135,32 @@ func RiskLevel(score float64) string {
 	}
 }
 
+// applyIntelRiskFloor raises a risk score to the floor implied by a CVE
+// annotation: exploited or CRITICAL → 9.0, HIGH → 7.0, MEDIUM → 5.0,
+// LOW → 0 (no floor). The result is capped at 10 and rounded to one decimal
+// like RiskScore; unannotated rows pass through unchanged.
+func applyIntelRiskFloor(score float64, threatLevel string, exploited bool) float64 {
+	floor := 0.0
+	switch strings.ToUpper(strings.TrimSpace(threatLevel)) {
+	case "CRITICAL":
+		floor = 9.0
+	case "HIGH":
+		floor = 7.0
+	case "MEDIUM":
+		floor = 5.0
+	}
+	if exploited {
+		floor = maxF(floor, 9.0)
+	}
+	if score < floor {
+		score = floor
+	}
+	if score > 10 {
+		score = 10
+	}
+	return math.Round(score*10) / 10
+}
+
 // AssetCriticality derives 0-10 from CMDB metadata.
 func AssetCriticality(environment string, tags []string, assetType string) float64 {
 	score := 4.0
@@ -313,6 +339,10 @@ func (s *Store) RecalcAgentRisk(ctx context.Context, agentID string) (int, error
 	if err != nil {
 		return 0, err
 	}
+	annotations, err := s.GetCVEIntelAnnotations(ctx, cveIDs)
+	if err != nil {
+		return 0, err
+	}
 	assetMeta := map[string]struct {
 		typ  string
 		env  string
@@ -356,12 +386,17 @@ func (s *Store) RecalcAgentRisk(ctx context.Context, agentID string) (int, error
 	critArr := make([]float64, 0, len(items))
 	riskArr := make([]float64, 0, len(items))
 	lvlArr := make([]string, 0, len(items))
+	intelThreatArr := make([]string, 0, len(items))
+	intelExploitedArr := make([]bool, 0, len(items))
+	intelNotesArr := make([]string, 0, len(items))
 	for _, r := range items {
 		meta := assetMeta[r.asset]
 		crit := AssetCriticality(meta.env, meta.tags, meta.typ)
 		exp := ExposureScore(ports, procs, r.asset, meta.typ, hasTelemetry)
 		i := intel[r.cveID]
 		risk := RiskScore(r.cvss, i.EPSSScore, crit, exp, i.KEV, agentEOL)
+		a := annotations[CanonicalCVEID(r.cveID)]
+		risk = applyIntelRiskFloor(risk, a.ThreatLevel, a.Exploited)
 		ids = append(ids, r.id)
 		epssArr = append(epssArr, i.EPSSScore)
 		pctArr = append(pctArr, i.EPSSPercentile)
@@ -370,17 +405,23 @@ func (s *Store) RecalcAgentRisk(ctx context.Context, agentID string) (int, error
 		critArr = append(critArr, crit)
 		riskArr = append(riskArr, risk)
 		lvlArr = append(lvlArr, RiskLevel(risk))
+		intelThreatArr = append(intelThreatArr, a.ThreatLevel)
+		intelExploitedArr = append(intelExploitedArr, a.Exploited)
+		intelNotesArr = append(intelNotesArr, a.Notes)
 	}
 	_, err = s.pool.Exec(ctx, `
 		UPDATE cve_results cr SET
 			epss_score=e.epss, epss_percentile=e.pct, kev=e.kev,
 			exposure_score=e.exposure, asset_criticality=e.crit,
-			risk_score=e.risk, risk_level=e.level
+			risk_score=e.risk, risk_level=e.level,
+			intel_threat_level=e.threat, intel_exploited=e.exploited, intel_notes=e.notes
 		FROM unnest($1::bigint[], $2::double precision[], $3::double precision[],
 			$4::boolean[], $5::double precision[], $6::double precision[],
-			$7::double precision[], $8::text[]) AS e(id, epss, pct, kev, exposure, crit, risk, level)
+			$7::double precision[], $8::text[], $9::text[], $10::boolean[], $11::text[])
+			AS e(id, epss, pct, kev, exposure, crit, risk, level, threat, exploited, notes)
 		WHERE cr.id=e.id
-	`, ids, epssArr, pctArr, kevArr, expArr, critArr, riskArr, lvlArr)
+	`, ids, epssArr, pctArr, kevArr, expArr, critArr, riskArr, lvlArr,
+		intelThreatArr, intelExploitedArr, intelNotesArr)
 	return len(items), err
 }
 

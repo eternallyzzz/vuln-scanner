@@ -44,7 +44,8 @@ func (s *Store) GetCVEResults(ctx context.Context, agentID string, severity stri
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, agent_id, cve_id, asset_name, asset_version,
 			fixed_version, fix_state, kb_article, kb_url, verification_source,
-			severity, cvss_score, summary, source, status, detected_at
+			severity, cvss_score, summary, source, status, detected_at,
+			intel_threat_level, intel_exploited, intel_notes
 		FROM cve_results WHERE agent_id=$1
 		AND (''=$2 OR severity=$2) AND (NOT $3 OR fixed_version!='')
 		ORDER BY CASE severity
@@ -62,7 +63,8 @@ func (s *Store) GetCVEResults(ctx context.Context, agentID string, severity stri
 		var r CVEResult
 		if err := rows.Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
 			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
-			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
+			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt,
+			&r.IntelThreatLevel, &r.IntelExploited, &r.IntelNotes); err != nil {
 			return nil, 0, err
 		}
 		results = append(results, r)
@@ -75,11 +77,13 @@ func (s *Store) GetCVEResult(ctx context.Context, agentID, cveID string) (*CVERe
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, agent_id, cve_id, asset_name, asset_version,
 			fixed_version, fix_state, kb_article, kb_url, verification_source,
-			severity, cvss_score, summary, source, status, detected_at
+			severity, cvss_score, summary, source, status, detected_at,
+			intel_threat_level, intel_exploited, intel_notes
 		FROM cve_results WHERE agent_id=$1 AND cve_id=$2
 	`, agentID, cveID).Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
 		&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
-		&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt)
+		&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt,
+		&r.IntelThreatLevel, &r.IntelExploited, &r.IntelNotes)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +94,8 @@ func (s *Store) SearchByCVE(ctx context.Context, cveID string) ([]CVEResult, err
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.agent_id, r.cve_id, r.asset_name, r.asset_version,
 			r.fixed_version, r.fix_state, r.kb_article, r.kb_url, r.verification_source,
-			r.severity, r.cvss_score, r.summary, r.source, r.status, r.detected_at
+			r.severity, r.cvss_score, r.summary, r.source, r.status, r.detected_at,
+			r.intel_threat_level, r.intel_exploited, r.intel_notes
 		FROM cve_results r WHERE r.cve_id=$1
 	`, cveID)
 	if err != nil {
@@ -103,7 +108,8 @@ func (s *Store) SearchByCVE(ctx context.Context, cveID string) ([]CVEResult, err
 		var r CVEResult
 		if err := rows.Scan(&r.ID, &r.AgentID, &r.CVEID, &r.AssetName, &r.AssetVersion,
 			&r.FixedVersion, &r.FixState, &r.KBArticle, &r.KBURL, &r.VerificationSource,
-			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt); err != nil {
+			&r.Severity, &r.CVSSScore, &r.Summary, &r.Source, &r.Status, &r.DetectedAt,
+			&r.IntelThreatLevel, &r.IntelExploited, &r.IntelNotes); err != nil {
 			return nil, err
 		}
 		results = append(results, r)

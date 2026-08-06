@@ -20,7 +20,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
 - **Remote credential scanning / 凭据远程扫描** — Server-side SSH collection (Linux/macOS/Windows OpenSSH) with encrypted credential store, ToFU host-key verification and full audit; agent-first, credential scan as the fallback
 - **Web/DB scanning / Web 应用与数据库扫描** — Server-side HTTP(S) fingerprint (nginx/apache/IIS/Tomcat/PHP/WordPress etc.) and PostgreSQL/MySQL/Redis version identification with optional encrypted credentials; results feed the existing CVE matching / risk / alerting pipeline and CMDB
-- **Proprietary threat intel / 专有威胁情报** — built-in vulnerability fingerprint rules (product + version range + fixed version) maintained as migration seeds, auto-loaded into the matching pipeline at startup; read-only rule list API, zero runtime maintenance
+- **Proprietary threat intel / 专有威胁情报** — built-in vulnerability fingerprint rules (product + version range + fixed version) and CVE annotations (threat level / exploited / notes) maintained as migration seeds; rules auto-load into matching at startup, annotations raise the risk floor on recalculation, read-only APIs, zero runtime maintenance
 - **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
 - **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
@@ -304,6 +304,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 凭据远程扫描：`POST /api/v1/remote/credentials`（admin 创建 password/key 凭据；key 不传私钥时服务端生成并一次性返回公钥）、`GET/PUT/DELETE /api/v1/remote/credentials[/{id}]`（admin，软删除）、`POST /api/v1/remote/scan`（operator+ 下发 Server 直连 SSH 任务）、`GET /api/v1/remote/tasks`、`GET /api/v1/remote/hosts`（viewer+）；凭据加密落库，host key ToFU，任务结束写审计
 - Web/数据库扫描：`POST /api/v1/webdb/scan`（operator+ 下发一次性 web/db 任务，body 含 `web: [URL...]` 与 `db: [{target, db_type, credential_id?}]`）、`GET /api/v1/webdb/tasks`、`GET /api/v1/webdb/targets`（viewer+）；凭据 CRUD 仅 admin 且响应不含密文；MySQL/Redis 无凭据识别版本，PostgreSQL 需凭据；结果生成 agent-web-*/agent-db-* 合成 agent
 - 专有威胁情报：`GET /api/v1/intel/rules`（viewer+，只读）查看内置漏洞指纹规则；规则由迁移种子维护（代码即数据），启动自动镜像进匹配管线（`source=custom`），命中进入 CVE 结果/风险/告警
+- 专有威胁情报：`GET /api/v1/intel/annotations`（viewer+，只读）查看 CVE 情报标注（威胁级别/已利用/备注）；标注同样由迁移种子维护，服务启动或风险重算时自动生效，`exploited` 或 `CRITICAL` 等威胁级别按“风险下限”抬高风险评分并写入 CVE 结果/告警
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
@@ -320,6 +321,16 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 `enabled=true` 的规则镜像到 `cve_feed`（`source=custom`）并参与现有名称/版本范围/修复版本匹配。
 `affected` 字段与公共 feed 同一结构（name/vendor/min_ver/max_ver/边界/fixed_in/cpe/ecosystem），
 可用 `CUSTOM-*` 独立 ID 避免与公共 CVE 去重冲突；不提供后台增删改/导入接口。
+
+CVE 情报标注（`cve_intel_annotations`）与规则同一思路：每条 CVE 一条标注
+（cve_id 唯一，`threat_level/exploited/notes`），种子内置 4 条真实 CVE
+（CVE-2021-44228 Log4Shell、CVE-2017-0144 EternalBlue、CVE-2023-34362 MOVEit、
+CVE-2024-3400 PAN-OS，均为 exploited + CRITICAL）。标注在 `RecalcAgentRisk`
+叠加“风险下限”：exploited 或 CRITICAL → 9.0、HIGH → 7.0、MEDIUM → 5.0、
+LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/KEV 行为；
+命中行把 `intel_threat_level/intel_exploited/intel_notes` 写回 CVE 结果，
+告警复制 exploited/threat_level 两列。无标注的 CVE 行为完全不变；新增/修改
+标注 = 提交迁移，零运维、无热更新接口。
 
 ## Users & RBAC / 用户与权限
 

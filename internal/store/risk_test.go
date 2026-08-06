@@ -51,6 +51,60 @@ func TestRiskScoreAndLevel(t *testing.T) {
 	}
 }
 
+func TestApplyIntelRiskFloor(t *testing.T) {
+	cases := []struct {
+		name        string
+		score       float64
+		threatLevel string
+		exploited   bool
+		want        float64
+	}{
+		{"unannotated unchanged", 2.7, "", false, 2.7},
+		{"exploited raises to 9", 3.0, "LOW", true, 9.0},
+		{"exploited keeps higher score", 9.5, "LOW", true, 9.5},
+		{"critical floor", 5.0, "CRITICAL", false, 9.0},
+		{"high floor", 5.0, "HIGH", false, 7.0},
+		{"medium floor", 3.2, "MEDIUM", false, 5.0},
+		{"low is no floor", 3.2, "LOW", false, 3.2},
+		{"case insensitive", 5.0, "critical", false, 9.0},
+		{"unknown level unchanged", 5.0, "SEVERE", false, 5.0},
+		{"cap at 10", 10.4, "CRITICAL", true, 10.0},
+		{"score above floor unchanged", 9.2, "CRITICAL", false, 9.2},
+	}
+	for _, tc := range cases {
+		if got := applyIntelRiskFloor(tc.score, tc.threatLevel, tc.exploited); got != tc.want {
+			t.Errorf("%s: applyIntelRiskFloor(%v, %q, %v) = %v, want %v",
+				tc.name, tc.score, tc.threatLevel, tc.exploited, got, tc.want)
+		}
+	}
+}
+
+func TestAnnotationLookupKeys(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"CVE-2021-44228", []string{"CVE-2021-44228"}},
+		{"DEBIAN-CVE-2021-44228", []string{"DEBIAN-CVE-2021-44228", "CVE-2021-44228"}},
+		{"UBUNTU-CVE-2023-34362", []string{"UBUNTU-CVE-2023-34362", "CVE-2023-34362"}},
+		{"ALPINE-CVE-2024-3400", []string{"ALPINE-CVE-2024-3400", "CVE-2024-3400"}},
+		{"DSA-6113-1", []string{"DSA-6113-1"}},
+	}
+	for _, tc := range cases {
+		got := annotationLookupKeys(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("annotationLookupKeys(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range tc.want {
+			if got[i] != tc.want[i] {
+				t.Errorf("annotationLookupKeys(%q) = %v, want %v", tc.in, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
 func TestAssetCriticality(t *testing.T) {
 	if got := AssetCriticality("production", []string{"core"}, "host"); got != 10 {
 		t.Fatalf("prod core host = %v, want 10", got)

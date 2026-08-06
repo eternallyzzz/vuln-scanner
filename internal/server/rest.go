@@ -194,6 +194,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Get("/search", s.search)
 		r.Get("/stats", s.stats)
 		r.Get("/intel/rules", s.listCustomIntel)
+		r.Get("/intel/annotations", s.listCVEIntelAnnotations)
 		r.Get("/eol/summary", s.getEOLSummary)
 		r.Get("/eol/agents", s.getEOLAgents)
 		r.Get("/compliance/summary", s.getComplianceSummary)
