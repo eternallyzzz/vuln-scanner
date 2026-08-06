@@ -17,6 +17,7 @@ import (
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/report"
+	"vuln-scanner/internal/siem"
 	"vuln-scanner/internal/ticket"
 )
 
@@ -58,6 +59,7 @@ type Config struct {
 	LDAP          *ldap.Config       `mapstructure:"ldap"`
 	RemoteScan    *remotescan.Config `mapstructure:"remote_scan"`
 	Ticketing     *ticket.Config     `mapstructure:"ticketing"`
+	SIEM          *siem.Config       `mapstructure:"siem"`
 }
 
 func DefaultConfig() *Config {
@@ -70,6 +72,7 @@ func DefaultConfig() *Config {
 		Reporting:   report.DefaultConfig(),
 		RemoteScan:  remotescan.DefaultConfig(),
 		Ticketing:   ticket.DefaultConfig(),
+		SIEM:        siem.DefaultConfig(),
 	}
 }
 
@@ -151,8 +154,93 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("apply ticketing env: %w", err)
 	}
 	cfg.Ticketing = cfg.Ticketing.Normalized()
+	if cfg.SIEM == nil {
+		cfg.SIEM = siem.DefaultConfig()
+	}
+	if err := applySIEMEnv(cfg.SIEM); err != nil {
+		return nil, fmt.Errorf("apply siem env: %w", err)
+	}
+	cfg.SIEM = cfg.SIEM.Normalized()
+	if err := cfg.SIEM.Validate(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+// applySIEMEnv applies SIEM_* environment overrides on top of any
+// server.yaml siem section. Tokens/secrets are read from the environment
+// variables named by token_env/secret_env and never written to server.yaml.
+func applySIEMEnv(c *siem.Config) error {
+	if c.SplunkHEC == nil {
+		c.SplunkHEC = &siem.HECConfig{}
+	}
+	if c.Webhook == nil {
+		c.Webhook = &siem.WebhookConfig{}
+	}
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setInt := func(envName string, dst *int) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be an integer: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+
+	setString("SIEM_SPLUNK_HEC_URL", &c.SplunkHEC.URL)
+	setString("SIEM_SPLUNK_HEC_TOKEN_ENV", &c.SplunkHEC.TokenEnv)
+	setString("SIEM_SPLUNK_HEC_INDEX", &c.SplunkHEC.Index)
+	setString("SIEM_SPLUNK_HEC_SOURCETYPE", &c.SplunkHEC.SourceType)
+	setString("SIEM_WEBHOOK_URL", &c.Webhook.URL)
+	setString("SIEM_WEBHOOK_SECRET_ENV", &c.Webhook.SecretEnv)
+	if err := setBool("SIEM_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setBool("SIEM_TLS_SKIP_VERIFY", &c.TLSSkipVerify); err != nil {
+		return err
+	}
+	if err := setInt("SIEM_TIMEOUT_SECONDS", &c.TimeoutSeconds); err != nil {
+		return err
+	}
+	if err := setInt("SIEM_BATCH_SIZE", &c.BatchSize); err != nil {
+		return err
+	}
+	if err := setInt("SIEM_DELIVERY_INTERVAL_SECONDS", &c.DeliveryIntervalSeconds); err != nil {
+		return err
+	}
+	if err := setInt("SIEM_MAX_ATTEMPTS", &c.MaxAttempts); err != nil {
+		return err
+	}
+	// Convenience for env-only deployments: use the conventional token/secret
+	// variable names directly when the *_ENV indirection is not set.
+	if c.SplunkHEC.TokenEnv == "" && os.Getenv("SIEM_SPLUNK_HEC_TOKEN") != "" {
+		c.SplunkHEC.TokenEnv = "SIEM_SPLUNK_HEC_TOKEN"
+	}
+	if c.Webhook.SecretEnv == "" && os.Getenv("SIEM_WEBHOOK_SECRET") != "" {
+		c.Webhook.SecretEnv = "SIEM_WEBHOOK_SECRET"
+	}
+	return nil
 }
 
 // applyTicketingEnv applies TICKET_* environment overrides on top of any

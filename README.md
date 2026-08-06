@@ -13,6 +13,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **CVE matching / 漏洞匹配** — deterministic multi-source matching across MSRC, NVD, OSV, Debian Security Tracker, Red Hat Security Data
 - **Alerting / 告警** — rule engine with severity/source/agent/asset/tag/environment filters, dedup & cooldown, Webhook (HMAC-signed) / SMTP delivery
 - **Ticketing integration / 工单集成** — alert rules with `ticket_enabled: true` auto-create Jira issues / ServiceNow incidents; ack/resolved sync back the ticket status with automatic retry and a manual retry endpoint
+- **SIEM/SOAR event stream / 安全事件流** — alert and patch-task state changes are written to an outbox and delivered to Splunk HEC / generic Webhook with retries
 - **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
 - **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
 - **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
@@ -47,6 +48,7 @@ graph LR
 | `internal/container` | Trivy-based container image scanning |
 | `internal/remotescan` | Server-side SSH credential scanning (Linux/macOS/Windows), encrypted credential store & ToFU host keys |
 | `internal/ticket` | Jira/ServiceNow integration: alert-driven ticket creation and status sync |
+| `internal/siem` | SIEM/SOAR outbox: Splunk HEC / generic Webhook delivery of alert & patch events |
 | `internal/llm` | Optional LLM analysis (OpenAI / Anthropic) |
 
 ## Quick Start / 快速开始
@@ -172,6 +174,29 @@ ticketing:
   servicenow_resolved_state: 6
 ```
 
+### Server：SIEM/SOAR 事件流（可选）
+
+告警（created/acknowledged/resolved）与补丁任务状态变化会先写入 outbox，再由后台 worker 批量投递；
+默认 10 秒轮询、单批 50 条、失败重试 3 次。Splunk HEC 与 Webhook 可同时启用，token/secret 只从环境变量读取。
+
+```yaml
+siem:
+  enabled: true
+  splunk_hec:
+    url: "https://splunk.example.com:8088/services/collector/event"
+    token_env: "SIEM_SPLUNK_HEC_TOKEN"
+    index: "vulnscan"
+    sourcetype: "vulnscan:events"
+  webhook:
+    url: "https://soar.example.com/hook"
+    secret_env: "SIEM_WEBHOOK_SECRET"   # 可选；配置后请求带 HMAC 签名
+  delivery_interval_seconds: 10
+  batch_size: 50
+  max_attempts: 3
+  timeout_seconds: 10
+  tls_skip_verify: false
+```
+
 ### Server：凭据远程扫描（可选）
 
 启用后服务端可用保存的 SSH 凭据直连目标（Linux/macOS/Windows OpenSSH）做只读采集
@@ -219,6 +244,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 | `LDAP_BIND_PASSWORD` | `ldap.bind_password_env` | LDAP service-account bind password; read from the environment variable named there (env-only deployments can set `LDAP_BIND_PASSWORD` directly) |
 | `REMOTE_SCAN_MASTER_KEY` | `remote_scan.master_key_env` | AES-256 master key (hex/base64 32 bytes) for encrypted remote credentials; read from the environment variable named there, never write it to server.yaml |
 | `TICKET_PASSWORD` | `ticketing.password_env` | Jira API token / ServiceNow password for ticket integration; read from the environment variable named there, never write it to server.yaml |
+| `SIEM_SPLUNK_HEC_TOKEN` / `SIEM_WEBHOOK_SECRET` | `siem.splunk_hec.token_env` / `siem.webhook.secret_env` | Splunk HEC token / webhook signing secret for the event stream; read from the environment variables named there, never write them to server.yaml |
 | `JWT_SECRET` / `API_KEY` | `server.yaml` | Agent gRPC JWT signing secret & REST X-API-Key. **Must be changed** from the demo placeholders |
 | OSV / MSRC / Debian / Red Hat | none / 无 | Public APIs, no key required |
 
@@ -231,6 +257,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 资产：`GET/PUT /api/v1/assets...`（筛选、标签/环境/负责人、生命周期、变更历史、关系、summary）
 - 告警：`/api/v1/alert-rules` CRUD、`/api/v1/alerts` 查询/ack/resolve/remediate、`test` 通道测试；规则支持 severity/source/agent/asset/tag/environment/min_cvss/cooldown，`auto_remediate: true` 时新告警自动生成补丁 campaign（告警上回填 remediation_campaign_id）
 - 工单集成：`ticket_enabled: true` 的规则命中后自动在 Jira/ServiceNow 建单，`GET /alerts` 返回 ticket_key/url；`POST /api/v1/alerts/{id}/ticket/retry`（operator+）可手动重试建单/状态同步
+- 安全事件流：告警与补丁任务状态变化经 `siem_events` outbox 投递到 Splunk HEC / 通用 Webhook（`siem.enabled: true` 时启用，失败自动重试）
 - 补丁：`POST /agents/{id}/patch-tasks/generate`、`/patch-tasks/{id}/approve|reject|cancel|retry|stop`；agent 轮询执行并回传结果，执行期间 stdout/stderr 通过 `GET /patch-tasks/{id}/events` 游标轮询实时查看，`POST /patch-tasks/{id}/stop` 可中止运行中任务（agent 终止进程树后上报 cancelled）
 - 批量补丁：`POST /api/v1/patch-campaigns`（按 agent_ids/tags/environments/asset_names/cve_ids/min_severity/min_cvss 批量生成，支持 `dry_run` 预演、重复任务去重）、`/patch-campaigns/{id}/approve|reject|cancel|retry` 批量状态流转、`/patch-campaigns/{id}` 汇总与审计、`GET /api/v1/patch-tasks` 全局任务列表
 - 容器扫描：`POST /api/v1/container/scan` 异步触发 Trivy 扫描、`GET /api/v1/container/status` 扫描状态、`GET /api/v1/container/images` 镜像清单；结果落入合成 agent（默认 agent-container-docker），修复建议为 rebuild（不可自动部署）

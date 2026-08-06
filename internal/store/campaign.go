@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -101,6 +102,11 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 
 	if err := tx.Commit(ctx); err != nil {
 		return PatchCampaign{}, nil, err
+	}
+	for _, task := range created {
+		if e := s.appendSiemPatchTask(ctx, "patch_task.created", task, createdBy); e != nil {
+			slog.Warn("siem campaign task created event failed", "task_id", task.ID, "error", e)
+		}
 	}
 	return campaign, created, nil
 }
@@ -204,17 +210,34 @@ func (s *Store) BulkSetPatchTaskStatus(ctx context.Context, campaignID int64, fr
 	if len(from) == 0 {
 		return 0, nil
 	}
-	tag, err := s.pool.Exec(ctx, `
+	rows, err := s.pool.Query(ctx, `
 		UPDATE patch_tasks SET
 			status=$2,
 			approved_by=CASE WHEN $2='approved' THEN $3 ELSE approved_by END,
 			updated_at=NOW()
 		WHERE campaign_id=$1 AND status = ANY($4::text[])
+		RETURNING id
 	`, campaignID, to, actor, from)
 	if err != nil {
 		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var count int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return count, err
+		}
+		count++
+		task, err := s.GetPatchTask(ctx, id)
+		if err != nil {
+			return count, err
+		}
+		if e := s.appendSiemPatchTask(ctx, patchTaskEventType(to), task, actor); e != nil {
+			slog.Warn("siem patch task bulk event failed", "task_id", id, "status", to, "error", e)
+		}
+	}
+	return count, rows.Err()
 }
 
 func (s *Store) AppendCampaignAudit(ctx context.Context, campaignID int64, action, actor string, affected int64, detail json.RawMessage) error {

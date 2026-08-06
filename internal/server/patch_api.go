@@ -266,7 +266,7 @@ func (s *RESTServer) stopPatchTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) requestPatchTaskCancel(w http.ResponseWriter, r *http.Request, task store.PatchTask) {
-	ok, err := s.store.RequestPatchTaskCancel(r.Context(), task.ID)
+	ok, err := s.store.RequestPatchTaskCancel(r.Context(), task.ID, actorFromRequest(r))
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

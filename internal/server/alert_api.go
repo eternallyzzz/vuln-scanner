@@ -255,7 +255,7 @@ func (s *RESTServer) setAlertStatus(w http.ResponseWriter, r *http.Request, stat
 		writeError(w, 400, "invalid alert id")
 		return
 	}
-	if err := s.store.SetAlertStatus(r.Context(), id, status); err != nil {
+	if err := s.store.SetAlertStatus(r.Context(), id, status, actorFromRequest(r)); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}

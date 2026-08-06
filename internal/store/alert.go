@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,7 +226,15 @@ func (s *Store) UpsertAlertFromResult(ctx context.Context, rule AlertRule, agent
 			risk_score=EXCLUDED.risk_score, risk_level=EXCLUDED.risk_level
 		RETURNING id, (xmax = 0)
 	`, rule.ID, agentID, cveID, assetName, severity, cvss, source).Scan(&id, &created)
-	return id, created, err
+	if err != nil {
+		return id, created, err
+	}
+	if created {
+		if e := s.appendSiemAlert(ctx, "alert.created", id, "open", "alerting"); e != nil {
+			slog.Warn("siem alert created event failed", "alert_id", id, "error", e)
+		}
+	}
+	return id, created, nil
 }
 
 // UpsertSLABreachAlert creates or refreshes an open SLA breach alert for an
@@ -249,7 +258,15 @@ func (s *Store) UpsertSLABreachAlert(ctx context.Context, ruleID int64, agentID,
 			risk_score=EXCLUDED.risk_score, risk_level=EXCLUDED.risk_level
 		RETURNING id, (xmax = 0)
 	`, ruleID, agentID, cveID, assetName, severity, cvss).Scan(&id, &created)
-	return id, created, err
+	if err != nil {
+		return id, created, err
+	}
+	if created {
+		if e := s.appendSiemAlert(ctx, "alert.created", id, "open", "sla-check"); e != nil {
+			slog.Warn("siem sla alert created event failed", "alert_id", id, "error", e)
+		}
+	}
+	return id, created, nil
 }
 
 func (s *Store) CreateAlertDeliveries(ctx context.Context, alertID int64, channels []string) error {
@@ -267,37 +284,73 @@ func (s *Store) CreateAlertDeliveries(ctx context.Context, alertID int64, channe
 // ResolveInactiveAlerts marks open alerts resolved when their
 // rule|cve|asset key is not in the active set (no longer matched).
 func (s *Store) ResolveInactiveAlerts(ctx context.Context, agentID string, activeKeys []string) error {
+	var rows pgx.Rows
+	var err error
 	if len(activeKeys) == 0 {
-		_, err := s.pool.Exec(ctx, `
+		rows, err = s.pool.Query(ctx, `
 			UPDATE alerts SET status='resolved', resolved_at=NOW()
 			WHERE agent_id=$1 AND status='open'
+			RETURNING id
 		`, agentID)
+	} else {
+		rows, err = s.pool.Query(ctx, `
+			UPDATE alerts SET status='resolved', resolved_at=NOW()
+			WHERE agent_id=$1 AND status='open'
+			  AND (rule_id::text || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
+			RETURNING id
+		`, agentID, activeKeys)
+	}
+	if err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `
-		UPDATE alerts SET status='resolved', resolved_at=NOW()
-		WHERE agent_id=$1 AND status='open'
-		  AND (rule_id::text || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
-	`, agentID, activeKeys)
-	return err
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		if e := s.appendSiemAlert(ctx, "alert.resolved", id, "resolved", "match-resolve"); e != nil {
+			slog.Warn("siem alert resolved event failed", "alert_id", id, "error", e)
+		}
+	}
+	return rows.Err()
 }
 
 // ResolveSLABreachAlerts resolves open SLA alerts whose
 // agent|cve|asset key is no longer in the active (still overdue) set.
 func (s *Store) ResolveSLABreachAlerts(ctx context.Context, ruleID int64, activeKeys map[string]bool) (int64, error) {
+	var rows pgx.Rows
+	var err error
 	if len(activeKeys) == 0 {
-		tag, err := s.pool.Exec(ctx, `
+		rows, err = s.pool.Query(ctx, `
 			UPDATE alerts SET status='resolved', resolved_at=NOW()
 			WHERE rule_id=$1 AND status='open'
+			RETURNING id
 		`, ruleID)
-		return tag.RowsAffected(), err
+	} else {
+		rows, err = s.pool.Query(ctx, `
+			UPDATE alerts SET status='resolved', resolved_at=NOW()
+			WHERE rule_id=$1 AND status='open'
+			  AND (agent_id || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
+			RETURNING id
+		`, ruleID, keysSlice(activeKeys))
 	}
-	tag, err := s.pool.Exec(ctx, `
-		UPDATE alerts SET status='resolved', resolved_at=NOW()
-		WHERE rule_id=$1 AND status='open'
-		  AND (agent_id || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
-	`, ruleID, keysSlice(activeKeys))
-	return tag.RowsAffected(), err
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var count int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return count, err
+		}
+		count++
+		if e := s.appendSiemAlert(ctx, "alert.resolved", id, "resolved", "sla-check"); e != nil {
+			slog.Warn("siem sla alert resolved event failed", "alert_id", id, "error", e)
+		}
+	}
+	return count, rows.Err()
 }
 
 func keysSlice(m map[string]bool) []string {
@@ -498,12 +551,24 @@ func (s *Store) SetAlertRemediation(ctx context.Context, alertID int64, campaign
 	return err
 }
 
-func (s *Store) SetAlertStatus(ctx context.Context, alertID int64, status string) error {
+func (s *Store) SetAlertStatus(ctx context.Context, alertID int64, status, actor string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE alerts SET status=$2, resolved_at=CASE WHEN $2='resolved' THEN NOW() ELSE resolved_at END
 		WHERE id=$1
 	`, alertID, status)
-	return err
+	if err != nil {
+		return err
+	}
+	if status == "ack" || status == "resolved" {
+		eventType := "alert.acknowledged"
+		if status == "resolved" {
+			eventType = "alert.resolved"
+		}
+		if e := s.appendSiemAlert(ctx, eventType, alertID, status, actor); e != nil {
+			slog.Warn("siem alert status event failed", "alert_id", alertID, "status", status, "error", e)
+		}
+	}
+	return nil
 }
 
 func (s *Store) ListPendingAlertDeliveries(ctx context.Context, limit int) ([]AlertDelivery, error) {

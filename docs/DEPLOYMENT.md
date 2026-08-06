@@ -73,6 +73,20 @@ curl http://localhost:8080/health
 | `TICKET_SERVICENOW_TABLE` | `incident` | ServiceNow 表名 |
 | `TICKET_SERVICENOW_ACK_STATE` | `2` | ServiceNow ack 状态值 |
 | `TICKET_SERVICENOW_RESOLVED_STATE` | `6` | ServiceNow resolved 状态值 |
+| `SIEM_ENABLED` | `false` | 启用 SIEM/SOAR 事件流（对应 `siem.enabled`） |
+| `SIEM_SPLUNK_HEC_URL` | 空 | Splunk HEC collector 地址 |
+| `SIEM_SPLUNK_HEC_TOKEN` | 空 | Splunk HEC token；**仅环境变量，不落配置** |
+| `SIEM_SPLUNK_HEC_TOKEN_ENV` | `SIEM_SPLUNK_HEC_TOKEN` | 指定存放 HEC token 的环境变量名 |
+| `SIEM_SPLUNK_HEC_INDEX` | `main` | Splunk 索引 |
+| `SIEM_SPLUNK_HEC_SOURCETYPE` | `vulnscan:events` | Splunk sourcetype |
+| `SIEM_WEBHOOK_URL` | 空 | 通用 Webhook 地址（可选） |
+| `SIEM_WEBHOOK_SECRET` | 空 | Webhook HMAC 签名密钥；**仅环境变量，不落配置** |
+| `SIEM_WEBHOOK_SECRET_ENV` | `SIEM_WEBHOOK_SECRET` | 指定存放签名密钥的环境变量名 |
+| `SIEM_DELIVERY_INTERVAL_SECONDS` | `10` | outbox 投递轮询间隔 |
+| `SIEM_BATCH_SIZE` | `50` | 单批事件数（1-500） |
+| `SIEM_MAX_ATTEMPTS` | `3` | 单批失败重试上限 |
+| `SIEM_TIMEOUT_SECONDS` | `10` | 单次投递 HTTP 超时 |
+| `SIEM_TLS_SKIP_VERIFY` | `false` | 跳过 TLS 证书校验（测试环境） |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |

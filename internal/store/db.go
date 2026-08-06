@@ -85,7 +85,8 @@ type AnalysisLog struct {
 }
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	siemEnabled bool
 }
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {

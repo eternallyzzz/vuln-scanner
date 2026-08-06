@@ -17,6 +17,7 @@ import (
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/report"
+	"vuln-scanner/internal/siem"
 	"vuln-scanner/internal/store"
 	"vuln-scanner/internal/ticket"
 )
@@ -51,6 +52,8 @@ type Worker struct {
 	remoteCh         chan struct{}
 	tickets          *ticket.Service
 	ticketCh         chan struct{}
+	siem             *siem.Service
+	siemCh           chan struct{}
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -93,10 +96,42 @@ func (w *Worker) Start(ctx context.Context) {
 	if w.tickets != nil {
 		go w.ticketLoop(ctx)
 	}
+	if w.siem != nil {
+		go w.siemLoop(ctx)
+	}
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
 	go w.reapPatchLoop(ctx)
+}
+
+// ConfigureSIEM enables the background SIEM/SOAR outbox worker.
+func (w *Worker) ConfigureSIEM(cfg *siem.Config) {
+	if cfg == nil || !cfg.Enabled {
+		return
+	}
+	svc, err := siem.NewService(cfg)
+	if err != nil {
+		slog.Error("siem disabled: invalid config", "error", err)
+		return
+	}
+	w.siem = svc
+	w.siemCh = make(chan struct{}, 1)
+	w.store.SetSiemEnabled(true)
+	slog.Info("siem enabled",
+		"interval_seconds", svc.Config().DeliveryIntervalSeconds,
+		"batch_size", svc.Config().BatchSize)
+}
+
+// TriggerSIEM wakes the SIEM worker loop immediately.
+func (w *Worker) TriggerSIEM() {
+	if w.siemCh == nil {
+		return
+	}
+	select {
+	case w.siemCh <- struct{}{}:
+	default:
+	}
 }
 
 // ConfigureRemoteScanning enables the server-side credential scan worker.

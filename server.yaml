@@ -52,3 +52,20 @@ api_key: "sk-change-me"
 #   servicenow_table: "incident"
 #   servicenow_ack_state: 2
 #   servicenow_resolved_state: 6
+
+# SIEM/SOAR 事件流（可选；告警+补丁事件经 outbox 投递，token/secret 只从环境变量读取）
+# siem:
+#   enabled: false
+#   splunk_hec:
+#     url: "https://splunk.example.com:8088/services/collector/event"
+#     token_env: "SIEM_SPLUNK_HEC_TOKEN"
+#     index: "vulnscan"
+#     sourcetype: "vulnscan:events"
+#   webhook:
+#     url: ""
+#     secret_env: "SIEM_WEBHOOK_SECRET"   # 可选；配置后请求带 HMAC 签名
+#   delivery_interval_seconds: 10
+#   batch_size: 50
+#   max_attempts: 3
+#   timeout_seconds: 10
+#   tls_skip_verify: false

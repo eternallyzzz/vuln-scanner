@@ -88,6 +88,18 @@ func main() {
 				"provider", cfg.Ticketing.Provider, "base_url", cfg.Ticketing.BaseURL)
 		}
 	}
+	if cfg.SIEM != nil {
+		cfg.SIEM = cfg.SIEM.Normalized()
+		if err := cfg.SIEM.Validate(); err != nil {
+			slog.Error("siem config invalid", "error", err)
+			os.Exit(1)
+		}
+		if cfg.SIEM.Enabled {
+			slog.Info("siem enabled",
+				"interval_seconds", cfg.SIEM.DeliveryIntervalSeconds,
+				"batch_size", cfg.SIEM.BatchSize)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -140,6 +152,7 @@ func main() {
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
 	worker.ConfigureRemoteScanning(cfg.RemoteScan)
 	worker.ConfigureTicketing(cfg.Ticketing)
+	worker.ConfigureSIEM(cfg.SIEM)
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP

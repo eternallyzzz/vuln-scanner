@@ -403,3 +403,83 @@ func TestLoadConfigTicketingInvalidEnv(t *testing.T) {
 		t.Fatal("invalid TICKET_ENABLED must fail config load")
 	}
 }
+
+func TestLoadConfigSIEMFromFileAndEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	content := []byte(`
+siem:
+  enabled: true
+  splunk_hec:
+    url: "https://splunk.example.com:8088/services/collector/event"
+    token_env: "SPLUNK_TOKEN"
+    index: "vulnscan"
+    sourcetype: "vulnscan:events"
+  webhook:
+    url: "https://soar.example.com/hook"
+  batch_size: 25
+  max_attempts: 5
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPLUNK_TOKEN", "s3cret")
+	t.Setenv("SIEM_DELIVERY_INTERVAL_SECONDS", "7")
+	t.Setenv("SIEM_TIMEOUT_SECONDS", "20")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SIEM == nil || !cfg.SIEM.Enabled {
+		t.Fatalf("siem file config not applied: %+v", cfg.SIEM)
+	}
+	if cfg.SIEM.SplunkHEC.URL != "https://splunk.example.com:8088/services/collector/event" ||
+		cfg.SIEM.SplunkHEC.TokenEnv != "SPLUNK_TOKEN" ||
+		cfg.SIEM.SplunkHEC.Index != "vulnscan" || cfg.SIEM.Webhook.URL != "https://soar.example.com/hook" ||
+		cfg.SIEM.BatchSize != 25 || cfg.SIEM.MaxAttempts != 5 ||
+		cfg.SIEM.DeliveryIntervalSeconds != 7 || cfg.SIEM.TimeoutSeconds != 20 {
+		t.Fatalf("siem fields not applied: %+v", cfg.SIEM)
+	}
+	if got := cfg.SIEM.HECToken(); got != "s3cret" {
+		t.Fatalf("siem HEC token = %q, want env value", got)
+	}
+}
+
+func TestLoadConfigSIEMEnvOnly(t *testing.T) {
+	t.Setenv("SIEM_ENABLED", "true")
+	t.Setenv("SIEM_SPLUNK_HEC_URL", "https://splunk.example.com/services/collector/event")
+	t.Setenv("SIEM_SPLUNK_HEC_TOKEN", "env-token")
+	t.Setenv("SIEM_SPLUNK_HEC_INDEX", "sec")
+	t.Setenv("SIEM_SPLUNK_HEC_SOURCETYPE", "vulnscan")
+	t.Setenv("SIEM_WEBHOOK_URL", "https://hook.example.com/siem")
+	t.Setenv("SIEM_BATCH_SIZE", "10")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SIEM == nil || !cfg.SIEM.Enabled || cfg.SIEM.SplunkHEC.URL != "https://splunk.example.com/services/collector/event" ||
+		cfg.SIEM.SplunkHEC.TokenEnv != "SIEM_SPLUNK_HEC_TOKEN" ||
+		cfg.SIEM.SplunkHEC.Index != "sec" || cfg.SIEM.SplunkHEC.SourceType != "vulnscan" ||
+		cfg.SIEM.Webhook.URL != "https://hook.example.com/siem" || cfg.SIEM.BatchSize != 10 {
+		t.Fatalf("siem env-only config not applied: %+v", cfg.SIEM)
+	}
+	if got := cfg.SIEM.HECToken(); got != "env-token" {
+		t.Fatalf("siem HEC token = %q, want env value", got)
+	}
+}
+
+func TestLoadConfigSIEMInvalidEnv(t *testing.T) {
+	t.Setenv("SIEM_ENABLED", "true")
+	t.Setenv("SIEM_SPLUNK_HEC_URL", "https://splunk.example.com/services/collector/event")
+	t.Setenv("SIEM_SPLUNK_HEC_TOKEN", "tok")
+	t.Setenv("SIEM_BATCH_SIZE", "501")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid SIEM_BATCH_SIZE must fail config load")
+	}
+	t.Setenv("SIEM_BATCH_SIZE", "")
+	t.Setenv("SIEM_ENABLED", "maybe")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid SIEM_ENABLED must fail config load")
+	}
+}

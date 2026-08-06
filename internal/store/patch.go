@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -89,7 +90,14 @@ func (s *Store) CreatePatchTask(ctx context.Context, in PatchTaskInput) (PatchTa
 		RETURNING `+patchTaskColumns,
 		in.AgentID, in.AssetName, in.FixType, in.FixValue, in.Action,
 		in.CVEIDs, in.Command, commands, in.ApprovalRequired, in.WindowStart, in.WindowEnd, in.CreatedBy)
-	return scanPatchTask(row)
+	task, err := scanPatchTask(row)
+	if err != nil {
+		return task, err
+	}
+	if e := s.appendSiemPatchTask(ctx, "patch_task.created", task, task.CreatedBy); e != nil {
+		slog.Warn("siem patch task created event failed", "task_id", task.ID, "error", e)
+	}
+	return task, nil
 }
 
 func (s *Store) GetPatchTask(ctx context.Context, id int64) (PatchTask, error) {
@@ -130,7 +138,17 @@ func (s *Store) SetPatchTaskStatus(ctx context.Context, id int64, status, actor 
 			updated_at=NOW()
 		WHERE id=$1
 	`, id, status, actor)
-	return err
+	if err != nil {
+		return err
+	}
+	task, err := s.GetPatchTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if e := s.appendSiemPatchTask(ctx, patchTaskEventType(status), task, actor); e != nil {
+		slog.Warn("siem patch task status event failed", "task_id", id, "status", status, "error", e)
+	}
+	return nil
 }
 
 // ClaimNextPatchTask atomically reserves the oldest approved, in-window task
@@ -147,7 +165,14 @@ func (s *Store) ClaimNextPatchTask(ctx context.Context, agentID string) (PatchTa
 		UPDATE patch_tasks SET status='running', updated_at=NOW()
 		FROM claim WHERE patch_tasks.id = claim.id
 		RETURNING patch_tasks.*`, agentID)
-	return scanPatchTask(row)
+	task, err := scanPatchTask(row)
+	if err != nil {
+		return task, err
+	}
+	if e := s.appendSiemPatchTask(ctx, "patch_task.running", task, "agent:"+agentID); e != nil {
+		slog.Warn("siem patch task running event failed", "task_id", task.ID, "error", e)
+	}
+	return task, nil
 }
 
 func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, result map[string]interface{}) error {
@@ -156,7 +181,17 @@ func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, 
 		UPDATE patch_tasks SET status=$2, result=$3, cancel_requested=FALSE, updated_at=NOW()
 		WHERE id=$1
 	`, id, status, raw)
-	return err
+	if err != nil {
+		return err
+	}
+	task, err := s.GetPatchTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if e := s.appendSiemPatchTask(ctx, patchTaskEventType(status), task, "agent"); e != nil {
+		slog.Warn("siem patch task completion event failed", "task_id", id, "status", status, "error", e)
+	}
+	return nil
 }
 
 // AppendPatchTaskEvents appends one batch of execution events inside a
@@ -211,7 +246,7 @@ func (s *Store) ListPatchTaskEvents(ctx context.Context, taskID, afterID int64, 
 
 // RequestPatchTaskCancel sets the cancel flag on a running task. It reports
 // whether the task was actually running (and therefore flagged).
-func (s *Store) RequestPatchTaskCancel(ctx context.Context, id int64) (bool, error) {
+func (s *Store) RequestPatchTaskCancel(ctx context.Context, id int64, actor string) (bool, error) {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE patch_tasks SET cancel_requested=TRUE, updated_at=NOW()
 		WHERE id=$1 AND status='running'
@@ -219,7 +254,17 @@ func (s *Store) RequestPatchTaskCancel(ctx context.Context, id int64) (bool, err
 	if err != nil {
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	cancelled := tag.RowsAffected() > 0
+	if cancelled {
+		task, err := s.GetPatchTask(ctx, id)
+		if err != nil {
+			return cancelled, err
+		}
+		if e := s.appendSiemPatchTask(ctx, "patch_task.cancel_requested", task, actor); e != nil {
+			slog.Warn("siem patch task cancel event failed", "task_id", id, "error", e)
+		}
+	}
+	return cancelled, nil
 }
 
 // PatchTaskCancelRequested reports whether a task has a pending cancel
@@ -235,12 +280,50 @@ func (s *Store) PatchTaskCancelRequested(ctx context.Context, id int64) (bool, e
 }
 
 func (s *Store) ReapStalePatchTasks(ctx context.Context, timeout time.Duration) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
+	rows, err := s.pool.Query(ctx, `
 		UPDATE patch_tasks SET status='approved', updated_at=NOW()
 		WHERE status='running' AND updated_at < NOW() - $1::interval
+		RETURNING id
 	`, timeout.String())
 	if err != nil {
 		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	defer rows.Close()
+	var count int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return count, err
+		}
+		count++
+		task, err := s.GetPatchTask(ctx, id)
+		if err != nil {
+			return count, err
+		}
+		if e := s.appendSiemPatchTask(ctx, "patch_task.approved", task, "reaper"); e != nil {
+			slog.Warn("siem patch task reap event failed", "task_id", id, "error", e)
+		}
+	}
+	return count, rows.Err()
+}
+
+func patchTaskEventType(status string) string {
+	switch status {
+	case "approved":
+		return "patch_task.approved"
+	case "rejected":
+		return "patch_task.rejected"
+	case "cancelled":
+		return "patch_task.cancelled"
+	case "pending":
+		return "patch_task.pending"
+	case "success":
+		return "patch_task.succeeded"
+	case "failed":
+		return "patch_task.failed"
+	case "running":
+		return "patch_task.running"
+	default:
+		return "patch_task.updated"
+	}
 }
