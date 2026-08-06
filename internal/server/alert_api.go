@@ -63,8 +63,12 @@ func (s *RESTServer) validateRuleInput(in *alertRuleInput) error {
 		return errors.New("cooldown_minutes must be >= 0")
 	}
 	ticketEnabled := in.TicketEnabled != nil && *in.TicketEnabled
-	if len(in.Channels) == 0 && !ticketEnabled {
-		in.Channels = []string{"webhook"}
+	configuredChannels := 0
+	if s.alerts != nil {
+		configuredChannels = len(s.alerts.ChannelNames())
+	}
+	if len(in.Channels) == 0 && !ticketEnabled && configuredChannels > 0 {
+		in.Channels = []string{s.alerts.ChannelNames()[0]}
 	}
 	if len(in.EnvironmentFilter) > 100 {
 		return errors.New("environment_filter too long (max 100)")

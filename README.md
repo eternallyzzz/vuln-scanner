@@ -9,21 +9,13 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 
 ## Features / 功能特性
 
-- **Asset collection / 资产采集** — Windows / Linux host inventory (software, ports, services, processes, hotfixes) with agent auto-registration and token-based auth
-- **CVE matching / 漏洞匹配** — deterministic multi-source matching across MSRC, NVD, OSV, Debian Security Tracker, Red Hat Security Data
-- **Alerting / 告警** — rule engine with severity/source/agent/asset/tag/environment filters, dedup & cooldown, Webhook (HMAC-signed) / SMTP delivery
-- **Ticketing integration / 工单集成** — alert rules with `ticket_enabled: true` auto-create Jira issues / ServiceNow incidents; ack/resolved sync back the ticket status with automatic retry and a manual retry endpoint
-- **SIEM/SOAR event stream / 安全事件流** — alert and patch-task state changes are written to an outbox and delivered to Splunk HEC / generic Webhook with retries
-- **Cloud asset discovery / 云资产接入** — AWS EC2/S3/RDS, Azure VM/Storage/SQL, GCP instance/GCS/Cloud SQL discovery with encrypted account credentials, periodic refresh and CMDB sync
-- **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
-- **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
-- **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
-- **Remote credential scanning / 凭据远程扫描** — Server-side SSH collection (Linux/macOS/Windows OpenSSH) with encrypted credential store, ToFU host-key verification and full audit; agent-first, credential scan as the fallback
-- **Web/DB scanning / Web 应用与数据库扫描** — Server-side HTTP(S) fingerprint (nginx/apache/IIS/Tomcat/PHP/WordPress etc.) and PostgreSQL/MySQL/Redis version identification with optional encrypted credentials; results feed the existing CVE matching / risk / alerting pipeline and CMDB
-- **Proprietary threat intel / 专有威胁情报** — built-in vulnerability fingerprint rules (product + version range + fixed version) and CVE annotations (threat level / exploited / notes) maintained as migration seeds; rules auto-load into matching at startup, annotations raise the risk floor on recalculation, read-only APIs, zero runtime maintenance
-- **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
-- **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
-- **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
+- **Core closed loop / 核心闭环** — asset collection → CVE matching → alerting → patch recommendation & deployment:
+  - **Asset collection / 资产采集** — Windows / Linux host inventory (software, ports, services, processes, hotfixes) with agent auto-registration and token-based auth
+  - **CVE matching / 漏洞匹配** — deterministic multi-source matching across MSRC, NVD, OSV, Debian Security Tracker, Red Hat Security Data
+  - **Alerting / 告警** — rule engine with severity/source/agent/asset/tag/environment filters, dedup & cooldown; webhook/SMTP delivery optional
+  - **Patch management / 补丁管理** — server-side whitelisted command templates, approval workflow, execution windows, dry-run rehearsal, batch campaigns & audit trail
+  - **Management base / 管理底座** — users/RBAC, unified audit logs, dashboard/risk summary, CSV export
+- **Advanced add-ons (default off) / 高级可选（默认关闭）** — container/network/remote/webdb/cloud scanning, SIEM/ticketing/reporting, EDR, EOL, compliance, proprietary threat intel, LLM, multi-tenant and horizontal scaling. Copy the matching blocks from `server.advanced.yaml.example` when needed.
 
 ## Architecture / 架构
 
@@ -104,12 +96,9 @@ Agent 可达的对外地址。CI 在 main 分支构建并推送镜像至
 ### Server (`server.yaml`)
 
 ```yaml
-mode: "all"   # all（默认，API+gRPC+后台循环）| api（仅 API/gRPC）| worker（仅后台循环）
+mode: "all"
 alerting:
-  enabled: true
-  webhook_url: "https://hooks.example.com/x"
-  webhook_secret: "hmac-secret"
-  smtp: { host: "", port: 587, user: "", password_env: SMTP_PASSWORD, from: "", to: [] }
+  enabled: true            # 内部告警默认开启；webhook/SMTP 为可选通知渠道
   delivery_interval_seconds: 30
   max_attempts: 3
 patch:
@@ -117,50 +106,14 @@ patch:
   default_approval_required: true
   agent_timeout_seconds: 600
   apt_command: "apt-get install -y --only-upgrade"
-  dry_run: true   # true=只记录不执行，上线前先演练
-  auto_remediation:
-    enabled: true          # 新告警命中 auto_remediate 规则时自动生成补丁 campaign
-    approval_required: true
-    min_severity: HIGH
-    max_campaigns_per_hour: 50
+  dry_run: true            # 默认只记录不执行；确认模板后改为 false
 
-reporting:
-  enabled: true
-  schedule: "0 8 * * *"    # 标准 5 段 cron，默认每天 08:00
-  timezone: "Local"        # 默认 Local；例如 "Asia/Shanghai"
-  to: ["ops@example.com"]  # 收件人独立；SMTP 服务器/认证复用 alerting.smtp
+# 高级模块（容器/网络/远程/WebDB/云扫描、SIEM/工单/报表、LDAP 等）默认关闭，
+# 需要时把 server.advanced.yaml.example 中的对应块复制到 server.yaml。
 
-container_scan:
-  enabled: true
-  docker_host: "unix:///var/run/docker.sock"
-  images: []               # 空 = 扫描全部本地镜像；可显式列出 repo:tag
-  image_filter: ""         # 可选正则过滤镜像
-  exclude: ["kicbase", "docker-desktop"]
-  trivy_image: "aquasec/trivy:latest"
-  trivy_cache_volume: "vulnscan-trivy-cache"
-  agent_id: "agent-container-docker"
-  tenant_id: 1               # 合成容器 agent 的归属租户（默认 1）
-  scan_interval_minutes: 360
-  timeout_minutes: 20
-  max_images: 100
-
-ldap:                    # 可选；不配置或 enabled: false 时 LDAP 登录端点返回 400
-  enabled: true
-  url: "ldap://ldap.example.com:389"   # 支持 ldap:// 与 ldaps://
-  tls_skip_verify: false               # 仅对 ldaps:// 生效，测试环境可临时 true
-  bind_dn: "cn=admin,dc=example,dc=org"
-  bind_password_env: "LDAP_BIND_PASSWORD"   # 密码只从环境变量读取，不写入配置文件
-  user_base_dn: "ou=users,dc=example,dc=org"
-  user_filter: "(uid={username})"      # 支持 {username} 占位符
-  group_base_dn: "ou=groups,dc=example,dc=org"
-  group_filter: "(member={dn})"        # 支持 {dn} 占位符
-  role_groups:                         # 组可写 DN 或 CN，匹配不区分大小写
-    admin: ["cn=admins,ou=groups,dc=example,dc=org"]
-    operator: ["cn=ops,ou=groups,dc=example,dc=org"]
-    viewer: ["viewers"]
-  auto_provision: true                 # true=首次登录自动建号；false=仅允许已有本地用户
-  timeout_seconds: 10
 ```
+
+## Advanced add-ons（可选，默认关闭）
 
 ### Server：工单集成（可选）
 
@@ -375,12 +328,12 @@ LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/
 | `operator` | 日常运维：补丁任务/campaign 审批流转、告警 ack/resolve/remediate、异常创建/撤销、触发扫描/分析、资产导入与元数据、alert-rules 与 SLA 策略维护 |
 | `viewer` | 只读（所有 GET；审计日志除外，仅 admin 可见） |
 
-- 多租户（v1）：`tenants` 表提供租户隔离，`users/agents/audit_logs/patch_campaigns`
+- 多租户（v1，高级可选）：`tenants` 表提供租户隔离，`users/agents/audit_logs/patch_campaigns`
   带 `tenant_id`（默认租户 1，存量零变化）；`admin` 全局、`operator/viewer` 限本租户，
   数据以 Agent 为锚点过滤；`X-API-Key` 可带 `X-Tenant-ID` 头做租户级自动化（缺省保持
   全局）；租户管理仅 admin：`GET/POST /api/v1/tenants`、
   `PUT /api/v1/users/{userId}/tenant`、`PUT /api/v1/agents/{agentId}/tenant`。
-- 多租户（v2）：alert_rules、SLA 策略、报表设置为每租户独立行（建租户时从租户 1 快照复制模板），
+- 多租户（v2，高级可选）：alert_rules、SLA 策略、报表设置为每租户独立行（建租户时从租户 1 快照复制模板），
   合成 agent（网络/远程/云/WebDB/容器）按来源归属租户；新增租户级 API key
   （`GET/POST /api/v1/api-keys`、`DELETE /api/v1/api-keys/{keyId}`，明文仅创建时返回一次），
   旧全局 `api_key` 与 `X-Tenant-ID` 头保持向后兼容；扫描策略随 agent 天然租户化。

@@ -72,6 +72,31 @@ func TestValidateRuleInputAutoRemediate(t *testing.T) {
 	}
 }
 
+func TestValidateRuleInputNoChannelsConfigured(t *testing.T) {
+	alertSvc, err := alert.NewService(&store.Store{}, &alert.Config{Enabled: true, MaxAttempts: 3})
+	if err != nil {
+		t.Fatalf("alert service init: %v", err)
+	}
+	s := &RESTServer{alerts: alertSvc}
+	enabled := true
+	in := &alertRuleInput{
+		Name:           "internal-only",
+		Enabled:        &enabled,
+		SeverityFilter: "HIGH",
+	}
+	if err := s.validateRuleInput(in); err != nil {
+		t.Fatalf("rule without configured channels must validate: %v", err)
+	}
+	if len(in.Channels) != 0 {
+		t.Fatalf("channels = %#v, want empty when no channels are configured", in.Channels)
+	}
+
+	in.Channels = []string{"webhook"}
+	if err := s.validateRuleInput(in); err == nil {
+		t.Fatal("explicit unconfigured channel must fail validation")
+	}
+}
+
 func TestRuleFromInputAutoRemediate(t *testing.T) {
 	enabled := true
 	in := alertRuleInput{

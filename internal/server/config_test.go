@@ -119,6 +119,58 @@ func TestLoadConfigModeEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfigCoreDefaults(t *testing.T) {
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alerting == nil || !cfg.Alerting.Enabled {
+		t.Fatalf("default alerting = %#v, want enabled", cfg.Alerting)
+	}
+	if cfg.Patch == nil || !cfg.Patch.Enabled || !cfg.Patch.DryRun || !cfg.Patch.DefaultApprovalRequired {
+		t.Fatalf("default patch = %#v, want enabled/dry-run/approval", cfg.Patch)
+	}
+}
+
+func TestLoadConfigCoreFile(t *testing.T) {
+	cfg, err := LoadConfig("../../server.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alerting == nil || !cfg.Alerting.Enabled {
+		t.Fatalf("core file alerting = %#v, want enabled", cfg.Alerting)
+	}
+	if cfg.Patch == nil || !cfg.Patch.Enabled || !cfg.Patch.DryRun || !cfg.Patch.DefaultApprovalRequired {
+		t.Fatalf("core file patch = %#v, want enabled/dry-run/approval", cfg.Patch)
+	}
+}
+
+func TestLoadConfigCoreEnvOverrides(t *testing.T) {
+	t.Setenv("ALERTING_ENABLED", "false")
+	t.Setenv("ALERTING_WEBHOOK_URL", "https://hooks.example.com/x")
+	t.Setenv("PATCH_ENABLED", "false")
+	t.Setenv("PATCH_DRY_RUN", "false")
+	t.Setenv("PATCH_DEFAULT_APPROVAL_REQUIRED", "false")
+	t.Setenv("PATCH_AGENT_TIMEOUT_SECONDS", "120")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Alerting == nil || cfg.Alerting.Enabled {
+		t.Fatalf("alerting = %#v, want disabled via ALERTING_ENABLED", cfg.Alerting)
+	}
+	if cfg.Alerting == nil || cfg.Alerting.WebhookURL != "https://hooks.example.com/x" {
+		t.Fatalf("alerting webhook_url = %#v, want env value", cfg.Alerting.WebhookURL)
+	}
+	if cfg.Patch == nil || cfg.Patch.Enabled || cfg.Patch.DryRun || cfg.Patch.DefaultApprovalRequired {
+		t.Fatalf("patch = %#v, want disabled/dry-run=false/approval=false via env", cfg.Patch)
+	}
+	if cfg.Patch == nil || cfg.Patch.AgentTimeoutSeconds != 120 {
+		t.Fatalf("patch agent_timeout_seconds = %d, want 120", cfg.Patch.AgentTimeoutSeconds)
+	}
+}
+
 func TestCVEScanConfigFeedConfig(t *testing.T) {
 	c := &CVEScanConfig{
 		MSRCRefreshMinutes: 120,

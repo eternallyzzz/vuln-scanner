@@ -1,29 +1,50 @@
-# VulnScanner Server Configuration
-# 密钥支持 ${ENV} 展开，例如 api_key: "${API_KEY}"。
-# 所有占位符均为演示值，部署前必须改为自己的密钥（或使用环境变量）。
+# VulnScanner Server Configuration - Core Profile
+#
+# This is the default configuration for the core closed loop:
+# asset collection -> CVE matching -> patch recommendation & deployment.
+# Advanced modules (cloud/remote/WebDB/container scanning, SIEM, ticketing,
+# reporting, LDAP, etc.) are intentionally not listed here. Copy the blocks
+# from server.advanced.yaml.example when you need them.
 
 grpc_addr: ":9090"
 http_addr: ":8080"
 database_url: "postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable"
 jwt_secret: "change-me-in-production"
 api_key: "sk-change-me"
-
-# 多租户 v2：旧全局 api_key 仍作为全局 key 兼容；租户级 API key 通过
-# GET/POST /api/v1/api-keys 与 DELETE /api/v1/api-keys/{keyId} 管理。
-# alert_rules / sla_policies / tenant_reports 均为每租户独立行，
-# 建租户时自动从租户 1 当前配置快照复制模板。
-
-# 运行模式：all（默认，API + gRPC + 后台循环）| api（仅 API/gRPC，不跑循环）| worker（仅后台循环）。
-# 水平扩展部署：1×api + N×worker（或 1×all + N×worker）共享同一 PostgreSQL，
-# 队列与单例租约由 PostgreSQL 内置 job_queue/worker_leases 协调；也可用 VULNSCAN_MODE 环境变量覆盖。
 mode: "all"
 
-# NVD 数据源（可选）。支持 nvd_api_key: "${NVD_API_KEY}" 形式；
-# 留空或未配置时自动回退到 NVD_API_KEY 环境变量。
-# 两者皆无则按 2 秒间隔限速（无需 key 也可用）。
+# Core alerting: alerts are recorded internally by default. Add webhook_url
+# and/or smtp below to enable external delivery.
+alerting:
+  enabled: true
+  delivery_interval_seconds: 30
+  max_attempts: 3
+  sla_check_interval_minutes: 60
+  # webhook_url: ""
+  # webhook_secret: ""
+  # smtp:
+  #   host: ""
+  #   port: 587
+  #   user: ""
+  #   password_env: "SMTP_PASSWORD"
+  #   from: ""
+  #   to: []
+
+# Core patch deployment. Dry-run and approval are on by default; set
+# dry_run: false only after you have validated the command templates.
+patch:
+  enabled: true
+  default_approval_required: true
+  agent_timeout_seconds: 600
+  apt_command: "apt-get install -y --only-upgrade"
+  dnf_command: "dnf -y update"
+  yum_command: "yum -y update"
+  apk_command: "apk upgrade"
+  dry_run: true
+
+# CVE feed defaults (uncomment to tune refresh cadence/TTL).
 # cve:
 #   nvd_api_key: "${NVD_API_KEY}"
-#   # 数据源刷新与缓存（可选，默认值如下）
 #   msrc_refresh_minutes: 60
 #   nvd_refresh_hours: 3
 #   osv_refresh_hours: 6
@@ -34,64 +55,3 @@ mode: "all"
 #   osv_ttl_hours: 12
 #   debian_ttl_hours: 168
 #   redhat_ttl_hours: 24
-
-# LLM is optional. Uncomment to enable. api_key 支持 ${ENV} 展开。
-# llm:
-#   provider: "openai"            # openai | anthropic
-#   api_key: "${OPENAI_API_KEY}"
-#   model: "gpt-4o-mini"
-#   auto_analyze:
-#     - "CRITICAL"
-#     - "HIGH"
-
-# 工单集成（可选；Jira/ServiceNow 告警自动建单，需同时 alerting.enabled: true）
-# ticketing:
-#   enabled: false
-#   provider: "jira"                     # jira | servicenow
-#   base_url: "https://jira.example.com"
-#   username: "svc-vulnscan@example.com"
-#   password_env: "TICKET_PASSWORD"      # 密码只从环境变量读取，不写入本文件
-#   timeout_seconds: 15
-#   tls_skip_verify: false
-#   # Jira
-#   project: "SEC"
-#   issue_type: "Task"
-#   jira_ack_transition_id: ""           # 留空则 ack 仅添加评论
-#   jira_resolved_transition_id: ""      # 留空则 resolved 仅添加评论
-#   # ServiceNow
-#   servicenow_table: "incident"
-#   servicenow_ack_state: 2
-#   servicenow_resolved_state: 6
-
-# SIEM/SOAR 事件流（可选；告警+补丁事件经 outbox 投递，token/secret 只从环境变量读取）
-# siem:
-#   enabled: false
-#   splunk_hec:
-#     url: "https://splunk.example.com:8088/services/collector/event"
-#     token_env: "SIEM_SPLUNK_HEC_TOKEN"
-#     index: "vulnscan"
-#     sourcetype: "vulnscan:events"
-#   webhook:
-#     url: ""
-#     secret_env: "SIEM_WEBHOOK_SECRET"   # 可选；配置后请求带 HMAC 签名
-#   delivery_interval_seconds: 10
-#   batch_size: 50
-#   max_attempts: 3
-#   timeout_seconds: 10
-#   tls_skip_verify: false
-
-# 云资产接入（可选；AWS/Azure/GCP 凭据发现，主密钥只从环境变量读取）
-# cloud_scan:
-#   enabled: false
-#   master_key_env: "CLOUD_SCAN_MASTER_KEY"
-#   concurrency: 2
-#   default_refresh_interval_minutes: 60
-#   timeout_seconds: 30
-
-# Web 应用与数据库扫描（可选；HTTP 指纹 + PostgreSQL/MySQL/Redis 版本识别，凭据可选）
-# webdb_scan:
-#   enabled: false
-#   master_key_env: "WEBDB_SCAN_MASTER_KEY"   # AES-256 主密钥（hex/base64 32 字节），只从环境变量读取
-#   timeout_seconds: 10
-#   concurrency: 8
-#   tls_skip_verify: true                      # 内网自签证书场景建议 true

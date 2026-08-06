@@ -1,0 +1,122 @@
+# VulnScanner Server Configuration - Advanced (Optional) Modules
+#
+# This file is a reference only. None of these modules are enabled by the
+# core server.yaml. To use one, copy its block into server.yaml (or a custom
+# VULNSCAN_CONFIG file) and set enabled: true with your own credentials.
+
+# LLM-assisted vulnerability analysis (optional).
+# llm:
+#   provider: "openai"            # openai | anthropic
+#   api_key: "${OPENAI_API_KEY}"
+#   model: "gpt-4o-mini"
+#   auto_analyze:
+#     - "CRITICAL"
+#     - "HIGH"
+
+# LDAP directory login (optional).
+# ldap:
+#   enabled: false
+#   url: "ldap://ldap.example.com:389"
+#   tls_skip_verify: false
+#   bind_dn: "cn=admin,dc=example,dc=org"
+#   bind_password_env: "LDAP_BIND_PASSWORD"
+#   user_base_dn: "ou=users,dc=example,dc=org"
+#   user_filter: "(uid={username})"
+#   group_base_dn: "ou=groups,dc=example,dc=org"
+#   group_filter: "(member={dn})"
+#   role_groups:
+#     admin: ["cn=admins,ou=groups,dc=example,dc=org"]
+#     operator: ["cn=ops,ou=groups,dc=example,dc=org"]
+#     viewer: ["viewers"]
+#   auto_provision: true
+#   timeout_seconds: 10
+
+# Scheduled email reports (optional; SMTP reuses alerting.smtp).
+# reporting:
+#   enabled: false
+#   schedule: "0 8 * * *"
+#   timezone: "Local"
+#   to: ["ops@example.com"]
+
+# Container image scanning (optional; requires Docker socket + Trivy image).
+# container_scan:
+#   enabled: false
+#   docker_host: "unix:///var/run/docker.sock"
+#   images: []
+#   image_filter: ""
+#   exclude: ["kicbase", "docker-desktop"]
+#   trivy_image: "aquasec/trivy:latest"
+#   trivy_cache_volume: "vulnscan-trivy-cache"
+#   agent_id: "agent-container-docker"
+#   tenant_id: 1
+#   scan_interval_minutes: 360
+#   timeout_minutes: 20
+#   max_images: 100
+
+# Agent-side network scanning (optional; also configured in agent.yaml).
+# network_scan is an agent config, not a server config block.
+
+# Credential-based remote SSH scanning (optional).
+# remote_scan:
+#   enabled: false
+#   master_key_env: "REMOTE_SCAN_MASTER_KEY"
+#   timeout_seconds: 30
+#   concurrency: 8
+
+# Web application / database scanning (optional).
+# webdb_scan:
+#   enabled: false
+#   master_key_env: "WEBDB_SCAN_MASTER_KEY"
+#   timeout_seconds: 10
+#   concurrency: 8
+#   tls_skip_verify: true
+
+# Cloud asset discovery (optional; AWS/Azure/GCP).
+# cloud_scan:
+#   enabled: false
+#   master_key_env: "CLOUD_SCAN_MASTER_KEY"
+#   concurrency: 2
+#   default_refresh_interval_minutes: 60
+#   timeout_seconds: 30
+
+# Ticketing integration (optional; requires alerting.enabled).
+# ticketing:
+#   enabled: false
+#   provider: "jira"                     # jira | servicenow
+#   base_url: "https://jira.example.com"
+#   username: "svc-vulnscan@example.com"
+#   password_env: "TICKET_PASSWORD"
+#   timeout_seconds: 15
+#   tls_skip_verify: false
+#   project: "SEC"
+#   issue_type: "Task"
+#   jira_ack_transition_id: ""
+#   jira_resolved_transition_id: ""
+#   servicenow_table: "incident"
+#   servicenow_ack_state: 2
+#   servicenow_resolved_state: 6
+
+# SIEM/SOAR event stream (optional).
+# siem:
+#   enabled: false
+#   splunk_hec:
+#     url: "https://splunk.example.com:8088/services/collector/event"
+#     token_env: "SIEM_SPLUNK_HEC_TOKEN"
+#     index: "vulnscan"
+#     sourcetype: "vulnscan:events"
+#   webhook:
+#     url: "https://soar.example.com/hook"
+#     secret_env: "SIEM_WEBHOOK_SECRET"
+#   delivery_interval_seconds: 10
+#   batch_size: 50
+#   max_attempts: 3
+#   timeout_seconds: 10
+#   tls_skip_verify: false
+
+# Multi-tenant management (advanced): the schema and APIs are always present,
+# but a default deployment only uses tenant 1. Create tenants and
+# tenant-scoped API keys through GET/POST /api/v1/tenants and
+# GET/POST/DELETE /api/v1/api-keys when you need MSP-style isolation.
+
+# Horizontal scaling (advanced): mode can be all|api|worker. Single-node
+# deployments should leave mode: "all".

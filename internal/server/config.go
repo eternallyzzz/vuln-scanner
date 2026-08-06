@@ -75,12 +75,41 @@ func DefaultConfig() *Config {
 		JWTSecret:   "change-me-in-production",
 		APIKey:      "sk-change-me",
 		Mode:        "all",
+		Alerting:    defaultAlertingConfig(),
+		Patch:       defaultPatchConfig(),
 		Reporting:   report.DefaultConfig(),
 		RemoteScan:  remotescan.DefaultConfig(),
 		Ticketing:   ticket.DefaultConfig(),
 		SIEM:        siem.DefaultConfig(),
 		CloudScan:   cloudscan.DefaultConfig(),
 		WebDBScan:   webdbscan.DefaultConfig(),
+	}
+}
+
+// defaultAlertingConfig is the core-profile alerting setup: alerts are
+// recorded internally, while webhook/SMTP delivery remains opt-in.
+func defaultAlertingConfig() *alert.Config {
+	return &alert.Config{
+		Enabled:                 true,
+		DeliveryIntervalSeconds: 30,
+		MaxAttempts:             3,
+		SLACheckIntervalMinutes: 60,
+	}
+}
+
+// defaultPatchConfig is the core-profile patch setup. Execution starts in
+// dry-run with approval required so the closed loop is usable out of the box
+// without changing host state unexpectedly.
+func defaultPatchConfig() *patch.Config {
+	return &patch.Config{
+		Enabled:                 true,
+		DefaultApprovalRequired: true,
+		AgentTimeoutSeconds:     600,
+		AptCommand:              "apt-get install -y --only-upgrade",
+		DnfCommand:              "dnf -y update",
+		YumCommand:              "yum -y update",
+		ApkCommand:              "apk upgrade",
+		DryRun:                  true,
 	}
 }
 
@@ -199,7 +228,52 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if cfg.Alerting == nil {
+		cfg.Alerting = defaultAlertingConfig()
+	}
+	if raw := os.Getenv("ALERTING_ENABLED"); raw != "" {
+		cfg.Alerting.Enabled = envBool(raw)
+	}
+	if raw := os.Getenv("ALERTING_WEBHOOK_URL"); raw != "" {
+		cfg.Alerting.WebhookURL = strings.TrimSpace(raw)
+	}
+	if raw := os.Getenv("ALERTING_WEBHOOK_SECRET"); raw != "" {
+		cfg.Alerting.WebhookSecret = os.ExpandEnv(strings.TrimSpace(raw))
+	}
+	if raw := os.Getenv("ALERTING_DELIVERY_INTERVAL_SECONDS"); raw != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 {
+			cfg.Alerting.DeliveryIntervalSeconds = n
+		}
+	}
+	if raw := os.Getenv("ALERTING_MAX_ATTEMPTS"); raw != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 {
+			cfg.Alerting.MaxAttempts = n
+		}
+	}
+	if cfg.Patch == nil {
+		cfg.Patch = defaultPatchConfig()
+	}
+	if raw := os.Getenv("PATCH_ENABLED"); raw != "" {
+		cfg.Patch.Enabled = envBool(raw)
+	}
+	if raw := os.Getenv("PATCH_DRY_RUN"); raw != "" {
+		cfg.Patch.DryRun = envBool(raw)
+	}
+	if raw := os.Getenv("PATCH_DEFAULT_APPROVAL_REQUIRED"); raw != "" {
+		cfg.Patch.DefaultApprovalRequired = envBool(raw)
+	}
+	if raw := os.Getenv("PATCH_AGENT_TIMEOUT_SECONDS"); raw != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n >= 30 {
+			cfg.Patch.AgentTimeoutSeconds = n
+		}
+	}
+
 	return cfg, nil
+}
+
+func envBool(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	return strings.EqualFold(raw, "true") || raw == "1"
 }
 
 // normalizeMode canonicalizes the instance mode (all/api/worker). Empty or
@@ -592,6 +666,15 @@ func bindCoreEnv(v *viper.Viper) {
 		"jwt_secret",
 		"api_key",
 		"server_url",
+		"alerting.enabled",
+		"alerting.webhook_url",
+		"alerting.webhook_secret",
+		"alerting.delivery_interval_seconds",
+		"alerting.max_attempts",
+		"patch.enabled",
+		"patch.dry_run",
+		"patch.default_approval_required",
+		"patch.agent_timeout_seconds",
 		"reporting.enabled",
 		"reporting.schedule",
 		"reporting.timezone",

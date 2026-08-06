@@ -16,6 +16,9 @@ curl http://localhost:8080/health
 首次启动会自动拉起 PostgreSQL 16 并运行数据库迁移，随后开始按周期刷新 MSRC/NVD/OSV/Debian/Red Hat 数据源。
 仓库根目录执行 `make docker-up` / `make docker-down` / `make docker-build` 效果相同。
 
+默认镜像内置核心 `server.yaml`：只启用资产采集 → CVE 匹配 → 告警（内部记录）→ 补丁下发（默认审批 + dry-run）闭环；
+云/远程/WebDB/容器扫描、SIEM/工单/报表、LDAP 等高级模块默认关闭，需要时参考 `server.advanced.yaml.example`。
+
 ### 端口 / Ports
 
 | 端口 | 用途 |
@@ -26,7 +29,7 @@ curl http://localhost:8080/health
 
 ### 环境变量 / Environment Variables
 
-容器内 server 无需 `server.yaml`，以下变量直接生效（`deploy/docker-compose/.env` 或 shell 环境均可）：
+镜像内置核心 `server.yaml`，以下变量可直接覆盖（`deploy/docker-compose/.env` 或 shell 环境均可）：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -35,6 +38,12 @@ curl http://localhost:8080/health
 | `SERVER_URL` | `http://localhost:8080` | Agent 可达的 Server 对外地址（注册/安装脚本使用），**生产必改**，如 `https://vuln.example.com` |
 | `DATABASE_URL` | 由 compose 自动拼装 | 覆盖时需指向 `postgres` 服务 |
 | `VULNSCAN_MODE` | `all` | 运行模式：`all`（默认，API+gRPC+后台循环）/ `api`（仅 API/gRPC）/ `worker`（仅后台循环）；多实例水平扩展时使用 |
+| `ALERTING_ENABLED` | `true` | 核心告警开关；开启后仅内部记录，配置 webhook/SMTP 后才外发 |
+| `ALERTING_WEBHOOK_URL` / `ALERTING_WEBHOOK_SECRET` | 空 | 可选 Webhook 通知渠道 |
+| `PATCH_ENABLED` | `true` | 核心补丁下发开关 |
+| `PATCH_DRY_RUN` | `true` | 补丁默认只记录不执行；确认模板后改为 `false` |
+| `PATCH_DEFAULT_APPROVAL_REQUIRED` | `true` | 补丁任务默认需要审批 |
+| `PATCH_AGENT_TIMEOUT_SECONDS` | `600` | 单条补丁执行超时 |
 | `POSTGRES_PASSWORD` | `vulnscan` | PostgreSQL 密码，**生产必改** |
 | `POSTGRES_USER` | `vulnscan` | PostgreSQL 用户 |
 | `POSTGRES_PORT` | `5432` | 宿主机映射端口 |
@@ -211,7 +220,7 @@ docker compose -f deploy/docker-compose/docker-compose.yml up -d --build
 
 迁移在启动时自动执行；升级前建议先备份数据库。
 
-## 4. 水平扩展 / Horizontal Scaling
+## 4. 高级可选：水平扩展 / Horizontal Scaling (Advanced)
 
 单实例默认 `mode: all`，无需改动。需要扩容时，把职责拆成两类实例并共享同一 PostgreSQL：
 
@@ -233,7 +242,7 @@ docker compose -f deploy/docker-compose/docker-compose.yml up -d --build
   - container 扫描依赖本机 Docker socket，仅在持有 container 租约且能访问 Docker 的实例上启用；
 - 手工同步端点（报表发送、EOL/intel 刷新）采用“内联领取”：同一时刻只允许一个实例执行，其余返回 409。
 
-## 4.1 多租户 v2 / Multi-tenant v2
+## 4.1 高级可选：多租户 v2 / Multi-tenant v2 (Advanced)
 
 租户 v2 把以下配置从“全局单份”改为“每租户独立行”，建租户时自动从租户 1 当前配置快照复制模板（快照语义，后续修改租户 1 不影响已建租户）：
 
