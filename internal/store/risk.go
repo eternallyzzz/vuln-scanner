@@ -39,6 +39,9 @@ type RiskRow struct {
 	CVSSScore        float64    `json:"cvss_score"`
 	EPSSScore        float64    `json:"epss_score"`
 	KEV              bool       `json:"kev"`
+	IntelThreatLevel string     `json:"intel_threat_level,omitempty"`
+	IntelExploited   bool       `json:"intel_exploited,omitempty"`
+	IntelNotes       string     `json:"intel_notes,omitempty"`
 	ExposureScore    float64    `json:"exposure_score"`
 	AssetCriticality float64    `json:"asset_criticality"`
 	RiskScore        float64    `json:"risk_score"`
@@ -539,6 +542,7 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 	rows, err := s.pool.Query(ctx, `
 		SELECT cr.cve_id, cr.canonical_cve_id, cr.agent_id, a.hostname, cr.asset_name,
 			cr.severity, cr.risk_level, cr.cvss_score, cr.epss_score, cr.kev,
+			cr.intel_threat_level, cr.intel_exploited, cr.intel_notes,
 			cr.exposure_score, cr.asset_criticality, cr.risk_score, cr.detected_at,
 			cr.fixed_version, cr.kb_article, a.eol_status = 'eol', a.eol_product
 		FROM cve_results cr JOIN agents a ON a.id=cr.agent_id
@@ -561,7 +565,8 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 		var kb string
 		if err := rows.Scan(&r.CVEID, &r.CanonicalCVEID, &r.AgentID, &r.Hostname,
 			&r.AssetName, &r.Severity, &r.RiskLevel, &r.CVSSScore, &r.EPSSScore,
-			&r.KEV, &r.ExposureScore, &r.AssetCriticality, &r.RiskScore,
+			&r.KEV, &r.IntelThreatLevel, &r.IntelExploited, &r.IntelNotes,
+			&r.ExposureScore, &r.AssetCriticality, &r.RiskScore,
 			&r.DetectedAt, &r.FixedVersion, &kb, &r.EOL, &r.EOLProduct); err != nil {
 			return nil, err
 		}
@@ -649,7 +654,8 @@ func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 	_ = w.Write([]string{"cve_id", "canonical_cve_id", "agent_id", "hostname", "asset_name",
-		"severity", "risk_level", "cvss_score", "epss_score", "kev", "exposure_score",
+		"severity", "risk_level", "cvss_score", "epss_score", "kev",
+		"intel_threat_level", "intel_exploited", "intel_notes", "exposure_score",
 		"asset_criticality", "risk_score", "eol", "eol_product", "detected_at", "due_at",
 		"overdue", "fixed_version", "patch_url"})
 	for _, r := range rows {
@@ -659,6 +665,7 @@ func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
 		}
 		_ = w.Write([]string{r.CVEID, r.CanonicalCVEID, r.AgentID, r.Hostname, r.AssetName,
 			r.Severity, r.RiskLevel, f2s(r.CVSSScore), f2s(r.EPSSScore), b2s(r.KEV),
+			r.IntelThreatLevel, b2s(r.IntelExploited), r.IntelNotes,
 			f2s(r.ExposureScore), f2s(r.AssetCriticality), f2s(r.RiskScore),
 			b2s(r.EOL), r.EOLProduct,
 			r.DetectedAt.Format(time.RFC3339), due, b2s(r.Overdue), r.FixedVersion, r.PatchURL})

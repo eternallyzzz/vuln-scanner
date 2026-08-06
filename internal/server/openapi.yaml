@@ -2748,6 +2748,9 @@ components:
         cvss_score: {type: number, format: double}
         epss_score: {type: number, format: double}
         kev: {type: boolean}
+        intel_threat_level: {type: string}
+        intel_exploited: {type: boolean}
+        intel_notes: {type: string}
         exposure_score: {type: number, format: double}
         asset_criticality: {type: number, format: double}
         risk_score: {type: number, format: double}

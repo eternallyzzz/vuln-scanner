@@ -542,7 +542,7 @@ func resolveAssetName(source string, ap AffectedProduct, agentCPEIndex, assetVer
 			return name
 		}
 	}
-	if source == "msrc" || source == "nvd" {
+	if source == "msrc" || source == "nvd" || (source == "custom" && ap.CPE != "") {
 		if source == "msrc" {
 			isOS := ap.CPE != "" && extractCPEPart(ap.CPE) == "o"
 			if !isOS && ap.CPE == "" {
@@ -1305,7 +1305,13 @@ func cpeMatches(ap AffectedProduct, source string, agentCPEIndex map[string]stri
 		return msrcNameMatches(ap.Name, lowerNames)
 	}
 
-	if source == "nvd" {
+	if source == "nvd" || (source == "custom" && ap.CPE != "") {
+		if source == "custom" {
+			cpeProduct = strings.ToLower(extractCPEProduct(ap.CPE))
+			if cpeProduct == "" {
+				return false
+			}
+		}
 		matchedKey := findMatchingKey(cpeProduct, agentCPEIndex)
 		if matchedKey == "" {
 			return false

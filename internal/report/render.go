@@ -54,6 +54,7 @@ func BuildCSV(d Data) ([]byte, error) {
 	_ = w.Write([]string{
 		"cve_id", "canonical_cve_id", "agent_id", "hostname", "asset_name",
 		"severity", "risk_level", "cvss_score", "epss_score", "kev",
+		"intel_threat_level", "intel_exploited", "intel_notes",
 		"exposure_score", "asset_criticality", "risk_score", "eol",
 		"eol_product", "detected_at", "due_at", "overdue", "fixed_version", "patch_url",
 	})
@@ -73,6 +74,9 @@ func BuildCSV(d Data) ([]byte, error) {
 			reportF2s(r.CVSSScore),
 			reportF2s(r.EPSSScore),
 			reportB2s(r.KEV),
+			r.IntelThreatLevel,
+			reportB2s(r.IntelExploited),
+			r.IntelNotes,
 			reportF2s(r.ExposureScore),
 			reportF2s(r.AssetCriticality),
 			reportF2s(r.RiskScore),

@@ -53,9 +53,9 @@
 
   <h2>Top 风险（{{len .TopRisks}}）</h2>
   <table>
-    <tr><th>CVE</th><th>主机</th><th>资产</th><th>严重级</th><th>风险级</th><th>CVSS</th><th>EPSS</th><th>KEV</th><th>EOL</th><th>SLA 截止</th><th>超期</th></tr>
+    <tr><th>CVE</th><th>主机</th><th>资产</th><th>严重级</th><th>风险级</th><th>CVSS</th><th>EPSS</th><th>KEV</th><th>情报级</th><th>已利用</th><th>备注</th><th>EOL</th><th>SLA 截止</th><th>超期</th></tr>
     {{range .TopRisks}}
-    <tr><td>{{.CVEID}}</td><td>{{.Hostname}}</td><td>{{.AssetName}}</td><td>{{.Severity}}</td><td>{{.RiskLevel}}</td><td>{{fmtFloat .CVSSScore}}</td><td>{{fmtFloat .EPSSScore}}</td><td>{{yesno .KEV}}</td><td>{{yesno .EOL}}</td><td>{{fmtPtrTime .DueAt}}</td><td>{{yesno .Overdue}}</td></tr>
+    <tr><td>{{.CVEID}}</td><td>{{.Hostname}}</td><td>{{.AssetName}}</td><td>{{.Severity}}</td><td>{{.RiskLevel}}</td><td>{{fmtFloat .CVSSScore}}</td><td>{{fmtFloat .EPSSScore}}</td><td>{{yesno .KEV}}</td><td>{{.IntelThreatLevel}}</td><td>{{yesno .IntelExploited}}</td><td>{{.IntelNotes}}</td><td>{{yesno .EOL}}</td><td>{{fmtPtrTime .DueAt}}</td><td>{{yesno .Overdue}}</td></tr>
     {{end}}
   </table>
 

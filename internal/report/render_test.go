@@ -33,7 +33,8 @@ func TestRenderHTML(t *testing.T) {
 		TopRisks: []store.RiskRow{{
 			CVEID: "CVE-2024-0001", Hostname: "web-01", AssetName: "nginx",
 			Severity: "HIGH", RiskLevel: "HIGH", CVSSScore: 8.5, EPSSScore: 0.2,
-			KEV: true, EOL: true, DueAt: &due, Overdue: true, DetectedAt: now,
+			KEV: true, IntelThreatLevel: "CRITICAL", IntelExploited: true,
+			IntelNotes: "smoke note", EOL: true, DueAt: &due, Overdue: true, DetectedAt: now,
 		}},
 		Trend: []store.RiskTrendPoint{{Date: "2026-08-05", Active: 3, New: 1, Fixed: 0}},
 		EOLAgents: []store.EOLAgentRow{{
@@ -56,7 +57,8 @@ func TestRenderHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"每日安全报告", "CVE-2024-0001", "web-01", "agent-1", ">1<", "合规概览", "linux.firewall_active"} {
+	for _, want := range []string{"每日安全报告", "CVE-2024-0001", "web-01", "agent-1",
+		">1<", "合规概览", "linux.firewall_active", "CRITICAL", "smoke note"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("HTML missing %q", want)
 		}
@@ -70,7 +72,8 @@ func TestBuildCSV(t *testing.T) {
 			CVEID: "CVE-2024-0001", CanonicalCVEID: "CVE-2024-0001",
 			AgentID: "agent-1", Hostname: "web-01", AssetName: "nginx",
 			Severity: "HIGH", RiskLevel: "HIGH", CVSSScore: 8.5, EPSSScore: 0.2,
-			KEV: true, ExposureScore: 7, AssetCriticality: 8, RiskScore: 8.4,
+			KEV: true, IntelThreatLevel: "CRITICAL", IntelExploited: true,
+			IntelNotes: "smoke note", ExposureScore: 7, AssetCriticality: 8, RiskScore: 8.4,
 			EOL: true, EOLProduct: "windows", DetectedAt: now,
 			Overdue: true, FixedVersion: "1.2.3",
 		}},
@@ -83,7 +86,11 @@ func TestBuildCSV(t *testing.T) {
 	if !strings.HasPrefix(text, "cve_id,canonical_cve_id,agent_id,hostname,asset_name") {
 		t.Fatalf("unexpected header: %q", text)
 	}
-	if !strings.Contains(text, "CVE-2024-0001") || !strings.Contains(text, "true") {
+	if !strings.Contains(text, "intel_threat_level,intel_exploited,intel_notes") {
+		t.Fatalf("CSV header missing intel columns: %q", text)
+	}
+	if !strings.Contains(text, "CVE-2024-0001") || !strings.Contains(text, "CRITICAL") ||
+		!strings.Contains(text, "smoke note") {
 		t.Fatalf("unexpected CSV body: %q", text)
 	}
 }

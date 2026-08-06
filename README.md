@@ -305,6 +305,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - Web/数据库扫描：`POST /api/v1/webdb/scan`（operator+ 下发一次性 web/db 任务，body 含 `web: [URL...]` 与 `db: [{target, db_type, credential_id?}]`）、`GET /api/v1/webdb/tasks`、`GET /api/v1/webdb/targets`（viewer+）；凭据 CRUD 仅 admin 且响应不含密文；MySQL/Redis 无凭据识别版本，PostgreSQL 需凭据；结果生成 agent-web-*/agent-db-* 合成 agent
 - 专有威胁情报：`GET /api/v1/intel/rules`（viewer+，只读）查看内置漏洞指纹规则；规则由迁移种子维护（代码即数据），启动自动镜像进匹配管线（`source=custom`），命中进入 CVE 结果/风险/告警
 - 专有威胁情报：`GET /api/v1/intel/annotations`（viewer+，只读）查看 CVE 情报标注（威胁级别/已利用/备注）；标注同样由迁移种子维护，服务启动或风险重算时自动生效，`exploited` 或 `CRITICAL` 等威胁级别按“风险下限”抬高风险评分并写入 CVE 结果/告警
+- 专有威胁情报：标注三列同步进入风险面——`GET /api/v1/risk/top`、`GET /api/v1/risk/export.csv` 与每日日报（HTML 表格 + CSV 附件）均带 `intel_threat_level/intel_exploited/intel_notes`
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
@@ -320,7 +321,9 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 的 `custom_intel` 种子中，新增或修改规则 = 追加/修改迁移并提交代码；服务每次启动会把
 `enabled=true` 的规则镜像到 `cve_feed`（`source=custom`）并参与现有名称/版本范围/修复版本匹配。
 `affected` 字段与公共 feed 同一结构（name/vendor/min_ver/max_ver/边界/fixed_in/cpe/ecosystem），
-可用 `CUSTOM-*` 独立 ID 避免与公共 CVE 去重冲突；不提供后台增删改/导入接口。
+可用 `CUSTOM-*` 独立 ID 避免与公共 CVE 去重冲突。规则条目带 `cpe` 时按 CPE 产品+版本严格匹配
+（`cpe:2.3:...` 与 `cpe:/...` 两种格式均支持），不带 `cpe` 时回退名称匹配；版本范围
+`min_ver/max_ver/fixed_in` 语义与公共 feed 一致。不提供后台增删改/导入接口。
 
 CVE 情报标注（`cve_intel_annotations`）与规则同一思路：每条 CVE 一条标注
 （cve_id 唯一，`threat_level/exploited/notes`），种子内置 4 条真实 CVE
@@ -330,7 +333,8 @@ CVE-2024-3400 PAN-OS，均为 exploited + CRITICAL）。标注在 `RecalcAgentRi
 LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/KEV 行为；
 命中行把 `intel_threat_level/intel_exploited/intel_notes` 写回 CVE 结果，
 告警复制 exploited/threat_level 两列。无标注的 CVE 行为完全不变；新增/修改
-标注 = 提交迁移，零运维、无热更新接口。
+标注 = 提交迁移，零运维、无热更新接口。RiskTop/CSV/日报与 CVE 详情一样展示
+威胁级别/已利用/备注三列，便于治理视图直接看到“官方已利用”与处置提示。
 
 ## Users & RBAC / 用户与权限
 

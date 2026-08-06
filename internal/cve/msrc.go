@@ -393,11 +393,16 @@ func extractCPEPart(cpeStr string) string {
 }
 
 func parseCPE(cpeStr string) *common.WellFormedName {
-	wfn, err := naming.UnbindURI(cpeStr)
-	if err != nil {
-		return nil
+	if wfn, err := naming.UnbindURI(cpeStr); err == nil {
+		return &wfn
 	}
-	return &wfn
+	// MSRC feeds use the legacy URI form (cpe:/a:...), while custom intel
+	// seeds may carry the modern formatted string (cpe:2.3:a:...); accept
+	// both so CPE product/vendor extraction works regardless of source.
+	if wfn, err := naming.UnbindFS(cpeStr); err == nil {
+		return &wfn
+	}
+	return nil
 }
 
 func wfnAttr(wfn *common.WellFormedName, attr string) string {

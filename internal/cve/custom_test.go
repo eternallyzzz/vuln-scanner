@@ -141,3 +141,84 @@ func TestMatchFeedEntryCustomMultiRangeAndSuffix(t *testing.T) {
 		t.Fatalf("openssh 9.6p1 must not match, got %d", len(got))
 	}
 }
+
+func TestMatchFeedEntryCustomCPE(t *testing.T) {
+	affected := func(products ...AffectedProduct) json.RawMessage {
+		raw, err := json.Marshal(products)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	base := FeedEntry{
+		Source: "custom", CVEID: "CUSTOM-2026-005", CVEURL: "https://www.openssl.org",
+		Severity: "HIGH", CVSSScore: 7.5, Summary: "s",
+		Affected: affected(AffectedProduct{
+			Name: "openssl", CPE: "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+			MaxVer: "3.0.7", FixedIn: "3.0.7",
+		}),
+	}
+	run := func(version string, index map[string]string) []MatchedCVE {
+		names := []string{"openssl"}
+		lower := map[string]bool{"openssl": true}
+		return matchFeedEntry(base, names, map[string]string{"openssl": version}, lower,
+			index, nil, "unknown", "", "", "")
+	}
+
+	res := run("3.0.6", map[string]string{"openssl": "3.0.6"})
+	if len(res) != 1 || res[0].MatchStatus != "active" || res[0].AssetName != "openssl" ||
+		res[0].AssetVersion != "3.0.6" || res[0].FixedVersion != "3.0.7" {
+		t.Fatalf("custom CPE rule must match openssl 3.0.6: %+v", res)
+	}
+	if got := run("3.0.7", map[string]string{"openssl": "3.0.7"}); len(got) != 0 {
+		t.Fatalf("openssl 3.0.7 must not match (fixed_in reached), got %d", len(got))
+	}
+	if got := run("3.0.6", map[string]string{"other": "1.0"}); len(got) != 0 {
+		t.Fatalf("custom CPE rule must not match when CPE product is absent, got %d", len(got))
+	}
+
+	withVer := base
+	withVer.Affected = affected(AffectedProduct{
+		Name: "openssl", CPE: "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+		CpeVer: "3.0.6", MaxVer: "3.0.7", FixedIn: "3.0.7",
+	})
+	verRun := func(version string) []MatchedCVE {
+		names := []string{"openssl"}
+		return matchFeedEntry(withVer, names, map[string]string{"openssl": version},
+			map[string]bool{"openssl": true}, map[string]string{"openssl": version},
+			nil, "unknown", "", "", "")
+	}
+	if got := verRun("3.0.5"); len(got) != 0 {
+		t.Fatalf("custom CPE rule with cpe_ver must reject 3.0.5, got %d", len(got))
+	}
+	if got := verRun("3.0.6"); len(got) != 1 {
+		t.Fatalf("custom CPE rule with cpe_ver must accept 3.0.6, got %d", len(got))
+	}
+}
+
+func TestCPEMatchesCustom(t *testing.T) {
+	ap := AffectedProduct{
+		Name: "openssl", CPE: "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*",
+		MaxVer: "3.0.7", FixedIn: "3.0.7",
+	}
+	index := map[string]string{"openssl": "3.0.6"}
+	if got := extractCPEProduct(ap.CPE); got != "openssl" {
+		t.Fatalf("extractCPEProduct(%q) = %q, want openssl", ap.CPE, got)
+	}
+	if got := findMatchingKey("openssl", index); got != "openssl" {
+		t.Fatalf("findMatchingKey = %q, want openssl", got)
+	}
+	if !cpeVersionCompatible("", "3.0.6", "openssl", index) {
+		t.Fatal("cpeVersionCompatible with empty feed version must accept")
+	}
+	if !cpeMatches(ap, "custom", index, map[string]bool{"openssl": true}) {
+		t.Fatal("custom CPE gate must accept openssl with matching index")
+	}
+	if cpeMatches(ap, "custom", map[string]string{"other": "1.0"}, map[string]bool{"openssl": true}) {
+		t.Fatal("custom CPE gate must reject when CPE product is absent")
+	}
+	noCPE := AffectedProduct{Name: "nginx", MaxVer: "1.22.0", FixedIn: "1.22.0"}
+	if !cpeMatches(noCPE, "custom", nil, map[string]bool{"nginx": true}) {
+		t.Fatal("custom rule without CPE must keep name matching")
+	}
+}
