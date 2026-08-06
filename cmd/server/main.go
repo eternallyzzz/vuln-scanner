@@ -142,6 +142,9 @@ func main() {
 	mw := server.NewAuthInterceptor(auth)
 
 	feed := cve.NewFeedManager(db)
+	if err := feed.SyncCustomIntel(ctx, db); err != nil {
+		slog.Error("custom intel sync failed", "error", err)
+	}
 	msrcClient := cve.NewMSRCClient()
 	nvdClient := cve.NewNVDClient(cfg.CVE.NVDAPIKey)
 	osvClient := cve.NewOSVClient()

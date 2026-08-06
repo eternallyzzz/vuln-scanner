@@ -193,6 +193,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Put("/sla-policies/{policyId}", s.updateSLAPolicy)
 		r.Get("/search", s.search)
 		r.Get("/stats", s.stats)
+		r.Get("/intel/rules", s.listCustomIntel)
 		r.Get("/eol/summary", s.getEOLSummary)
 		r.Get("/eol/agents", s.getEOLAgents)
 		r.Get("/compliance/summary", s.getComplianceSummary)

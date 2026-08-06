@@ -328,7 +328,7 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, m
 	var allMatched []MatchedCVE
 	seen := make(map[string]bool)
 
-	for _, source := range []string{"debian", "msrc", "redhat", "nvd", "osv"} {
+	for _, source := range []string{"debian", "msrc", "redhat", "nvd", "osv", "custom"} {
 		matches := f.matchByName(ctx, source, softwareNames, msrcNames,
 			assetVersions, msrcVersions, installedKBs, agentOS, agentVersion, agentArch, osAssetName)
 		for _, m := range matches {

@@ -20,6 +20,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
 - **Remote credential scanning / 凭据远程扫描** — Server-side SSH collection (Linux/macOS/Windows OpenSSH) with encrypted credential store, ToFU host-key verification and full audit; agent-first, credential scan as the fallback
 - **Web/DB scanning / Web 应用与数据库扫描** — Server-side HTTP(S) fingerprint (nginx/apache/IIS/Tomcat/PHP/WordPress etc.) and PostgreSQL/MySQL/Redis version identification with optional encrypted credentials; results feed the existing CVE matching / risk / alerting pipeline and CMDB
+- **Proprietary threat intel / 专有威胁情报** — built-in vulnerability fingerprint rules (product + version range + fixed version) maintained as migration seeds, auto-loaded into the matching pipeline at startup; read-only rule list API, zero runtime maintenance
 - **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
 - **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
@@ -302,6 +303,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 网络扫描：`GET /api/v1/network/hosts`（发现主机与服务指纹）、`GET /api/v1/network/tasks`（任务列表）、`POST /api/v1/network/scan`（operator+ 下发一次性任务，Agent 领取执行）；每台主机生成合成 agent（agent-net-*）复用匹配/风险/告警链路
 - 凭据远程扫描：`POST /api/v1/remote/credentials`（admin 创建 password/key 凭据；key 不传私钥时服务端生成并一次性返回公钥）、`GET/PUT/DELETE /api/v1/remote/credentials[/{id}]`（admin，软删除）、`POST /api/v1/remote/scan`（operator+ 下发 Server 直连 SSH 任务）、`GET /api/v1/remote/tasks`、`GET /api/v1/remote/hosts`（viewer+）；凭据加密落库，host key ToFU，任务结束写审计
 - Web/数据库扫描：`POST /api/v1/webdb/scan`（operator+ 下发一次性 web/db 任务，body 含 `web: [URL...]` 与 `db: [{target, db_type, credential_id?}]`）、`GET /api/v1/webdb/tasks`、`GET /api/v1/webdb/targets`（viewer+）；凭据 CRUD 仅 admin 且响应不含密文；MySQL/Redis 无凭据识别版本，PostgreSQL 需凭据；结果生成 agent-web-*/agent-db-* 合成 agent
+- 专有威胁情报：`GET /api/v1/intel/rules`（viewer+，只读）查看内置漏洞指纹规则；规则由迁移种子维护（代码即数据），启动自动镜像进匹配管线（`source=custom`），命中进入 CVE 结果/风险/告警
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`
@@ -310,6 +312,14 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 计划报表：配置 `reporting.*` 后服务端按 cron 自动生成全景日报（HTML 邮件正文 + CSV 附件，SMTP 复用 `alerting.smtp`）；`POST /api/v1/admin/report/send`（admin）可手动立即发送
 - 合规基线：Agent 侧执行 CIS 风格精简检查（v1 为双平台各 10 项，非官方认证）并自动上报；`GET /api/v1/compliance/summary`（fleet 平均分、最低/最高分、失败检查 Top）、`GET /api/v1/compliance/agents`（每 agent 评分行）、`GET /api/v1/compliance/agents/{id}`（检查明细）、`GET /api/v1/compliance/export.csv`；所有登录角色可读，日报 HTML 含合规概览
 - OpenAPI 规范：`GET /openapi.yaml`（免鉴权）返回完整 OpenAPI 3.0.3 规范，覆盖全部 REST 端点、鉴权方案与 `x-roles` 角色标注；人类阅读版见 [docs/API.md](docs/API.md)
+
+## 扩展内置情报 / Adding Built-in Intel
+
+专有威胁情报坚持“零维护、只有代码”：规则数据存放在 `internal/store/migrations/*.up.sql`
+的 `custom_intel` 种子中，新增或修改规则 = 追加/修改迁移并提交代码；服务每次启动会把
+`enabled=true` 的规则镜像到 `cve_feed`（`source=custom`）并参与现有名称/版本范围/修复版本匹配。
+`affected` 字段与公共 feed 同一结构（name/vendor/min_ver/max_ver/边界/fixed_in/cpe/ecosystem），
+可用 `CUSTOM-*` 独立 ID 避免与公共 CVE 去重冲突；不提供后台增删改/导入接口。
 
 ## Users & RBAC / 用户与权限
 

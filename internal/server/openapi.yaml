@@ -1455,6 +1455,29 @@ paths:
                   total_agents: {type: integer}
                   cve_summary:
                     $ref: '#/components/schemas/CVESummary'
+  /api/v1/intel/rules:
+    get:
+      tags: [intel]
+      summary: 内置专有威胁情报规则列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: enabled, in: query, required: false, schema: {type: string, enum: [true, false]}}
+        - {name: q, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 规则列表（只读，规则由迁移种子维护）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CustomIntelRule'
   /api/v1/eol/summary:
     get:
       tags: [eol]
@@ -3371,6 +3394,21 @@ components:
         detail: {type: object}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CustomIntelRule:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        intel_id: {type: string}
+        title: {type: string}
+        summary: {type: string}
+        severity: {type: string, enum: [CRITICAL, HIGH, MEDIUM, LOW]}
+        cvss_score: {type: number}
+        advisory_url: {type: string}
+        source_ref: {type: string}
+        affected: {type: array, items: {type: object}}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
     CVESummary:
       type: object
