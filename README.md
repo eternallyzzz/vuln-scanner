@@ -268,6 +268,25 @@ network_scan:
   max_hosts: 1024
 ```
 
+EDR 恶意软件发现与补丁运行时验证（可选）：
+
+```yaml
+edr_scan:
+  enabled: false          # 默认关闭；开启后仅在全量同步时执行一次 clamscan
+  paths:                  # 待扫描路径，由部署方配置
+    - "/var/www"
+    - "/tmp"
+  timeout_seconds: 120
+```
+
+开启后 Agent 在存在 `clamscan` 二进制的 Linux/macOS 上执行
+`clamscan --infected --no-summary`，解析 `path: VirusName FOUND` 行并随全量
+SystemInfo 上报（`source=clamav`，Windows 本轮不扫描）。补丁任务成功后 Agent
+还会在 60s 轮询中领取 `runtime_verify_status=pending` 的任务，上报当前
+SystemInfo 快照做运行时验证（基线服务必须仍 running、与资产同名的进程必须
+仍存在）；无基线时结果为 `na`。operator 也可用
+`POST /api/v1/patch-tasks/{taskId}/verify` 手动触发并用最新快照立即评估。
+
 ## API Keys & Secrets / 密钥配置
 
 The repository contains **no hardcoded API keys**; every deployer supplies their own. / 仓库不含任何硬编码密钥，由每个部署者自行提供：
@@ -298,6 +317,8 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 安全事件流：告警与补丁任务状态变化经 `siem_events` outbox 投递到 Splunk HEC / 通用 Webhook（`siem.enabled: true` 时启用，失败自动重试）
 - 云资产接入：`/api/v1/cloud/accounts`（admin 管理加密云账号）、`POST /api/v1/cloud/accounts/{id}/refresh`（operator+ 手动刷新）、`GET /api/v1/cloud/resources` 与 CSV 导出（viewer+）；周期刷新由 `cloud_scan` 配置驱动
 - 补丁：`POST /agents/{id}/patch-tasks/generate`、`/patch-tasks/{id}/approve|reject|cancel|retry|stop`；agent 轮询执行并回传结果，执行期间 stdout/stderr 通过 `GET /patch-tasks/{id}/events` 游标轮询实时查看，`POST /patch-tasks/{id}/stop` 可中止运行中任务（agent 终止进程树后上报 cancelled）
+- 补丁运行时验证：任务成功后进入 `runtime_verify_status=pending`，agent 在 60s 轮询上报 SystemInfo 快照，服务/进程基线检查结果写入任务（passed/failed/na）并追加 `patch_task.verified` 事件；`POST /api/v1/patch-tasks/{id}/verify`（operator+）可手动触发并用最新快照立即评估
+- EDR 联动：`POST /api/v1/edr/findings`（operator+，agent_id 或 hostname，幂等 upsert，去重键=agent+source+hash 否则 name）上报恶意软件发现；`GET /api/v1/edr/findings` 与 `/{id}` 查询，`POST /{id}/ack|ignore|resolve` 处置并同步联动告警；HIGH/CRITICAL 自动经内置 `edr-malware` 规则生成/刷新 open 告警（cve_id 置空、edr_finding_id 关联），复用现有工单/SIEM 链路；agent 可选 ClamAV 采集（`edr_scan` 配置，默认关闭）
 - 批量补丁：`POST /api/v1/patch-campaigns`（按 agent_ids/tags/environments/asset_names/cve_ids/min_severity/min_cvss 批量生成，支持 `dry_run` 预演、重复任务去重）、`/patch-campaigns/{id}/approve|reject|cancel|retry` 批量状态流转、`/patch-campaigns/{id}` 汇总与审计、`GET /api/v1/patch-tasks` 全局任务列表
 - 容器扫描：`POST /api/v1/container/scan` 异步触发 Trivy 扫描、`GET /api/v1/container/status` 扫描状态、`GET /api/v1/container/images` 镜像清单；结果落入合成 agent（默认 agent-container-docker），修复建议为 rebuild（不可自动部署）
 - 网络扫描：`GET /api/v1/network/hosts`（发现主机与服务指纹）、`GET /api/v1/network/tasks`（任务列表）、`POST /api/v1/network/scan`（operator+ 下发一次性任务，Agent 领取执行）；每台主机生成合成 agent（agent-net-*）复用匹配/风险/告警链路

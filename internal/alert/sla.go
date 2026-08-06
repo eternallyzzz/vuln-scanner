@@ -21,6 +21,7 @@ var defaultRuleSpecs = []struct {
 	{name: "default-critical", severity: "CRITICAL"},
 	{name: "default-high", severity: "HIGH"},
 	{name: "default-medium", severity: "MEDIUM"},
+	{name: "edr-malware", severity: "HIGH"},
 	{name: slaRuleName, source: "sla"},
 }
 

@@ -19,16 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AgentService_Auth_FullMethodName                  = "/vulnscan.v1.AgentService/Auth"
-	AgentService_RefreshToken_FullMethodName          = "/vulnscan.v1.AgentService/RefreshToken"
-	AgentService_Heartbeat_FullMethodName             = "/vulnscan.v1.AgentService/Heartbeat"
-	AgentService_SyncInventory_FullMethodName         = "/vulnscan.v1.AgentService/SyncInventory"
-	AgentService_SyncCompliance_FullMethodName        = "/vulnscan.v1.AgentService/SyncCompliance"
-	AgentService_FetchPatchTasks_FullMethodName       = "/vulnscan.v1.AgentService/FetchPatchTasks"
-	AgentService_ReportPatchTask_FullMethodName       = "/vulnscan.v1.AgentService/ReportPatchTask"
-	AgentService_ReportPatchProgress_FullMethodName   = "/vulnscan.v1.AgentService/ReportPatchProgress"
-	AgentService_FetchNetworkScanTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchNetworkScanTasks"
-	AgentService_SyncNetworkScan_FullMethodName       = "/vulnscan.v1.AgentService/SyncNetworkScan"
+	AgentService_Auth_FullMethodName                    = "/vulnscan.v1.AgentService/Auth"
+	AgentService_RefreshToken_FullMethodName            = "/vulnscan.v1.AgentService/RefreshToken"
+	AgentService_Heartbeat_FullMethodName               = "/vulnscan.v1.AgentService/Heartbeat"
+	AgentService_SyncInventory_FullMethodName           = "/vulnscan.v1.AgentService/SyncInventory"
+	AgentService_SyncCompliance_FullMethodName          = "/vulnscan.v1.AgentService/SyncCompliance"
+	AgentService_FetchPatchTasks_FullMethodName         = "/vulnscan.v1.AgentService/FetchPatchTasks"
+	AgentService_ReportPatchTask_FullMethodName         = "/vulnscan.v1.AgentService/ReportPatchTask"
+	AgentService_ReportPatchProgress_FullMethodName     = "/vulnscan.v1.AgentService/ReportPatchProgress"
+	AgentService_FetchRuntimeVerifyTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchRuntimeVerifyTasks"
+	AgentService_ReportRuntimeVerify_FullMethodName     = "/vulnscan.v1.AgentService/ReportRuntimeVerify"
+	AgentService_FetchNetworkScanTasks_FullMethodName   = "/vulnscan.v1.AgentService/FetchNetworkScanTasks"
+	AgentService_SyncNetworkScan_FullMethodName         = "/vulnscan.v1.AgentService/SyncNetworkScan"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -43,6 +45,8 @@ type AgentServiceClient interface {
 	FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(ctx context.Context, in *ReportPatchTaskRequest, opts ...grpc.CallOption) (*ReportPatchTaskResponse, error)
 	ReportPatchProgress(ctx context.Context, in *ReportPatchProgressRequest, opts ...grpc.CallOption) (*ReportPatchProgressResponse, error)
+	FetchRuntimeVerifyTasks(ctx context.Context, in *FetchRuntimeVerifyTasksRequest, opts ...grpc.CallOption) (*FetchRuntimeVerifyTasksResponse, error)
+	ReportRuntimeVerify(ctx context.Context, in *ReportRuntimeVerifyRequest, opts ...grpc.CallOption) (*ReportRuntimeVerifyResponse, error)
 	FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error)
 	SyncNetworkScan(ctx context.Context, in *SyncNetworkScanRequest, opts ...grpc.CallOption) (*SyncNetworkScanResponse, error)
 }
@@ -127,6 +131,24 @@ func (c *agentServiceClient) ReportPatchProgress(ctx context.Context, in *Report
 	return out, nil
 }
 
+func (c *agentServiceClient) FetchRuntimeVerifyTasks(ctx context.Context, in *FetchRuntimeVerifyTasksRequest, opts ...grpc.CallOption) (*FetchRuntimeVerifyTasksResponse, error) {
+	out := new(FetchRuntimeVerifyTasksResponse)
+	err := c.cc.Invoke(ctx, AgentService_FetchRuntimeVerifyTasks_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) ReportRuntimeVerify(ctx context.Context, in *ReportRuntimeVerifyRequest, opts ...grpc.CallOption) (*ReportRuntimeVerifyResponse, error) {
+	out := new(ReportRuntimeVerifyResponse)
+	err := c.cc.Invoke(ctx, AgentService_ReportRuntimeVerify_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error) {
 	out := new(FetchNetworkScanTasksResponse)
 	err := c.cc.Invoke(ctx, AgentService_FetchNetworkScanTasks_FullMethodName, in, out, opts...)
@@ -157,6 +179,8 @@ type AgentServiceServer interface {
 	FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error)
 	ReportPatchProgress(context.Context, *ReportPatchProgressRequest) (*ReportPatchProgressResponse, error)
+	FetchRuntimeVerifyTasks(context.Context, *FetchRuntimeVerifyTasksRequest) (*FetchRuntimeVerifyTasksResponse, error)
+	ReportRuntimeVerify(context.Context, *ReportRuntimeVerifyRequest) (*ReportRuntimeVerifyResponse, error)
 	FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error)
 	SyncNetworkScan(context.Context, *SyncNetworkScanRequest) (*SyncNetworkScanResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
@@ -189,6 +213,12 @@ func (UnimplementedAgentServiceServer) ReportPatchTask(context.Context, *ReportP
 }
 func (UnimplementedAgentServiceServer) ReportPatchProgress(context.Context, *ReportPatchProgressRequest) (*ReportPatchProgressResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportPatchProgress not implemented")
+}
+func (UnimplementedAgentServiceServer) FetchRuntimeVerifyTasks(context.Context, *FetchRuntimeVerifyTasksRequest) (*FetchRuntimeVerifyTasksResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchRuntimeVerifyTasks not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportRuntimeVerify(context.Context, *ReportRuntimeVerifyRequest) (*ReportRuntimeVerifyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportRuntimeVerify not implemented")
 }
 func (UnimplementedAgentServiceServer) FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchNetworkScanTasks not implemented")
@@ -353,6 +383,42 @@ func _AgentService_ReportPatchProgress_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_FetchRuntimeVerifyTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FetchRuntimeVerifyTasksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).FetchRuntimeVerifyTasks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_FetchRuntimeVerifyTasks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).FetchRuntimeVerifyTasks(ctx, req.(*FetchRuntimeVerifyTasksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_ReportRuntimeVerify_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportRuntimeVerifyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportRuntimeVerify(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportRuntimeVerify_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportRuntimeVerify(ctx, req.(*ReportRuntimeVerifyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_FetchNetworkScanTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchNetworkScanTasksRequest)
 	if err := dec(in); err != nil {
@@ -427,6 +493,14 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportPatchProgress",
 			Handler:    _AgentService_ReportPatchProgress_Handler,
+		},
+		{
+			MethodName: "FetchRuntimeVerifyTasks",
+			Handler:    _AgentService_FetchRuntimeVerifyTasks_Handler,
+		},
+		{
+			MethodName: "ReportRuntimeVerify",
+			Handler:    _AgentService_ReportRuntimeVerify_Handler,
 		},
 		{
 			MethodName: "FetchNetworkScanTasks",

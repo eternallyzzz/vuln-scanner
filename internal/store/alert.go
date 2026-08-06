@@ -54,6 +54,7 @@ type Alert struct {
 	TicketSyncedAt        *time.Time `json:"ticket_synced_at,omitempty"`
 	IntelThreatLevel      string     `json:"intel_threat_level,omitempty"`
 	IntelExploited        bool       `json:"intel_exploited,omitempty"`
+	EDRFindingID          *int64     `json:"edr_finding_id,omitempty"`
 }
 
 type AlertDetail struct {
@@ -94,7 +95,8 @@ const alertRuleColumns = `id, name, enabled, severity_filter, source_filter, age
 const alertColumns = `id, rule_id, agent_id, cve_id, asset_name, severity, cvss_score, status,
 	first_seen, last_seen, occurrence_count, resolved_at, source,
 	remediation_campaign_id, remediation_error, ticket_provider, ticket_key, ticket_url,
-	ticket_status, ticket_error, ticket_attempts, ticket_sync_attempts, ticket_synced_at`
+	ticket_status, ticket_error, ticket_attempts, ticket_sync_attempts, ticket_synced_at,
+	edr_finding_id`
 
 func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -223,7 +225,7 @@ func (s *Store) UpsertAlertFromResult(ctx context.Context, rule AlertRule, agent
 			COALESCE(cr.intel_threat_level,''), COALESCE(cr.intel_exploited,false)
 		FROM (SELECT 1) x LEFT JOIN cve_results cr
 			ON cr.agent_id=$2 AND cr.cve_id=$3 AND cr.asset_name=$4 AND cr.status='active'
-		ON CONFLICT (rule_id, agent_id, cve_id, asset_name) WHERE status='open'
+		ON CONFLICT (rule_id, agent_id, cve_id, asset_name, COALESCE(edr_finding_id, 0)) WHERE status='open'
 		DO UPDATE SET last_seen=NOW(), occurrence_count=alerts.occurrence_count+1,
 			severity=EXCLUDED.severity, cvss_score=EXCLUDED.cvss_score, source=EXCLUDED.source,
 			epss_score=EXCLUDED.epss_score, kev=EXCLUDED.kev,
@@ -258,7 +260,7 @@ func (s *Store) UpsertSLABreachAlert(ctx context.Context, ruleID int64, agentID,
 			COALESCE(cr.intel_threat_level,''), COALESCE(cr.intel_exploited,false)
 		FROM (SELECT 1) x LEFT JOIN cve_results cr
 			ON cr.agent_id=$2 AND cr.cve_id=$3 AND cr.asset_name=$4 AND cr.status='active'
-		ON CONFLICT (rule_id, agent_id, cve_id, asset_name) WHERE status='open'
+		ON CONFLICT (rule_id, agent_id, cve_id, asset_name, COALESCE(edr_finding_id, 0)) WHERE status='open'
 		DO UPDATE SET last_seen=NOW(), occurrence_count=alerts.occurrence_count+1,
 			severity=EXCLUDED.severity, cvss_score=EXCLUDED.cvss_score,
 			epss_score=EXCLUDED.epss_score, kev=EXCLUDED.kev,
@@ -297,13 +299,13 @@ func (s *Store) ResolveInactiveAlerts(ctx context.Context, agentID string, activ
 	if len(activeKeys) == 0 {
 		rows, err = s.pool.Query(ctx, `
 			UPDATE alerts SET status='resolved', resolved_at=NOW()
-			WHERE agent_id=$1 AND status='open'
+			WHERE agent_id=$1 AND status='open' AND edr_finding_id IS NULL
 			RETURNING id
 		`, agentID)
 	} else {
 		rows, err = s.pool.Query(ctx, `
 			UPDATE alerts SET status='resolved', resolved_at=NOW()
-			WHERE agent_id=$1 AND status='open'
+			WHERE agent_id=$1 AND status='open' AND edr_finding_id IS NULL
 			  AND (rule_id::text || '|' || cve_id || '|' || asset_name) <> ALL($2::text[])
 			RETURNING id
 		`, agentID, activeKeys)
@@ -379,7 +381,7 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
 			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
 			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
-			a.intel_threat_level, a.intel_exploited,
+			a.intel_threat_level, a.intel_exploited, a.edr_finding_id,
 			COALESCE(r.name,'') AS rule_name
 		FROM alerts a
 		LEFT JOIN alert_rules r ON r.id=a.rule_id
@@ -401,7 +403,7 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 			&a.RemediationCampaignID, &a.RemediationError,
 			&a.TicketProvider, &a.TicketKey, &a.TicketURL, &a.TicketStatus,
 			&a.TicketError, &a.TicketAttempts, &a.TicketSyncAttempts, &a.TicketSyncedAt,
-			&a.IntelThreatLevel, &a.IntelExploited, &a.RuleName); err != nil {
+			&a.IntelThreatLevel, &a.IntelExploited, &a.EDRFindingID, &a.RuleName); err != nil {
 			return nil, err
 		}
 		alerts = append(alerts, a)
@@ -417,7 +419,7 @@ func (s *Store) GetAlertDetail(ctx context.Context, alertID int64) (AlertDetail,
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
 			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
 			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
-			a.intel_threat_level, a.intel_exploited,
+			a.intel_threat_level, a.intel_exploited, a.edr_finding_id,
 			COALESCE(r.name,''), COALESCE(ag.hostname,'')
 		FROM alerts a
 		LEFT JOIN alert_rules r ON r.id = a.rule_id
@@ -429,7 +431,7 @@ func (s *Store) GetAlertDetail(ctx context.Context, alertID int64) (AlertDetail,
 		&d.RemediationCampaignID, &d.RemediationError,
 		&d.TicketProvider, &d.TicketKey, &d.TicketURL, &d.TicketStatus,
 		&d.TicketError, &d.TicketAttempts, &d.TicketSyncAttempts, &d.TicketSyncedAt,
-		&d.IntelThreatLevel, &d.IntelExploited, &d.RuleName, &d.AgentHostname)
+		&d.IntelThreatLevel, &d.IntelExploited, &d.EDRFindingID, &d.RuleName, &d.AgentHostname)
 	return d, err
 }
 
@@ -445,7 +447,7 @@ func (s *Store) ListTicketCreatePending(ctx context.Context, limit, maxAttempts 
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
 			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
 			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
-			a.intel_threat_level, a.intel_exploited,
+			a.intel_threat_level, a.intel_exploited, a.edr_finding_id,
 			COALESCE(r.name,''), COALESCE(ag.hostname,'')
 		FROM alerts a
 		JOIN alert_rules r ON r.id=a.rule_id
@@ -473,7 +475,7 @@ func (s *Store) ListTicketSyncPending(ctx context.Context, limit, maxAttempts in
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
 			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
 			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
-			a.intel_threat_level, a.intel_exploited,
+			a.intel_threat_level, a.intel_exploited, a.edr_finding_id,
 			COALESCE(r.name,''), COALESCE(ag.hostname,'')
 		FROM alerts a
 		JOIN alert_rules r ON r.id=a.rule_id
@@ -499,7 +501,7 @@ func scanAlertDetails(rows pgx.Rows) ([]AlertDetail, error) {
 			&a.RemediationCampaignID, &a.RemediationError,
 			&a.TicketProvider, &a.TicketKey, &a.TicketURL, &a.TicketStatus,
 			&a.TicketError, &a.TicketAttempts, &a.TicketSyncAttempts, &a.TicketSyncedAt,
-			&a.IntelThreatLevel, &a.IntelExploited, &a.RuleName, &a.AgentHostname); err != nil {
+			&a.IntelThreatLevel, &a.IntelExploited, &a.EDRFindingID, &a.RuleName, &a.AgentHostname); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

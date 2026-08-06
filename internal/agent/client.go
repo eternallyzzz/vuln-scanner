@@ -155,6 +155,34 @@ func (c *Client) ReportPatchProgress(ctx context.Context, taskID int64, stream, 
 	return resp.GetCancelRequested(), nil
 }
 
+// FetchRuntimeVerifyTasks returns succeeded patch tasks awaiting a runtime
+// verification snapshot from this agent.
+func (c *Client) FetchRuntimeVerifyTasks(ctx context.Context) ([]*pb.RuntimeVerifyTaskInfo, error) {
+	resp, err := c.rawClient.FetchRuntimeVerifyTasks(ctx, &pb.FetchRuntimeVerifyTasksRequest{
+		AgentId: c.cfg.Agent.ID,
+		Token:   c.cfg.Agent.Token,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetTasks(), nil
+}
+
+// ReportRuntimeVerify uploads one SystemInfo snapshot for runtime
+// verification and returns the evaluation result.
+func (c *Client) ReportRuntimeVerify(ctx context.Context, taskID int64, sys *pb.SystemInfo) (string, string, error) {
+	resp, err := c.rawClient.ReportRuntimeVerify(ctx, &pb.ReportRuntimeVerifyRequest{
+		TaskId:     taskID,
+		AgentId:    c.cfg.Agent.ID,
+		Token:      c.cfg.Agent.Token,
+		SystemInfo: sys,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return resp.GetStatus(), resp.GetDetail(), nil
+}
+
 // FetchNetworkScanTasks claims pending server-dispatched network scan tasks
 // for this agent.
 func (c *Client) FetchNetworkScanTasks(ctx context.Context) ([]*pb.NetworkScanTaskInfo, error) {

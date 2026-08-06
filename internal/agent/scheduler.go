@@ -93,6 +93,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		case <-patchTicker.C:
 			if s.cfg.Agent.PatchEnabled {
 				s.doPatchLoop(ctx)
+				s.doRuntimeVerifyLoop(ctx)
 			}
 			s.doNetworkTaskLoop(ctx)
 		case <-netScanTicker.C:
@@ -232,6 +233,34 @@ func (s *Scheduler) doPatchLoop(ctx context.Context) {
 	}
 }
 
+// doRuntimeVerifyLoop claims pending runtime verification tasks and reports
+// one fresh SystemInfo snapshot for all of them. The snapshot is collected
+// only when there is at least one task, so the 60s cycle stays cheap.
+func (s *Scheduler) doRuntimeVerifyLoop(ctx context.Context) {
+	tasks, err := s.client.FetchRuntimeVerifyTasks(ctx)
+	if err != nil {
+		slog.Warn("fetch runtime verify tasks failed", "error", err)
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	sys, err := s.collect.SystemInfo(ctx)
+	if err != nil {
+		slog.Warn("runtime verify system info collection failed", "error", err)
+		return
+	}
+	for _, task := range tasks {
+		status, detail, err := s.client.ReportRuntimeVerify(ctx, task.GetTaskId(), systemInfoToPb(sys))
+		if err != nil {
+			slog.Warn("report runtime verify failed", "task_id", task.GetTaskId(), "error", err)
+			continue
+		}
+		slog.Info("runtime verify reported", "task_id", task.GetTaskId(),
+			"asset", task.GetAssetName(), "status", status, "detail", detail)
+	}
+}
+
 func (s *Scheduler) Stop() {
 	close(s.done)
 	if s.ticker != nil {
@@ -271,6 +300,11 @@ func (s *Scheduler) doFullSync(ctx context.Context) ([]collector.Asset, collecto
 		return nil, collector.SystemInfo{}
 	}
 	assets = dedupeAssets(assets)
+	if s.cfg.EDRScan.Enabled {
+		findings := runClamAVScan(ctx, s.cfg.EDRScan.Paths,
+			time.Duration(s.cfg.EDRScan.TimeoutSeconds)*time.Second)
+		sys.EDRFindings = append(sys.EDRFindings, findings...)
+	}
 
 	var pbAssets []*pb.Asset
 	for _, a := range assets {
@@ -517,6 +551,17 @@ func systemInfoToPb(s collector.SystemInfo) *pb.SystemInfo {
 			LastCheckedAt:   formatTimeOrEmpty(s.UpdateSourceStatus.LastCheckedAt),
 			Error:           s.UpdateSourceStatus.Error,
 		}
+	}
+	for _, f := range s.EDRFindings {
+		out.EdrFindings = append(out.EdrFindings, &pb.EDRFinding{
+			Source:      f.Source,
+			FindingType: f.FindingType,
+			Name:        f.Name,
+			Severity:    f.Severity,
+			Path:        f.Path,
+			Hash:        f.Hash,
+			Detail:      f.Detail,
+		})
 	}
 	return out
 }

@@ -159,6 +159,7 @@ func operatorCan(method, path string) bool {
 		{http.MethodPut, "/api/v1/alert-rules/", ""},
 		{http.MethodDelete, "/api/v1/alert-rules/", ""},
 		{http.MethodPut, "/api/v1/sla-policies/", ""},
+		{http.MethodPost, "/api/v1/edr/findings", ""},
 	}
 	for _, rule := range rules {
 		if method != rule.method {

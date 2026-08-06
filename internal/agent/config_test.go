@@ -33,6 +33,12 @@ agent:
 	if cfg.Agent.WUATimeoutSeconds != 45 {
 		t.Fatalf("wua_timeout_seconds wrong: %d", cfg.Agent.WUATimeoutSeconds)
 	}
+	if cfg.EDRScan.Enabled {
+		t.Fatal("edr_scan must default to disabled")
+	}
+	if cfg.EDRScan.TimeoutSeconds != 120 {
+		t.Fatalf("edr_scan timeout default wrong: %d", cfg.EDRScan.TimeoutSeconds)
+	}
 }
 
 func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
@@ -44,6 +50,10 @@ func TestLoadConfigDefaultsWhenFileMissing(t *testing.T) {
 	if !cfg.Agent.WUAEnabled || cfg.Agent.WUATimeoutSeconds != 60 {
 		t.Fatalf("WUA defaults wrong: enabled=%v timeout=%d",
 			cfg.Agent.WUAEnabled, cfg.Agent.WUATimeoutSeconds)
+	}
+	if cfg.EDRScan.Enabled || cfg.EDRScan.TimeoutSeconds != 120 {
+		t.Fatalf("EDR scan defaults wrong: enabled=%v timeout=%d",
+			cfg.EDRScan.Enabled, cfg.EDRScan.TimeoutSeconds)
 	}
 }
 

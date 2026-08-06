@@ -42,6 +42,27 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	return &a, nil
 }
 
+// GetAgentByHostname resolves an agent by its registered hostname. It is
+// used by integrations that know the host but not the agent id.
+func (s *Store) GetAgentByHostname(ctx context.Context, hostname string) (*Agent, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,
+			status, fingerprint_hash, last_seen, created_at, updated_at,
+			eol_status, eol_date, eol_product, eol_cycle
+		FROM agents WHERE hostname=$1 ORDER BY updated_at DESC LIMIT 1
+	`, hostname)
+
+	var a Agent
+	err := row.Scan(&a.ID, &a.Hostname, &a.OSType, &a.OSVersion, &a.Arch,
+		&a.AgentVer, &a.IP, &a.TokenHash, &a.Status, &a.FingerprintHash,
+		&a.LastSeen, &a.CreatedAt, &a.UpdatedAt,
+		&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 func (s *Store) ListAgents(ctx context.Context) ([]Agent, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,

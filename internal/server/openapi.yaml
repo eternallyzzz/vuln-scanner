@@ -778,6 +778,28 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409':
           description: 任务不在运行中
+  /api/v1/patch-tasks/{taskId}/verify:
+    post:
+      tags: [patch]
+      summary: 补丁任务运行时验证（operator 手动/冒烟入口）
+      x-roles: [admin, operator]
+      parameters:
+        - {name: taskId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 运行时验证结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: integer, format: int64}
+                  status: {type: string, enum: [passed, failed, na]}
+                  detail: {type: string}
+                  verified_at: {type: string, format: date-time}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/v1/patch-tasks/{taskId}/events:
     get:
       tags: [patch]
@@ -819,6 +841,143 @@ paths:
                 properties:
                   task_id: {type: integer, format: int64}
                   status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/edr/findings:
+    post:
+      tags: [alerting]
+      summary: 上报 EDR 恶意软件发现（幂等入库，HIGH/CRITICAL 自动生成告警）
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EDRFindingInput'
+      responses:
+        '200':
+          description: 已存在发现已刷新（同一去重键再次上报）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: '#/components/schemas/EDRFinding'
+                  created: {type: boolean}
+                  alerted: {type: boolean}
+        '201':
+          description: 新发现已入库
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: '#/components/schemas/EDRFinding'
+                  created: {type: boolean}
+                  alerted: {type: boolean}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    get:
+      tags: [alerting]
+      summary: 列出 EDR 恶意软件发现
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: status, in: query, schema: {type: string, enum: [open, acknowledged, ignored, resolved]}}
+        - {name: source, in: query, schema: {type: string}}
+        - {name: agent_id, in: query, schema: {type: string}}
+        - {name: severity, in: query, schema: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}}
+        - {name: q, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer}}
+        - {name: offset, in: query, schema: {type: integer}}
+      responses:
+        '200':
+          description: 发现列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  findings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EDRFinding'
+                  total: {type: integer}
+  /api/v1/edr/findings/{findingId}:
+    get:
+      tags: [alerting]
+      summary: EDR 恶意软件发现详情
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: findingId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 发现详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EDRFinding'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/edr/findings/{findingId}/ack:
+    post:
+      tags: [alerting]
+      summary: 确认 EDR 发现（同步联动告警置 ack）
+      x-roles: [admin, operator]
+      parameters:
+        - {name: findingId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已确认
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: '#/components/schemas/EDRFinding'
+                  status: {type: string, enum: [acknowledged]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/edr/findings/{findingId}/ignore:
+    post:
+      tags: [alerting]
+      summary: 忽略 EDR 发现（同步联动告警解决）
+      x-roles: [admin, operator]
+      parameters:
+        - {name: findingId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已忽略
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: '#/components/schemas/EDRFinding'
+                  status: {type: string, enum: [ignored]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/edr/findings/{findingId}/resolve:
+    post:
+      tags: [alerting]
+      summary: 解决 EDR 发现（同步联动告警解决）
+      x-roles: [admin, operator]
+      parameters:
+        - {name: findingId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已解决
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  finding:
+                    $ref: '#/components/schemas/EDRFinding'
+                  status: {type: string, enum: [resolved]}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/patch-campaigns:
@@ -2889,6 +3048,7 @@ components:
         ticket_synced_at: {type: string, format: date-time, nullable: true}
         intel_threat_level: {type: string}
         intel_exploited: {type: boolean}
+        edr_finding_id: {type: integer, format: int64, nullable: true}
     AlertDetail:
       allOf:
         - $ref: '#/components/schemas/Alert'
@@ -2963,6 +3123,11 @@ components:
         window_start: {type: string, format: date-time, nullable: true}
         window_end: {type: string, format: date-time, nullable: true}
         cancel_requested: {type: boolean}
+        runtime_verify_baseline:
+          type: object
+        runtime_verify_status: {type: string, enum: ['', pending, passed, failed, na]}
+        runtime_verify_detail: {type: string}
+        runtime_verify_at: {type: string, format: date-time, nullable: true}
         campaign_id: {type: integer, format: int64, nullable: true}
         result:
           type: object
@@ -3032,6 +3197,36 @@ components:
         window_start: {type: string, format: date-time}
         window_end: {type: string, format: date-time}
         dry_run: {type: boolean}
+    EDRFinding:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        agent_id: {type: string}
+        source: {type: string, enum: [edr_api, clamav]}
+        finding_type: {type: string}
+        name: {type: string}
+        severity: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}
+        path: {type: string}
+        hash: {type: string}
+        detail: {type: string}
+        status: {type: string, enum: [open, acknowledged, ignored, resolved]}
+        occurrence_count: {type: integer}
+        alert_id: {type: integer, format: int64, nullable: true}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+    EDRFindingInput:
+      type: object
+      required: [name]
+      properties:
+        agent_id: {type: string}
+        hostname: {type: string}
+        source: {type: string, enum: [edr_api, clamav]}
+        finding_type: {type: string, default: malware}
+        name: {type: string}
+        severity: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL], default: MEDIUM}
+        path: {type: string}
+        hash: {type: string}
+        detail: {type: string}
     VulnerabilityException:
       type: object
       properties:

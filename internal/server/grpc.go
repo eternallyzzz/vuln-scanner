@@ -205,6 +205,11 @@ func (s *AgentGRPCServer) SyncInventory(ctx context.Context, req *pb.SyncInvento
 		if err := s.store.SaveHostSystemInfo(ctx, info); err != nil {
 			slog.Warn("host system info save failed", "agent_id", agentID, "error", err)
 		}
+		if len(req.GetSystemInfo().GetEdrFindings()) > 0 {
+			if err := s.ingestEDRFindings(ctx, agentID, req.GetSystemInfo().GetEdrFindings()); err != nil {
+				slog.Warn("edr findings ingest failed", "agent_id", agentID, "error", err)
+			}
+		}
 		updateFacts := updateFactsFromPB(req.GetSystemInfo().GetUpdateFacts())
 		updateStatus := updateSourceStatusFromPB(req.GetSystemInfo().GetUpdateSourceStatus())
 		slog.Info("agent update facts received",

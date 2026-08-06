@@ -36,6 +36,12 @@ type Config struct {
 		Concurrency     int      `mapstructure:"concurrency"`
 		MaxHosts        int      `mapstructure:"max_hosts"`
 	} `mapstructure:"network_scan"`
+
+	EDRScan struct {
+		Enabled        bool     `mapstructure:"enabled"`
+		Paths          []string `mapstructure:"paths"`
+		TimeoutSeconds int      `mapstructure:"timeout_seconds"`
+	} `mapstructure:"edr_scan"`
 }
 
 func ConfigDir() string {
@@ -69,6 +75,8 @@ func LoadConfig() (*Config, error) {
 	cfg.NetworkScan.TimeoutSeconds = 2
 	cfg.NetworkScan.Concurrency = 32
 	cfg.NetworkScan.MaxHosts = 1024
+	cfg.EDRScan.Enabled = false
+	cfg.EDRScan.TimeoutSeconds = 120
 
 	v := viper.New()
 	v.SetConfigFile(configPath())
@@ -119,6 +127,9 @@ func SaveConfig(cfg *Config) error {
 	v.Set("network_scan.timeout_seconds", cfg.NetworkScan.TimeoutSeconds)
 	v.Set("network_scan.concurrency", cfg.NetworkScan.Concurrency)
 	v.Set("network_scan.max_hosts", cfg.NetworkScan.MaxHosts)
+	v.Set("edr_scan.enabled", cfg.EDRScan.Enabled)
+	v.Set("edr_scan.paths", cfg.EDRScan.Paths)
+	v.Set("edr_scan.timeout_seconds", cfg.EDRScan.TimeoutSeconds)
 
 	return v.WriteConfigAs(configPath())
 }

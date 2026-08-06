@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -10,26 +11,30 @@ import (
 )
 
 type PatchTask struct {
-	ID               int64           `json:"id"`
-	AgentID          string          `json:"agent_id"`
-	AssetName        string          `json:"asset_name"`
-	FixType          string          `json:"fix_type"`
-	FixValue         string          `json:"fix_value"`
-	Action           string          `json:"action"`
-	CVEIDs           []string        `json:"cve_ids"`
-	Command          string          `json:"command"`
-	Commands         [][]string      `json:"commands"`
-	Status           string          `json:"status"`
-	ApprovalRequired bool            `json:"approval_required"`
-	WindowStart      *time.Time      `json:"window_start,omitempty"`
-	WindowEnd        *time.Time      `json:"window_end,omitempty"`
-	CampaignID       *int64          `json:"campaign_id,omitempty"`
-	Result           json.RawMessage `json:"result"`
-	CreatedBy        string          `json:"created_by"`
-	ApprovedBy       string          `json:"approved_by"`
-	CreatedAt        time.Time       `json:"created_at"`
-	UpdatedAt        time.Time       `json:"updated_at"`
-	CancelRequested  bool            `json:"cancel_requested"`
+	ID                    int64           `json:"id"`
+	AgentID               string          `json:"agent_id"`
+	AssetName             string          `json:"asset_name"`
+	FixType               string          `json:"fix_type"`
+	FixValue              string          `json:"fix_value"`
+	Action                string          `json:"action"`
+	CVEIDs                []string        `json:"cve_ids"`
+	Command               string          `json:"command"`
+	Commands              [][]string      `json:"commands"`
+	Status                string          `json:"status"`
+	ApprovalRequired      bool            `json:"approval_required"`
+	WindowStart           *time.Time      `json:"window_start,omitempty"`
+	WindowEnd             *time.Time      `json:"window_end,omitempty"`
+	CampaignID            *int64          `json:"campaign_id,omitempty"`
+	Result                json.RawMessage `json:"result"`
+	CreatedBy             string          `json:"created_by"`
+	ApprovedBy            string          `json:"approved_by"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
+	CancelRequested       bool            `json:"cancel_requested"`
+	RuntimeVerifyBaseline json.RawMessage `json:"runtime_verify_baseline,omitempty"`
+	RuntimeVerifyStatus   string          `json:"runtime_verify_status,omitempty"`
+	RuntimeVerifyDetail   string          `json:"runtime_verify_detail,omitempty"`
+	RuntimeVerifyAt       *time.Time      `json:"runtime_verify_at,omitempty"`
 }
 
 type PatchTaskInput struct {
@@ -51,22 +56,26 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 	var t PatchTask
 	var commandsRaw []byte
 	var resultRaw []byte
+	var baselineRaw []byte
 	err := row.Scan(&t.ID, &t.AgentID, &t.AssetName, &t.FixType, &t.FixValue,
 		&t.Action, &t.CVEIDs, &t.Command, &commandsRaw, &t.Status,
 		&t.ApprovalRequired, &t.WindowStart, &t.WindowEnd, &resultRaw,
 		&t.CreatedBy, &t.ApprovedBy, &t.CreatedAt, &t.UpdatedAt, &t.CampaignID,
-		&t.CancelRequested)
+		&t.CancelRequested, &baselineRaw, &t.RuntimeVerifyStatus,
+		&t.RuntimeVerifyDetail, &t.RuntimeVerifyAt)
 	if err != nil {
 		return t, err
 	}
 	json.Unmarshal(commandsRaw, &t.Commands)
 	t.Result = resultRaw
+	t.RuntimeVerifyBaseline = baselineRaw
 	return t, nil
 }
 
 const patchTaskColumns = `id, agent_id, asset_name, fix_type, fix_value, action, cve_ids,
 	command, commands, status, approval_required, window_start, window_end,
-	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested`
+	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested,
+	runtime_verify_baseline, runtime_verify_status, runtime_verify_detail, runtime_verify_at`
 
 // PatchTaskEvent is one incremental execution event (stdout/stderr chunk or
 // heartbeat). id is the monotonic cursor used by the REST event stream.
@@ -172,13 +181,24 @@ func (s *Store) ClaimNextPatchTask(ctx context.Context, agentID string) (PatchTa
 	if e := s.appendSiemPatchTask(ctx, "patch_task.running", task, "agent:"+agentID); e != nil {
 		slog.Warn("siem patch task running event failed", "task_id", task.ID, "error", e)
 	}
+	// Capture the runtime verification baseline (latest known services and
+	// processes) before the agent executes the patch. The agent compares a
+	// fresh snapshot against it after a successful run.
+	if err := s.captureRuntimeBaseline(ctx, task.ID, agentID); err != nil {
+		slog.Warn("runtime verify baseline capture failed", "task_id", task.ID,
+			"agent_id", agentID, "error", err)
+	}
 	return task, nil
 }
 
 func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, result map[string]interface{}) error {
 	raw, _ := json.Marshal(result)
 	_, err := s.pool.Exec(ctx, `
-		UPDATE patch_tasks SET status=$2, result=$3, cancel_requested=FALSE, updated_at=NOW()
+		UPDATE patch_tasks SET status=$2, result=$3, cancel_requested=FALSE,
+			runtime_verify_status=CASE WHEN $2='success' THEN 'pending' ELSE runtime_verify_status END,
+			runtime_verify_detail=CASE WHEN $2='success' THEN '' ELSE runtime_verify_detail END,
+			runtime_verify_at=CASE WHEN $2='success' THEN NULL ELSE runtime_verify_at END,
+			updated_at=NOW()
 		WHERE id=$1
 	`, id, status, raw)
 	if err != nil {
@@ -190,6 +210,94 @@ func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, 
 	}
 	if e := s.appendSiemPatchTask(ctx, patchTaskEventType(status), task, "agent"); e != nil {
 		slog.Warn("siem patch task completion event failed", "task_id", id, "status", status, "error", e)
+	}
+	return nil
+}
+
+// captureRuntimeBaseline stores the latest host_system_info services and
+// processes as the runtime verification baseline for a task. A missing
+// baseline stays empty so verification reports "na" instead of failing.
+func (s *Store) captureRuntimeBaseline(ctx context.Context, taskID int64, agentID string) error {
+	info, err := s.GetHostSystemInfo(ctx, agentID)
+	if err != nil {
+		if IsHostSystemInfoNotFound(err) {
+			_, err = s.pool.Exec(ctx, `
+				UPDATE patch_tasks SET runtime_verify_baseline='{}'::jsonb, updated_at=NOW()
+				WHERE id=$1
+			`, taskID)
+			return err
+		}
+		return err
+	}
+	baseline, err := json.Marshal(map[string]interface{}{
+		"services":  info.Services,
+		"processes": info.Processes,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET runtime_verify_baseline=$2, updated_at=NOW()
+		WHERE id=$1
+	`, taskID, baseline)
+	return err
+}
+
+// ListPendingRuntimeVerifyTasks returns tasks whose patch succeeded and the
+// agent has not reported a runtime verification snapshot yet.
+func (s *Store) ListPendingRuntimeVerifyTasks(ctx context.Context, agentID string) ([]PatchTask, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+patchTaskColumns+` FROM patch_tasks
+		WHERE agent_id=$1 AND status='success' AND runtime_verify_status='pending'
+		ORDER BY id
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []PatchTask
+	for rows.Next() {
+		t, err := scanPatchTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+// SetPatchTaskRuntimeVerifyPending resets a task to the pending verification
+// state. It is used by the manual operator endpoint before evaluating the
+// current snapshot.
+func (s *Store) SetPatchTaskRuntimeVerifyPending(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET runtime_verify_status='pending',
+			runtime_verify_detail='', runtime_verify_at=NULL, updated_at=NOW()
+		WHERE id=$1
+	`, id)
+	return err
+}
+
+// CompleteRuntimeVerification writes the evaluation result (passed/failed/na)
+// and appends a patch_task.verified outbox event.
+func (s *Store) CompleteRuntimeVerification(ctx context.Context, id int64, status, detail string) error {
+	if status != "passed" && status != "failed" && status != "na" {
+		return fmt.Errorf("invalid runtime verification status %q", status)
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET runtime_verify_status=$2, runtime_verify_detail=$3,
+			runtime_verify_at=NOW(), updated_at=NOW()
+		WHERE id=$1
+	`, id, status, detail)
+	if err != nil {
+		return err
+	}
+	task, err := s.GetPatchTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if e := s.appendSiemPatchTask(ctx, "patch_task.verified", task, "runtime-verify"); e != nil {
+		slog.Warn("siem patch task verified event failed", "task_id", id, "error", e)
 	}
 	return nil
 }

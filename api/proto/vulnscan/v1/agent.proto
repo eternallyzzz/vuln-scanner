@@ -1,4 +1,4 @@
-syntax = "proto3";
+﻿syntax = "proto3";
 
 package vulnscan.v1;
 
@@ -13,6 +13,8 @@ service AgentService {
   rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
   rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
   rpc ReportPatchProgress(ReportPatchProgressRequest) returns (ReportPatchProgressResponse);
+  rpc FetchRuntimeVerifyTasks(FetchRuntimeVerifyTasksRequest) returns (FetchRuntimeVerifyTasksResponse);
+  rpc ReportRuntimeVerify(ReportRuntimeVerifyRequest) returns (ReportRuntimeVerifyResponse);
   rpc FetchNetworkScanTasks(FetchNetworkScanTasksRequest) returns (FetchNetworkScanTasksResponse);
   rpc SyncNetworkScan(SyncNetworkScanRequest) returns (SyncNetworkScanResponse);
 }
@@ -248,6 +250,7 @@ message SystemInfo {
   repeated string truncated = 40;
   repeated UpdateFact update_facts = 41;
   UpdateSourceStatus update_source_status = 42;
+  repeated EDRFinding edr_findings = 43;
 }
 
 message UpdateFact {
@@ -402,4 +405,42 @@ enum AssetType {
   HOTFIX = 1;
   LANGUAGE = 2;
   OS = 3;
+}
+
+// EDRFinding is one malicious-software discovery carried with a full
+// inventory sync (agent-side ClamAV scan); the server assigns agent_id.
+message EDRFinding {
+  string source = 1;       // clamav | edr_api
+  string finding_type = 2; // malware
+  string name = 3;         // detection/virus name
+  string severity = 4;     // LOW | MEDIUM | HIGH | CRITICAL
+  string path = 5;
+  string hash = 6;
+  string detail = 7;
+}
+message RuntimeVerifyTaskInfo {
+  int64 task_id = 1;
+  string asset_name = 2;
+}
+
+message FetchRuntimeVerifyTasksRequest {
+  string agent_id = 1;
+  string token = 2;
+}
+
+message FetchRuntimeVerifyTasksResponse {
+  repeated RuntimeVerifyTaskInfo tasks = 1;
+}
+
+message ReportRuntimeVerifyRequest {
+  int64 task_id = 1;
+  string agent_id = 2;
+  string token = 3;
+  SystemInfo system_info = 4;
+}
+
+message ReportRuntimeVerifyResponse {
+  bool ok = 1;
+  string status = 2;  // passed | failed | na
+  string detail = 3;
 }

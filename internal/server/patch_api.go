@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -238,6 +239,56 @@ func (s *RESTServer) cancelPatchTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) retryPatchTask(w http.ResponseWriter, r *http.Request) {
 	s.setPatchTaskStatus(w, r, "retry")
+}
+
+// verifyPatchTask manually re-runs runtime verification for a succeeded
+// patch task: it flips the task back to pending and immediately evaluates
+// the latest stored host_system_info snapshot against the claim-time
+// baseline. This doubles as the smoke-test entry point for the mechanism.
+func (s *RESTServer) verifyPatchTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, 400, "invalid task id")
+		return
+	}
+	task, err := s.store.GetPatchTask(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, 404, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if task.Status != "success" {
+		writeError(w, 409, "only succeeded patch tasks can be runtime verified")
+		return
+	}
+	if err := s.store.SetPatchTaskRuntimeVerifyPending(r.Context(), task.ID); err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	baseline, err := patch.ParseRuntimeBaseline(task.RuntimeVerifyBaseline)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	snapshot := patch.RuntimeSnapshot{}
+	if info, err := s.store.GetHostSystemInfo(r.Context(), task.AgentID); err == nil {
+		snapshot.Services = info.Services
+		snapshot.Processes = info.Processes
+	} else if !store.IsHostSystemInfoNotFound(err) {
+		slog.Warn("load host system info for runtime verify failed", "agent_id", task.AgentID, "error", err)
+	}
+	result := patch.EvaluateRuntimeVerification(baseline, snapshot, task.AssetName)
+	if err := s.store.CompleteRuntimeVerification(r.Context(), task.ID, result.Status, result.Detail); err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"task_id": task.ID, "status": result.Status,
+		"detail": result.Detail, "verified_at": time.Now(),
+	})
 }
 
 // stopPatchTask requests cancellation of a running patch task. The agent

@@ -168,6 +168,18 @@ type UpdateSourceStatus struct {
 	Error           string    `json:"error,omitempty"`
 }
 
+// EDRFinding is one malicious-software discovery collected by the agent
+// (ClamAV) and reported with the full inventory sync.
+type EDRFinding struct {
+	Source      string `json:"source"`       // clamav | edr_api
+	FindingType string `json:"finding_type"` // malware
+	Name        string `json:"name"`         // detection/virus name
+	Severity    string `json:"severity"`     // LOW | MEDIUM | HIGH | CRITICAL
+	Path        string `json:"path,omitempty"`
+	Hash        string `json:"hash,omitempty"`
+	Detail      string `json:"detail,omitempty"`
+}
+
 type SystemInfo struct {
 	Hostname           string              `json:"hostname"`
 	OS                 string              `json:"os"`
@@ -211,6 +223,7 @@ type SystemInfo struct {
 	Truncated          []string            `json:"truncated,omitempty"`
 	UpdateFacts        []UpdateFact        `json:"update_facts,omitempty"`
 	UpdateSourceStatus *UpdateSourceStatus `json:"update_source_status,omitempty"`
+	EDRFindings        []EDRFinding        `json:"edr_findings,omitempty"`
 }
 
 type Collector interface {
