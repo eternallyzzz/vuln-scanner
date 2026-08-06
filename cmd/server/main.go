@@ -73,6 +73,21 @@ func main() {
 				"auto_provision", cfg.LDAP.AutoProvision)
 		}
 	}
+	if cfg.Ticketing != nil {
+		cfg.Ticketing = cfg.Ticketing.Normalized()
+		if err := cfg.Ticketing.Validate(); err != nil {
+			slog.Error("ticketing config invalid", "error", err)
+			os.Exit(1)
+		}
+		if cfg.Ticketing.Enabled && (cfg.Alerting == nil || !cfg.Alerting.Enabled) {
+			slog.Error("ticketing config invalid: ticketing.enabled requires alerting.enabled")
+			os.Exit(1)
+		}
+		if cfg.Ticketing.Enabled {
+			slog.Info("ticketing enabled",
+				"provider", cfg.Ticketing.Provider, "base_url", cfg.Ticketing.BaseURL)
+		}
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -124,6 +139,7 @@ func main() {
 	worker := server.NewWorker(db, loader, matcher, alertSvc, cfg.Patch, feedCfg)
 	worker.ConfigureContainerScanning(cfg.ContainerScan)
 	worker.ConfigureRemoteScanning(cfg.RemoteScan)
+	worker.ConfigureTicketing(cfg.Ticketing)
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP
@@ -164,6 +180,9 @@ func main() {
 	}
 
 	rest := server.NewRESTServer(db, auth, cfg, worker, alertSvc)
+	if ticketSvc := worker.TicketService(); ticketSvc != nil {
+		rest.SetTicketService(ticketSvc)
+	}
 	httpSrv := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: rest.Handler(),

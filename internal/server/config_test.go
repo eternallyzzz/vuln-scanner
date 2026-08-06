@@ -318,3 +318,88 @@ func TestLoadConfigLDAPInvalidEnv(t *testing.T) {
 		t.Fatal("invalid LDAP_ENABLED must fail config load")
 	}
 }
+
+func TestLoadConfigTicketingFromFileAndEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.yaml")
+	content := []byte(`
+ticketing:
+  enabled: true
+  provider: jira
+  base_url: "https://jira.example.com"
+  username: "svc@example.com"
+  password_env: "JIRA_API_TOKEN"
+  timeout_seconds: 20
+  tls_skip_verify: true
+  project: "SEC"
+  issue_type: "Bug"
+  jira_resolved_transition_id: "31"
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("JIRA_API_TOKEN", "s3cret")
+	t.Setenv("TICKET_PROVIDER", "servicenow")
+	t.Setenv("TICKET_SERVICENOW_TABLE", "incident")
+	t.Setenv("TICKET_SERVICENOW_ACK_STATE", "3")
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ticketing == nil || !cfg.Ticketing.Enabled {
+		t.Fatalf("ticketing file config not applied: %+v", cfg.Ticketing)
+	}
+	if cfg.Ticketing.Provider != "servicenow" || cfg.Ticketing.BaseURL != "https://jira.example.com" ||
+		cfg.Ticketing.Username != "svc@example.com" || cfg.Ticketing.PasswordEnv != "JIRA_API_TOKEN" ||
+		cfg.Ticketing.TimeoutSeconds != 20 || !cfg.Ticketing.TLSSkipVerify {
+		t.Fatalf("ticketing fields not applied: %+v", cfg.Ticketing)
+	}
+	if cfg.Ticketing.JiraResolvedTransitionID != "31" ||
+		cfg.Ticketing.ServiceNowAckState != 3 || cfg.Ticketing.ServiceNowTable != "incident" {
+		t.Fatalf("ticketing provider fields not merged: %+v", cfg.Ticketing)
+	}
+	if got := cfg.Ticketing.Password(); got != "s3cret" {
+		t.Fatalf("ticketing password = %q, want env value", got)
+	}
+}
+
+func TestLoadConfigTicketingEnvOnly(t *testing.T) {
+	t.Setenv("TICKET_ENABLED", "true")
+	t.Setenv("TICKET_PROVIDER", "jira")
+	t.Setenv("TICKET_BASE_URL", "https://jira.example.com")
+	t.Setenv("TICKET_USERNAME", "svc")
+	t.Setenv("TICKET_PASSWORD", "env-secret")
+	t.Setenv("TICKET_TIMEOUT_SECONDS", "7")
+	t.Setenv("TICKET_TLS_SKIP_VERIFY", "true")
+	t.Setenv("TICKET_PROJECT", "OPS")
+	t.Setenv("TICKET_JIRA_ACK_TRANSITION_ID", "11")
+
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Ticketing == nil || !cfg.Ticketing.Enabled || cfg.Ticketing.Provider != "jira" ||
+		cfg.Ticketing.BaseURL != "https://jira.example.com" || cfg.Ticketing.Username != "svc" ||
+		cfg.Ticketing.TimeoutSeconds != 7 || !cfg.Ticketing.TLSSkipVerify ||
+		cfg.Ticketing.Project != "OPS" || cfg.Ticketing.JiraAckTransitionID != "11" {
+		t.Fatalf("ticketing env-only config not applied: %+v", cfg.Ticketing)
+	}
+	if cfg.Ticketing.PasswordEnv != "TICKET_PASSWORD" {
+		t.Fatalf("password_env = %q, want default TICKET_PASSWORD", cfg.Ticketing.PasswordEnv)
+	}
+	if got := cfg.Ticketing.Password(); got != "env-secret" {
+		t.Fatalf("ticketing password = %q, want env value", got)
+	}
+}
+
+func TestLoadConfigTicketingInvalidEnv(t *testing.T) {
+	t.Setenv("TICKET_TIMEOUT_SECONDS", "abc")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid TICKET_TIMEOUT_SECONDS must fail config load")
+	}
+	t.Setenv("TICKET_TIMEOUT_SECONDS", "")
+	t.Setenv("TICKET_ENABLED", "maybe")
+	if _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
+		t.Fatal("invalid TICKET_ENABLED must fail config load")
+	}
+}

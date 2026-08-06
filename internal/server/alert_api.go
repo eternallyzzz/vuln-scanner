@@ -27,6 +27,7 @@ type alertRuleInput struct {
 	AssetTagFilter    []string `json:"asset_tag_filter"`
 	EnvironmentFilter string   `json:"environment_filter"`
 	AutoRemediate     *bool    `json:"auto_remediate"`
+	TicketEnabled     *bool    `json:"ticket_enabled"`
 }
 
 func (s *RESTServer) validateRuleInput(in *alertRuleInput) error {
@@ -60,7 +61,8 @@ func (s *RESTServer) validateRuleInput(in *alertRuleInput) error {
 	if *in.CooldownMinutes < 0 {
 		return errors.New("cooldown_minutes must be >= 0")
 	}
-	if len(in.Channels) == 0 {
+	ticketEnabled := in.TicketEnabled != nil && *in.TicketEnabled
+	if len(in.Channels) == 0 && !ticketEnabled {
 		in.Channels = []string{"webhook"}
 	}
 	if len(in.EnvironmentFilter) > 100 {
@@ -71,6 +73,9 @@ func (s *RESTServer) validateRuleInput(in *alertRuleInput) error {
 			s.cfg.Patch.AutoRemediation == nil || !s.cfg.Patch.AutoRemediation.Enabled {
 			return errors.New("auto_remediate requires patch.auto_remediation.enabled on the server")
 		}
+	}
+	if ticketEnabled && (s.tickets == nil || !s.tickets.Enabled()) {
+		return errors.New("ticket_enabled requires ticketing enabled on the server")
 	}
 	allowed := map[string]bool{}
 	if s.alerts != nil {
@@ -99,6 +104,7 @@ func (s *RESTServer) ruleFromInput(in *alertRuleInput) store.AlertRule {
 		AssetTagFilter:    dedupTags(in.AssetTagFilter),
 		EnvironmentFilter: strings.TrimSpace(in.EnvironmentFilter),
 		AutoRemediate:     in.AutoRemediate != nil && *in.AutoRemediate,
+		TicketEnabled:     in.TicketEnabled != nil && *in.TicketEnabled,
 	}
 	if in.Enabled != nil {
 		r.Enabled = *in.Enabled
@@ -262,6 +268,56 @@ func (s *RESTServer) ackAlert(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) resolveAlert(w http.ResponseWriter, r *http.Request) {
 	s.setAlertStatus(w, r, "resolved")
+}
+
+// retryAlertTicket resets the create/sync retry budget for one alert and
+// wakes the background ticket worker.
+func (s *RESTServer) retryAlertTicket(w http.ResponseWriter, r *http.Request) {
+	if s.tickets == nil || !s.tickets.Enabled() {
+		writeError(w, 400, "ticketing is disabled")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "alertId"), 10, 64)
+	if err != nil {
+		writeError(w, 400, "invalid alert id")
+		return
+	}
+	detail, err := s.store.GetAlertDetail(r.Context(), id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, 404, "alert not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	rule, err := s.store.GetAlertRule(r.Context(), detail.RuleID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, 404, "alert rule not found")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if !rule.TicketEnabled {
+		writeError(w, 400, "alert rule does not enable tickets")
+		return
+	}
+	if detail.TicketKey == "" && detail.Status != "open" {
+		writeError(w, 400, "ticket can only be retried for open alerts without a ticket or existing tickets pending sync")
+		return
+	}
+	if err := s.store.ResetTicketRetry(r.Context(), id); err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if s.worker != nil {
+		s.worker.TriggerTicket()
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"alert_id": id, "ticket_key": detail.TicketKey, "status": detail.Status,
+	})
 }
 
 // remediateAlert manually triggers the alert -> patch campaign pipeline for

@@ -1196,6 +1196,26 @@ paths:
                   status: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/alerts/{alertId}/ticket/retry:
+    post:
+      tags: [alerting]
+      summary: 重试告警工单创建或状态同步
+      x-roles: [admin, operator]
+      parameters:
+        - {name: alertId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 重试已入队
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alert_id: {type: integer, format: int64}
+                  ticket_key: {type: string}
+                  status: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/dashboard:
     get:
       tags: [risk]
@@ -2514,6 +2534,14 @@ components:
         source: {type: string}
         remediation_campaign_id: {type: integer, format: int64, nullable: true}
         remediation_error: {type: string}
+        ticket_provider: {type: string}
+        ticket_key: {type: string}
+        ticket_url: {type: string}
+        ticket_status: {type: string}
+        ticket_error: {type: string}
+        ticket_attempts: {type: integer}
+        ticket_sync_attempts: {type: integer}
+        ticket_synced_at: {type: string, format: date-time, nullable: true}
     AlertDetail:
       allOf:
         - $ref: '#/components/schemas/Alert'
@@ -2541,6 +2569,7 @@ components:
           items: {type: string}
         environment_filter: {type: string}
         auto_remediate: {type: boolean}
+        ticket_enabled: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
     AlertRuleInput:
@@ -2563,6 +2592,7 @@ components:
           items: {type: string}
         environment_filter: {type: string}
         auto_remediate: {type: boolean}
+        ticket_enabled: {type: boolean}
     PatchTask:
       type: object
       properties:

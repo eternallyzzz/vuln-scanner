@@ -18,6 +18,7 @@ import (
 	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/report"
 	"vuln-scanner/internal/store"
+	"vuln-scanner/internal/ticket"
 )
 
 type Worker struct {
@@ -48,6 +49,8 @@ type Worker struct {
 	remoteCfg        *remotescan.Config
 	remoteKey        []byte
 	remoteCh         chan struct{}
+	tickets          *ticket.Service
+	ticketCh         chan struct{}
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -87,6 +90,9 @@ func (w *Worker) Start(ctx context.Context) {
 	go w.containerScanLoop(ctx)
 	go w.reportLoop(ctx)
 	go w.remoteScanLoop(ctx)
+	if w.tickets != nil {
+		go w.ticketLoop(ctx)
+	}
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
@@ -111,6 +117,41 @@ func (w *Worker) ConfigureRemoteScanning(cfg *remotescan.Config) {
 	w.remoteCh = make(chan struct{}, 1)
 	slog.Info("remote scan enabled",
 		"concurrency", w.remoteCfg.Concurrency, "timeout_seconds", w.remoteCfg.TimeoutSeconds)
+}
+
+// ConfigureTicketing enables the background ticket create/sync worker.
+func (w *Worker) ConfigureTicketing(cfg *ticket.Config) {
+	if cfg == nil || !cfg.Enabled {
+		return
+	}
+	svc, err := ticket.NewService(cfg)
+	if err != nil {
+		slog.Error("ticketing disabled: invalid config", "error", err)
+		return
+	}
+	w.tickets = svc
+	w.ticketCh = make(chan struct{}, 1)
+	slog.Info("ticketing enabled",
+		"provider", svc.Config().Provider, "base_url", svc.Config().BaseURL)
+}
+
+// TicketService returns the configured ticket service, or nil.
+func (w *Worker) TicketService() *ticket.Service {
+	if w == nil {
+		return nil
+	}
+	return w.tickets
+}
+
+// TriggerTicket wakes the ticket worker loop immediately.
+func (w *Worker) TriggerTicket() {
+	if w.ticketCh == nil {
+		return
+	}
+	select {
+	case w.ticketCh <- struct{}{}:
+	default:
+	}
 }
 
 // TriggerRemoteScan wakes the worker loop to claim pending tasks.

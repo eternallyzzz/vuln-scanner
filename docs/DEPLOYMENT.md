@@ -58,6 +58,21 @@ curl http://localhost:8080/health
 | `REMOTE_SCAN_MASTER_KEY_ENV` | `REMOTE_SCAN_MASTER_KEY` | 指定存放主密钥的环境变量名（默认直接用 `REMOTE_SCAN_MASTER_KEY`） |
 | `REMOTE_SCAN_TIMEOUT_SECONDS` | `30` | 单条远程命令超时 |
 | `REMOTE_SCAN_CONCURRENCY` | `8` | 并发扫描任务数（1-64） |
+| `TICKET_ENABLED` | `false` | 启用工单集成（对应 `ticketing.enabled`；需同时 `alerting.enabled: true`） |
+| `TICKET_PROVIDER` | 空 | `jira` 或 `servicenow` |
+| `TICKET_BASE_URL` | 空 | Jira/ServiceNow 基础地址，如 `https://jira.example.com` |
+| `TICKET_USERNAME` | 空 | 服务账号用户名（Jira 可填邮箱） |
+| `TICKET_PASSWORD` | 空 | Jira API token / ServiceNow 密码；**仅环境变量，不落配置** |
+| `TICKET_PASSWORD_ENV` | `TICKET_PASSWORD` | 指定存放凭据的环境变量名（默认直接用 `TICKET_PASSWORD`） |
+| `TICKET_TIMEOUT_SECONDS` | `15` | 建单/同步 HTTP 超时 |
+| `TICKET_TLS_SKIP_VERIFY` | `false` | 跳过 TLS 证书校验（测试环境） |
+| `TICKET_PROJECT` | 空 | Jira 项目 Key（如 `SEC`） |
+| `TICKET_ISSUE_TYPE` | `Task` | Jira 问题类型名 |
+| `TICKET_JIRA_ACK_TRANSITION_ID` | 空 | Jira ack 状态流转 ID；留空则仅添加评论 |
+| `TICKET_JIRA_RESOLVED_TRANSITION_ID` | 空 | Jira resolved 状态流转 ID；留空则仅添加评论 |
+| `TICKET_SERVICENOW_TABLE` | `incident` | ServiceNow 表名 |
+| `TICKET_SERVICENOW_ACK_STATE` | `2` | ServiceNow ack 状态值 |
+| `TICKET_SERVICENOW_RESOLVED_STATE` | `6` | ServiceNow resolved 状态值 |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |

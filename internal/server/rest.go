@@ -16,28 +16,36 @@ import (
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/store"
+	"vuln-scanner/internal/ticket"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 type RESTServer struct {
-	store     *store.Store
-	auth      *AgentAuth
-	userAuth  *UserAuth
-	apiKey    string
-	cfg       *Config
-	llmConfig *LLMConfig
-	register  *RegisterHandler
-	worker    *Worker
-	alerts    *alert.Service
+	store        *store.Store
+	auth         *AgentAuth
+	userAuth     *UserAuth
+	apiKey       string
+	cfg          *Config
+	llmConfig    *LLMConfig
+	register     *RegisterHandler
+	worker       *Worker
+	alerts       *alert.Service
 	remoteCipher *remotescan.Cipher
+	tickets      *ticket.Service
 }
 
 type RegisterHandler struct {
 	store  *store.Store
 	auth   *AgentAuth
 	srvURL string
+}
+
+// SetTicketService wires the optional ticket integration used for rule
+// validation and the manual retry endpoint.
+func (s *RESTServer) SetTicketService(t *ticket.Service) {
+	s.tickets = t
 }
 
 func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker, alerts *alert.Service) *RESTServer {
@@ -150,6 +158,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/alerts/{alertId}/ack", s.ackAlert)
 		r.Post("/alerts/{alertId}/resolve", s.resolveAlert)
 		r.Post("/alerts/{alertId}/remediate", s.remediateAlert)
+		r.Post("/alerts/{alertId}/ticket/retry", s.retryAlertTicket)
 
 		r.Get("/dashboard", s.dashboard)
 		r.Get("/demo-summary", s.demoSummary)

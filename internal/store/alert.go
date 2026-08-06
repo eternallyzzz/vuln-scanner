@@ -22,6 +22,7 @@ type AlertRule struct {
 	AssetTagFilter    []string  `json:"asset_tag_filter"`
 	EnvironmentFilter string    `json:"environment_filter"`
 	AutoRemediate     bool      `json:"auto_remediate"`
+	TicketEnabled     bool      `json:"ticket_enabled"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -42,6 +43,14 @@ type Alert struct {
 	Source                string     `json:"source"`
 	RemediationCampaignID *int64     `json:"remediation_campaign_id,omitempty"`
 	RemediationError      string     `json:"remediation_error,omitempty"`
+	TicketProvider        string     `json:"ticket_provider,omitempty"`
+	TicketKey             string     `json:"ticket_key,omitempty"`
+	TicketURL             string     `json:"ticket_url,omitempty"`
+	TicketStatus          string     `json:"ticket_status,omitempty"`
+	TicketError           string     `json:"ticket_error,omitempty"`
+	TicketAttempts        int        `json:"ticket_attempts,omitempty"`
+	TicketSyncAttempts    int        `json:"ticket_sync_attempts,omitempty"`
+	TicketSyncedAt        *time.Time `json:"ticket_synced_at,omitempty"`
 }
 
 type AlertDetail struct {
@@ -66,6 +75,7 @@ func scanAlertRule(row pgx.Row) (AlertRule, error) {
 	err := row.Scan(&r.ID, &r.Name, &r.Enabled, &r.SeverityFilter, &r.SourceFilter,
 		&r.AgentIDFilter, &r.AssetFilter, &r.MinCVSS, &r.CooldownMinutes,
 		&channelsRaw, &r.AssetTagFilter, &r.EnvironmentFilter, &r.AutoRemediate,
+		&r.TicketEnabled,
 		&r.CreatedAt, &r.UpdatedAt)
 	if err != nil {
 		return r, err
@@ -76,11 +86,12 @@ func scanAlertRule(row pgx.Row) (AlertRule, error) {
 
 const alertRuleColumns = `id, name, enabled, severity_filter, source_filter, agent_id_filter,
 	asset_filter, min_cvss, cooldown_minutes, channels, asset_tag_filter,
-	environment_filter, auto_remediate, created_at, updated_at`
+	environment_filter, auto_remediate, ticket_enabled, created_at, updated_at`
 
 const alertColumns = `id, rule_id, agent_id, cve_id, asset_name, severity, cvss_score, status,
 	first_seen, last_seen, occurrence_count, resolved_at, source,
-	remediation_campaign_id, remediation_error`
+	remediation_campaign_id, remediation_error, ticket_provider, ticket_key, ticket_url,
+	ticket_status, ticket_error, ticket_attempts, ticket_sync_attempts, ticket_synced_at`
 
 func (s *Store) ListEnabledAlertRules(ctx context.Context) ([]AlertRule, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -147,12 +158,12 @@ func (s *Store) CreateAlertRule(ctx context.Context, r AlertRule) (AlertRule, er
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO alert_rules (name, enabled, severity_filter, source_filter, agent_id_filter,
 			asset_filter, min_cvss, cooldown_minutes, channels, asset_tag_filter,
-			environment_filter, auto_remediate)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			environment_filter, auto_remediate, ticket_enabled)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		RETURNING `+alertRuleColumns,
 		r.Name, r.Enabled, r.SeverityFilter, r.SourceFilter, r.AgentIDFilter,
 		r.AssetFilter, r.MinCVSS, r.CooldownMinutes, channels, r.AssetTagFilter,
-		r.EnvironmentFilter, r.AutoRemediate)
+		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled)
 	return scanAlertRule(row)
 }
 
@@ -165,12 +176,12 @@ func (s *Store) UpdateAlertRule(ctx context.Context, id int64, r AlertRule) (Ale
 		UPDATE alert_rules SET name=$2, enabled=$3, severity_filter=$4, source_filter=$5,
 			agent_id_filter=$6, asset_filter=$7, min_cvss=$8, cooldown_minutes=$9,
 			channels=$10, asset_tag_filter=$11, environment_filter=$12,
-			auto_remediate=$13, updated_at=NOW()
+			auto_remediate=$13, ticket_enabled=$14, updated_at=NOW()
 		WHERE id=$1
 		RETURNING `+alertRuleColumns,
 		id, r.Name, r.Enabled, r.SeverityFilter, r.SourceFilter, r.AgentIDFilter,
 		r.AssetFilter, r.MinCVSS, r.CooldownMinutes, channels, r.AssetTagFilter,
-		r.EnvironmentFilter, r.AutoRemediate)
+		r.EnvironmentFilter, r.AutoRemediate, r.TicketEnabled)
 	return scanAlertRule(row)
 }
 
@@ -305,6 +316,8 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
 			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
+			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
+			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
 			COALESCE(r.name,'') AS rule_name
 		FROM alerts a
 		LEFT JOIN alert_rules r ON r.id=a.rule_id
@@ -323,7 +336,10 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 		if err := rows.Scan(&a.ID, &a.RuleID, &a.AgentID, &a.CVEID, &a.AssetName,
 			&a.Severity, &a.CVSSScore, &a.Status, &a.FirstSeen, &a.LastSeen,
 			&a.OccurrenceCount, &a.ResolvedAt, &a.Source,
-			&a.RemediationCampaignID, &a.RemediationError, &a.RuleName); err != nil {
+			&a.RemediationCampaignID, &a.RemediationError,
+			&a.TicketProvider, &a.TicketKey, &a.TicketURL, &a.TicketStatus,
+			&a.TicketError, &a.TicketAttempts, &a.TicketSyncAttempts, &a.TicketSyncedAt,
+			&a.RuleName); err != nil {
 			return nil, err
 		}
 		alerts = append(alerts, a)
@@ -337,6 +353,8 @@ func (s *Store) GetAlertDetail(ctx context.Context, alertID int64) (AlertDetail,
 		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
 			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
 			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
+			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
+			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
 			COALESCE(r.name,''), COALESCE(ag.hostname,'')
 		FROM alerts a
 		LEFT JOIN alert_rules r ON r.id = a.rule_id
@@ -345,8 +363,128 @@ func (s *Store) GetAlertDetail(ctx context.Context, alertID int64) (AlertDetail,
 	`, alertID).Scan(&d.ID, &d.RuleID, &d.AgentID, &d.CVEID, &d.AssetName,
 		&d.Severity, &d.CVSSScore, &d.Status, &d.FirstSeen, &d.LastSeen,
 		&d.OccurrenceCount, &d.ResolvedAt, &d.Source,
-		&d.RemediationCampaignID, &d.RemediationError, &d.RuleName, &d.AgentHostname)
+		&d.RemediationCampaignID, &d.RemediationError,
+		&d.TicketProvider, &d.TicketKey, &d.TicketURL, &d.TicketStatus,
+		&d.TicketError, &d.TicketAttempts, &d.TicketSyncAttempts, &d.TicketSyncedAt,
+		&d.RuleName, &d.AgentHostname)
 	return d, err
+}
+
+// ListTicketCreatePending returns open alerts whose rule enables tickets and
+// which have not been created yet (or still have retry budget).
+func (s *Store) ListTicketCreatePending(ctx context.Context, limit, maxAttempts int) ([]AlertDetail, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
+			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
+			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
+			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
+			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
+			COALESCE(r.name,''), COALESCE(ag.hostname,'')
+		FROM alerts a
+		JOIN alert_rules r ON r.id=a.rule_id
+		LEFT JOIN agents ag ON ag.id=a.agent_id
+		WHERE r.ticket_enabled AND a.status='open' AND a.ticket_key=''
+		  AND a.ticket_attempts < $1
+		ORDER BY a.id LIMIT $2
+	`, maxAttempts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlertDetails(rows)
+}
+
+// ListTicketSyncPending returns alerts with a created ticket whose local
+// status has moved to ack/resolved but has not been synced yet.
+func (s *Store) ListTicketSyncPending(ctx context.Context, limit, maxAttempts int) ([]AlertDetail, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.rule_id, a.agent_id, a.cve_id, a.asset_name, a.severity,
+			a.cvss_score, a.status, a.first_seen, a.last_seen, a.occurrence_count,
+			a.resolved_at, a.source, a.remediation_campaign_id, a.remediation_error,
+			a.ticket_provider, a.ticket_key, a.ticket_url, a.ticket_status,
+			a.ticket_error, a.ticket_attempts, a.ticket_sync_attempts, a.ticket_synced_at,
+			COALESCE(r.name,''), COALESCE(ag.hostname,'')
+		FROM alerts a
+		JOIN alert_rules r ON r.id=a.rule_id
+		LEFT JOIN agents ag ON ag.id=a.agent_id
+		WHERE r.ticket_enabled AND a.ticket_key<>'' AND a.status IN ('ack','resolved')
+		  AND a.ticket_status<>a.status AND a.ticket_sync_attempts < $1
+		ORDER BY a.id LIMIT $2
+	`, maxAttempts, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlertDetails(rows)
+}
+
+func scanAlertDetails(rows pgx.Rows) ([]AlertDetail, error) {
+	var out []AlertDetail
+	for rows.Next() {
+		var a AlertDetail
+		if err := rows.Scan(&a.ID, &a.RuleID, &a.AgentID, &a.CVEID, &a.AssetName,
+			&a.Severity, &a.CVSSScore, &a.Status, &a.FirstSeen, &a.LastSeen,
+			&a.OccurrenceCount, &a.ResolvedAt, &a.Source,
+			&a.RemediationCampaignID, &a.RemediationError,
+			&a.TicketProvider, &a.TicketKey, &a.TicketURL, &a.TicketStatus,
+			&a.TicketError, &a.TicketAttempts, &a.TicketSyncAttempts, &a.TicketSyncedAt,
+			&a.RuleName, &a.AgentHostname); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) MarkTicketCreated(ctx context.Context, alertID int64, provider, key, url string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET ticket_provider=$2, ticket_key=$3, ticket_url=$4,
+			ticket_status='open', ticket_error='', ticket_attempts=0,
+			ticket_sync_attempts=0, ticket_synced_at=NOW()
+		WHERE id=$1
+	`, alertID, provider, key, url)
+	return err
+}
+
+func (s *Store) MarkTicketCreateFailed(ctx context.Context, alertID int64, errMsg string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET ticket_attempts=ticket_attempts+1, ticket_error=$2,
+			ticket_synced_at=NOW()
+		WHERE id=$1
+	`, alertID, errMsg)
+	return err
+}
+
+func (s *Store) MarkTicketSynced(ctx context.Context, alertID int64, status string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET ticket_status=$2, ticket_error='', ticket_sync_attempts=0,
+			ticket_synced_at=NOW()
+		WHERE id=$1
+	`, alertID, status)
+	return err
+}
+
+func (s *Store) MarkTicketSyncFailed(ctx context.Context, alertID int64, errMsg string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET ticket_sync_attempts=ticket_sync_attempts+1, ticket_error=$2,
+			ticket_synced_at=NOW()
+		WHERE id=$1
+	`, alertID, errMsg)
+	return err
+}
+
+func (s *Store) ResetTicketRetry(ctx context.Context, alertID int64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE alerts SET ticket_attempts=0, ticket_sync_attempts=0, ticket_error=''
+		WHERE id=$1
+	`, alertID)
+	return err
 }
 
 // SetAlertRemediation records the campaign (or skip reason) for an alert.

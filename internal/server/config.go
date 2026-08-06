@@ -17,6 +17,7 @@ import (
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/remotescan"
 	"vuln-scanner/internal/report"
+	"vuln-scanner/internal/ticket"
 )
 
 type LLMConfig struct {
@@ -42,20 +43,21 @@ type CVEScanConfig struct {
 }
 
 type Config struct {
-	GRPCAddr      string            `mapstructure:"grpc_addr"`
-	HTTPAddr      string            `mapstructure:"http_addr"`
-	DatabaseURL   string            `mapstructure:"database_url"`
-	JWTSecret     string            `mapstructure:"jwt_secret"`
-	APIKey        string            `mapstructure:"api_key"`
-	ServerURL     string            `mapstructure:"server_url"`
-	CVE           *CVEScanConfig    `mapstructure:"cve"`
-	LLM           *LLMConfig        `mapstructure:"llm"`
-	Alerting      *alert.Config     `mapstructure:"alerting"`
-	Patch         *patch.Config     `mapstructure:"patch"`
-	ContainerScan *container.Config `mapstructure:"container_scan"`
-	Reporting     *report.Config    `mapstructure:"reporting"`
-	LDAP          *ldap.Config      `mapstructure:"ldap"`
+	GRPCAddr      string             `mapstructure:"grpc_addr"`
+	HTTPAddr      string             `mapstructure:"http_addr"`
+	DatabaseURL   string             `mapstructure:"database_url"`
+	JWTSecret     string             `mapstructure:"jwt_secret"`
+	APIKey        string             `mapstructure:"api_key"`
+	ServerURL     string             `mapstructure:"server_url"`
+	CVE           *CVEScanConfig     `mapstructure:"cve"`
+	LLM           *LLMConfig         `mapstructure:"llm"`
+	Alerting      *alert.Config      `mapstructure:"alerting"`
+	Patch         *patch.Config      `mapstructure:"patch"`
+	ContainerScan *container.Config  `mapstructure:"container_scan"`
+	Reporting     *report.Config     `mapstructure:"reporting"`
+	LDAP          *ldap.Config       `mapstructure:"ldap"`
 	RemoteScan    *remotescan.Config `mapstructure:"remote_scan"`
+	Ticketing     *ticket.Config     `mapstructure:"ticketing"`
 }
 
 func DefaultConfig() *Config {
@@ -67,6 +69,7 @@ func DefaultConfig() *Config {
 		APIKey:      "sk-change-me",
 		Reporting:   report.DefaultConfig(),
 		RemoteScan:  remotescan.DefaultConfig(),
+		Ticketing:   ticket.DefaultConfig(),
 	}
 }
 
@@ -141,8 +144,82 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.RemoteScan.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.Ticketing == nil {
+		cfg.Ticketing = ticket.DefaultConfig()
+	}
+	if err := applyTicketingEnv(cfg.Ticketing); err != nil {
+		return nil, fmt.Errorf("apply ticketing env: %w", err)
+	}
+	cfg.Ticketing = cfg.Ticketing.Normalized()
 
 	return cfg, nil
+}
+
+// applyTicketingEnv applies TICKET_* environment overrides on top of any
+// server.yaml ticketing section. The credential itself is read from the
+// environment variable named by password_env (default TICKET_PASSWORD) and
+// is never written to server.yaml.
+func applyTicketingEnv(c *ticket.Config) error {
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setInt := func(envName string, dst *int) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be an integer: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+
+	setString("TICKET_PROVIDER", &c.Provider)
+	setString("TICKET_BASE_URL", &c.BaseURL)
+	setString("TICKET_USERNAME", &c.Username)
+	setString("TICKET_PASSWORD_ENV", &c.PasswordEnv)
+	setString("TICKET_PROJECT", &c.Project)
+	setString("TICKET_ISSUE_TYPE", &c.IssueType)
+	setString("TICKET_JIRA_ACK_TRANSITION_ID", &c.JiraAckTransitionID)
+	setString("TICKET_JIRA_RESOLVED_TRANSITION_ID", &c.JiraResolvedTransitionID)
+	setString("TICKET_SERVICENOW_TABLE", &c.ServiceNowTable)
+	if err := setBool("TICKET_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setBool("TICKET_TLS_SKIP_VERIFY", &c.TLSSkipVerify); err != nil {
+		return err
+	}
+	if err := setInt("TICKET_TIMEOUT_SECONDS", &c.TimeoutSeconds); err != nil {
+		return err
+	}
+	if err := setInt("TICKET_SERVICENOW_ACK_STATE", &c.ServiceNowAckState); err != nil {
+		return err
+	}
+	if err := setInt("TICKET_SERVICENOW_RESOLVED_STATE", &c.ServiceNowResolvedState); err != nil {
+		return err
+	}
+	// Convenience for env-only deployments: when password_env is not set but
+	// TICKET_PASSWORD is, use it directly.
+	if c.PasswordEnv == "" && os.Getenv("TICKET_PASSWORD") != "" {
+		c.PasswordEnv = "TICKET_PASSWORD"
+	}
+	return nil
 }
 
 // applyRemoteScanEnv applies REMOTE_SCAN_* environment overrides on top of

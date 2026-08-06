@@ -33,3 +33,22 @@ api_key: "sk-change-me"
 #   auto_analyze:
 #     - "CRITICAL"
 #     - "HIGH"
+
+# 工单集成（可选；Jira/ServiceNow 告警自动建单，需同时 alerting.enabled: true）
+# ticketing:
+#   enabled: false
+#   provider: "jira"                     # jira | servicenow
+#   base_url: "https://jira.example.com"
+#   username: "svc-vulnscan@example.com"
+#   password_env: "TICKET_PASSWORD"      # 密码只从环境变量读取，不写入本文件
+#   timeout_seconds: 15
+#   tls_skip_verify: false
+#   # Jira
+#   project: "SEC"
+#   issue_type: "Task"
+#   jira_ack_transition_id: ""           # 留空则 ack 仅添加评论
+#   jira_resolved_transition_id: ""      # 留空则 resolved 仅添加评论
+#   # ServiceNow
+#   servicenow_table: "incident"
+#   servicenow_ack_state: 2
+#   servicenow_resolved_state: 6

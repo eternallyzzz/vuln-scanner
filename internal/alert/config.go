@@ -40,9 +40,6 @@ func (c *Config) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
-	if len(c.ChannelNames()) == 0 {
-		return fmt.Errorf("alerting enabled but no channel configured (webhook_url or smtp)")
-	}
 	if c.MaxAttempts < 1 {
 		return fmt.Errorf("alerting.max_attempts must be >= 1")
 	}
