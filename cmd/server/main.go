@@ -166,6 +166,7 @@ func main() {
 	worker.ConfigureTicketing(cfg.Ticketing)
 	worker.ConfigureSIEM(cfg.SIEM)
 	worker.ConfigureCloudScanning(cfg.CloudScan)
+	worker.ConfigureWebDBScanning(cfg.WebDBScan)
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP

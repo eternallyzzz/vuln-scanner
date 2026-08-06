@@ -21,6 +21,7 @@ import (
 	"vuln-scanner/internal/siem"
 	"vuln-scanner/internal/store"
 	"vuln-scanner/internal/ticket"
+	"vuln-scanner/internal/webdbscan"
 )
 
 type Worker struct {
@@ -58,6 +59,9 @@ type Worker struct {
 	cloudCfg         *cloudscan.Config
 	cloudKey         []byte
 	cloudCh          chan int64
+	webdbCfg         *webdbscan.Config
+	webdbKey         []byte
+	webdbCh          chan struct{}
 }
 
 func NewWorker(s *store.Store, loader *cve.Loader, matcher *cve.Matcher, alerts *alert.Service, patchCfg *patch.Config, feedCfg ...*cve.Config) *Worker {
@@ -106,6 +110,9 @@ func (w *Worker) Start(ctx context.Context) {
 	if w.cloudCfg != nil {
 		go w.cloudLoop(ctx)
 	}
+	if w.webdbCfg != nil {
+		go w.webdbLoop(ctx)
+	}
 	if w.alerts != nil && w.alerts.Enabled() {
 		go w.alerts.RunDeliveryLoop(ctx)
 	}
@@ -138,6 +145,38 @@ func (w *Worker) TriggerCloudRefresh(accountID int64) {
 	}
 	select {
 	case w.cloudCh <- accountID:
+	default:
+	}
+}
+
+// ConfigureWebDBScanning enables the background web/database scan worker.
+// The AES-256 master key is read from the environment variable named by
+// cfg.MasterKeyEnv; a missing or invalid key disables the loop with a log.
+func (w *Worker) ConfigureWebDBScanning(cfg *webdbscan.Config) {
+	if cfg == nil || !cfg.Enabled {
+		return
+	}
+	raw := strings.TrimSpace(os.Getenv(cfg.MasterKeyEnv))
+	key, err := remotescan.ParseMasterKey(raw)
+	if err != nil {
+		slog.Error("webdb scan disabled: invalid master key", "error", err)
+		return
+	}
+	w.webdbCfg = cfg.Normalized()
+	w.webdbKey = key
+	w.webdbCh = make(chan struct{}, 1)
+	slog.Info("webdb scan enabled",
+		"concurrency", w.webdbCfg.Concurrency,
+		"timeout_seconds", w.webdbCfg.TimeoutSeconds)
+}
+
+// TriggerWebDBScan wakes the worker loop to claim pending tasks.
+func (w *Worker) TriggerWebDBScan() {
+	if w.webdbCh == nil {
+		return
+	}
+	select {
+	case w.webdbCh <- struct{}{}:
 	default:
 	}
 }

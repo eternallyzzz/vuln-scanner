@@ -77,3 +77,11 @@ api_key: "sk-change-me"
 #   concurrency: 2
 #   default_refresh_interval_minutes: 60
 #   timeout_seconds: 30
+
+# Web 应用与数据库扫描（可选；HTTP 指纹 + PostgreSQL/MySQL/Redis 版本识别，凭据可选）
+# webdb_scan:
+#   enabled: false
+#   master_key_env: "WEBDB_SCAN_MASTER_KEY"   # AES-256 主密钥（hex/base64 32 字节），只从环境变量读取
+#   timeout_seconds: 10
+#   concurrency: 8
+#   tls_skip_verify: true                      # 内网自签证书场景建议 true

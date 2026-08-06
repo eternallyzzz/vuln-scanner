@@ -93,6 +93,12 @@ curl http://localhost:8080/health
 | `CLOUD_SCAN_CONCURRENCY` | `2` | 云账号并发刷新数（1-16） |
 | `CLOUD_SCAN_DEFAULT_REFRESH_INTERVAL_MINUTES` | `60` | 新建账号默认刷新周期 |
 | `CLOUD_SCAN_TIMEOUT_SECONDS` | `30` | 单账号发现超时 |
+| `WEBDB_SCAN_ENABLED` | `false` | 启用 Web 应用与数据库扫描（对应 `webdb_scan.enabled`） |
+| `WEBDB_SCAN_MASTER_KEY` | 空 | AES-256 主密钥（hex/base64 32 字节），加密 Web/DB 扫描凭据；**仅环境变量，不落配置** |
+| `WEBDB_SCAN_MASTER_KEY_ENV` | `WEBDB_SCAN_MASTER_KEY` | 指定存放主密钥的环境变量名 |
+| `WEBDB_SCAN_TIMEOUT_SECONDS` | `10` | 单目标扫描超时 |
+| `WEBDB_SCAN_CONCURRENCY` | `8` | 并发任务数（1-16） |
+| `WEBDB_SCAN_TLS_SKIP_VERIFY` | `true` | 跳过 HTTP(S) TLS 证书校验（内网扫描默认开启） |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 空 | 可选 LLM 分析 |
 | `ADMIN_USERNAME` | `admin` | 首启控制台 admin 用户名（users 表为空时生效） |
 | `ADMIN_PASSWORD` | 空 | 首启控制台 admin 密码；**生产必设**，不设置则控制台登录不可用（X-API-Key 通道不受影响） |

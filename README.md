@@ -19,6 +19,7 @@ Server/Agent 架构的资产漏洞扫描与管理平台：资产采集（Windows
 - **Container scanning / 容器扫描** — Trivy-based async scanning of local images via Docker socket
 - **Network scanning / 网络扫描** — Agent-side TCP discovery & service fingerprint (no credentials), results feed the existing CVE matching / risk / alerting pipeline
 - **Remote credential scanning / 凭据远程扫描** — Server-side SSH collection (Linux/macOS/Windows OpenSSH) with encrypted credential store, ToFU host-key verification and full audit; agent-first, credential scan as the fallback
+- **Web/DB scanning / Web 应用与数据库扫描** — Server-side HTTP(S) fingerprint (nginx/apache/IIS/Tomcat/PHP/WordPress etc.) and PostgreSQL/MySQL/Redis version identification with optional encrypted credentials; results feed the existing CVE matching / risk / alerting pipeline and CMDB
 - **EOL detection / 停更检测** — OS / 发行版生命周期判定（eol/unsupported/supported），纳入风险评分、风险汇总/TOP/CSV 导出
 - **Compliance baseline / 合规基线** — Agent 侧 CIS 风格精简基线（Windows/Linux 各 10 项配置检查）与合规评分，提供汇总/明细/CSV 导出并纳入日报概览
 - **Risk governance / 风险治理** — dashboard, reports, lifecycle & owner metadata, change history, LLM-assisted analysis (optional)
@@ -51,6 +52,7 @@ graph LR
 | `internal/ticket` | Jira/ServiceNow integration: alert-driven ticket creation and status sync |
 | `internal/siem` | SIEM/SOAR outbox: Splunk HEC / generic Webhook delivery of alert & patch events |
 | `internal/cloudscan` | AWS/Azure/GCP discovery clients for cloud asset inventory |
+| `internal/webdbscan` | Server-side HTTP fingerprint & PostgreSQL/MySQL/Redis version probing with optional encrypted credentials |
 | `internal/llm` | Optional LLM analysis (OpenAI / Anthropic) |
 
 ## Quick Start / 快速开始
@@ -228,6 +230,23 @@ remote_scan:
   concurrency: 8
 ```
 
+### Server：Web 应用与数据库扫描（可选）
+
+服务端对 HTTP(S) 应用做首页指纹识别（Server/X-Powered-By/meta generator/页面 hint，识别
+nginx/apache/IIS/Tomcat/PHP/WordPress 等），并对 PostgreSQL/MySQL/Redis 做版本识别；
+MySQL/Redis 无需凭据即可识别版本，PostgreSQL 需凭据（也可先只记录“可达且需要认证”）。
+凭据（HTTP Basic Auth / 数据库登录）以 AES-256-GCM 加密落库，主密钥只从环境变量读取；
+结果生成合成 agent（agent-web-*/agent-db-*）并进入现有 CVE 匹配/风险/告警/CMDB 链路。
+
+```yaml
+webdb_scan:
+  enabled: true
+  master_key_env: "WEBDB_SCAN_MASTER_KEY"    # AES-256 主密钥（hex/base64 32 字节），只从环境变量读取
+  timeout_seconds: 10
+  concurrency: 8
+  tls_skip_verify: true                       # 内网自签证书场景建议 true
+```
+
 ### Agent (`~/.vuln-scanner/agent.yaml`)
 
 Set `agent.patch_enabled: true` to enable patch task polling / 开启补丁任务轮询。
@@ -262,6 +281,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 | `TICKET_PASSWORD` | `ticketing.password_env` | Jira API token / ServiceNow password for ticket integration; read from the environment variable named there, never write it to server.yaml |
 | `SIEM_SPLUNK_HEC_TOKEN` / `SIEM_WEBHOOK_SECRET` | `siem.splunk_hec.token_env` / `siem.webhook.secret_env` | Splunk HEC token / webhook signing secret for the event stream; read from the environment variables named there, never write them to server.yaml |
 | `CLOUD_SCAN_MASTER_KEY` | `cloud_scan.master_key_env` | AES-256 master key (hex/base64 32 bytes) for encrypting cloud account credentials; read from the environment variable named there, never write it to server.yaml |
+| `WEBDB_SCAN_MASTER_KEY` | `webdb_scan.master_key_env` | AES-256 master key (hex/base64 32 bytes) for encrypting optional web/database scan credentials; read from the environment variable named there, never write it to server.yaml |
 | `JWT_SECRET` / `API_KEY` | `server.yaml` | Agent gRPC JWT signing secret & REST X-API-Key. **Must be changed** from the demo placeholders |
 | OSV / MSRC / Debian / Red Hat | none / 无 | Public APIs, no key required |
 
@@ -281,6 +301,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 - 容器扫描：`POST /api/v1/container/scan` 异步触发 Trivy 扫描、`GET /api/v1/container/status` 扫描状态、`GET /api/v1/container/images` 镜像清单；结果落入合成 agent（默认 agent-container-docker），修复建议为 rebuild（不可自动部署）
 - 网络扫描：`GET /api/v1/network/hosts`（发现主机与服务指纹）、`GET /api/v1/network/tasks`（任务列表）、`POST /api/v1/network/scan`（operator+ 下发一次性任务，Agent 领取执行）；每台主机生成合成 agent（agent-net-*）复用匹配/风险/告警链路
 - 凭据远程扫描：`POST /api/v1/remote/credentials`（admin 创建 password/key 凭据；key 不传私钥时服务端生成并一次性返回公钥）、`GET/PUT/DELETE /api/v1/remote/credentials[/{id}]`（admin，软删除）、`POST /api/v1/remote/scan`（operator+ 下发 Server 直连 SSH 任务）、`GET /api/v1/remote/tasks`、`GET /api/v1/remote/hosts`（viewer+）；凭据加密落库，host key ToFU，任务结束写审计
+- Web/数据库扫描：`POST /api/v1/webdb/scan`（operator+ 下发一次性 web/db 任务，body 含 `web: [URL...]` 与 `db: [{target, db_type, credential_id?}]`）、`GET /api/v1/webdb/tasks`、`GET /api/v1/webdb/targets`（viewer+）；凭据 CRUD 仅 admin 且响应不含密文；MySQL/Redis 无凭据识别版本，PostgreSQL 需凭据；结果生成 agent-web-*/agent-db-* 合成 agent
 - 资产元数据：`POST /api/v1/assets/bulk-meta` 批量维护 tags/environment/business_unit/owner/lifecycle
 - 扫描：`/api/v1/scan-policies`、`POST /agents/{id}/scan`
 - 漏洞：`/agents/{id}/vulns`、`/recommendations`、`/report`、`/dashboard`、`/search`、`/stats`

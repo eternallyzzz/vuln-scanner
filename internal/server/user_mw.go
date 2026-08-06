@@ -105,6 +105,11 @@ func userCan(role, method, path string) bool {
 	if strings.HasPrefix(path, "/api/v1/cloud/accounts") && !strings.HasSuffix(path, "/refresh") {
 		return role == "admin"
 	}
+	// Web/database credentials expose login material: only admins may read
+	// or mutate credentials.
+	if strings.HasPrefix(path, "/api/v1/webdb/credentials") {
+		return role == "admin"
+	}
 	switch role {
 	case "admin":
 		return true
@@ -145,6 +150,7 @@ func operatorCan(method, path string) bool {
 		{http.MethodPost, "/api/v1/container/scan", ""},
 		{http.MethodPost, "/api/v1/network/scan", ""},
 		{http.MethodPost, "/api/v1/remote/scan", ""},
+		{http.MethodPost, "/api/v1/webdb/scan", ""},
 		{http.MethodPost, "/api/v1/cloud/accounts/", "/refresh"},
 		{http.MethodPost, "/api/v1/assets/import", ""},
 		{http.MethodPost, "/api/v1/assets/bulk-meta", ""},

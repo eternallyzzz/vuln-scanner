@@ -716,7 +716,11 @@ func collectPackageAssets(agents []AgentSnapshotSummary) []AssetToMatch {
 	for _, ag := range agents {
 		assets := AssetsFromJSON(ag.Assets)
 		for _, a := range assets {
-			if a.Format == "hotfix" || a.Format == "os" || a.Name == "" || a.Version == "" {
+			// Service-fingerprint formats (network/web/db) carry products like
+			// nginx/mysql that are not OSV package ecosystems; they are
+			// matched through the name-based feeds instead.
+			if a.Format == "hotfix" || a.Format == "os" || a.Format == "network" ||
+				a.Format == "web" || a.Format == "db" || a.Name == "" || a.Version == "" {
 				continue
 			}
 			a.Ecosystem = OSVEcosystemForAgent(a.Format, ag.OSType, ag.OSVersion)

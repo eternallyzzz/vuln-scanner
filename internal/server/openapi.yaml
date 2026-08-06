@@ -2092,6 +2092,161 @@ paths:
           content:
             text/csv:
               schema: {type: string}
+  /api/v1/webdb/credentials:
+    get:
+      tags: [scanning]
+      summary: Web/数据库扫描凭据列表
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 凭据列表（不含密文）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDBCredential'
+    post:
+      tags: [scanning]
+      summary: 创建 Web/数据库扫描凭据
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebDBCredentialInput'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/WebDBCredential'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '503':
+          description: Web/DB 扫描未启用或主密钥未配置
+  /api/v1/webdb/credentials/{credentialId}:
+    put:
+      tags: [scanning]
+      summary: 更新 Web/数据库扫描凭据
+      x-roles: [admin]
+      parameters:
+        - {name: credentialId, in: path, required: true, schema: {type: integer, format: int64}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebDBCredentialInput'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential:
+                    $ref: '#/components/schemas/WebDBCredential'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [scanning]
+      summary: 撤销 Web/数据库扫描凭据
+      x-roles: [admin]
+      parameters:
+        - {name: credentialId, in: path, required: true, schema: {type: integer, format: int64}}
+      responses:
+        '200':
+          description: 已撤销
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/webdb/scan:
+    post:
+      tags: [scanning]
+      summary: 下发 Web 与数据库扫描任务
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebDBScanRequest'
+      responses:
+        '201':
+          description: 任务已创建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDBTask'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503':
+          description: Web/DB 扫描未启用或主密钥未配置
+  /api/v1/webdb/tasks:
+    get:
+      tags: [scanning]
+      summary: Web/数据库扫描任务列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: status, in: query, required: false, schema: {type: string}}
+        - {name: kind, in: query, required: false, schema: {type: string, enum: [web, db]}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDBTask'
+  /api/v1/webdb/targets:
+    get:
+      tags: [scanning]
+      summary: Web/数据库已识别目标列表
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: kind, in: query, required: false, schema: {type: string, enum: [web, db]}}
+        - {name: q, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer, default: 100}}
+        - {name: offset, in: query, required: false, schema: {type: integer, default: 0}}
+      responses:
+        '200':
+          description: 目标列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: {type: integer}
+                  targets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebDBTarget'
   /api/v1/agents/{id}/scan:
     post:
       tags: [scanning]
@@ -3156,6 +3311,67 @@ components:
         status: {type: string}
         first_seen: {type: string, format: date-time}
         last_seen: {type: string, format: date-time}
+    WebDBCredential:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        username: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+    WebDBCredentialInput:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        username: {type: string, description: 'Basic Auth 用户名或数据库用户，Redis 可留空'}
+        password: {type: string, description: 'Basic Auth 密码或数据库密码；更新时留空表示不修改'}
+    WebDBScanRequest:
+      type: object
+      properties:
+        web:
+          type: array
+          items: {type: string, description: 'URL 或 host[:port][/path]，默认 http'}
+        db:
+          type: array
+          items:
+            type: object
+            properties:
+              target: {type: string, description: 'host[:port]，端口缺省按类型'}
+              db_type: {type: string, enum: [postgresql, mysql, redis]}
+              credential_id: {type: integer, format: int64}
+    WebDBTask:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string, enum: [web, db]}
+        target: {type: string}
+        db_type: {type: string}
+        credential_id: {type: integer, format: int64}
+        status: {type: string, enum: [pending, running, done, failed]}
+        created_by: {type: string}
+        error: {type: string}
+        result_summary: {type: object}
+        created_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+    WebDBTarget:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        kind: {type: string, enum: [web, db]}
+        target: {type: string}
+        db_type: {type: string}
+        credential_id: {type: integer, format: int64}
+        agent_id: {type: string}
+        status: {type: string}
+        title: {type: string}
+        detail: {type: object}
+        first_seen: {type: string, format: date-time}
+        last_seen: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     CVESummary:
       type: object
       properties:

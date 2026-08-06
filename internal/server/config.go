@@ -20,6 +20,7 @@ import (
 	"vuln-scanner/internal/report"
 	"vuln-scanner/internal/siem"
 	"vuln-scanner/internal/ticket"
+	"vuln-scanner/internal/webdbscan"
 )
 
 type LLMConfig struct {
@@ -62,6 +63,7 @@ type Config struct {
 	Ticketing     *ticket.Config     `mapstructure:"ticketing"`
 	SIEM          *siem.Config       `mapstructure:"siem"`
 	CloudScan     *cloudscan.Config  `mapstructure:"cloud_scan"`
+	WebDBScan     *webdbscan.Config  `mapstructure:"webdb_scan"`
 }
 
 func DefaultConfig() *Config {
@@ -76,6 +78,7 @@ func DefaultConfig() *Config {
 		Ticketing:   ticket.DefaultConfig(),
 		SIEM:        siem.DefaultConfig(),
 		CloudScan:   cloudscan.DefaultConfig(),
+		WebDBScan:   webdbscan.DefaultConfig(),
 	}
 }
 
@@ -177,8 +180,70 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.CloudScan.Validate(); err != nil {
 		return nil, err
 	}
+	if cfg.WebDBScan == nil {
+		cfg.WebDBScan = webdbscan.DefaultConfig()
+	}
+	if err := applyWebDBScanEnv(cfg.WebDBScan); err != nil {
+		return nil, fmt.Errorf("apply webdb scan env: %w", err)
+	}
+	cfg.WebDBScan = cfg.WebDBScan.Normalized()
+	if err := cfg.WebDBScan.Validate(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+// applyWebDBScanEnv applies WEBDB_SCAN_* environment overrides on top of any
+// server.yaml webdb_scan section. The master key itself is read from the
+// environment variable named by master_key_env (default WEBDB_SCAN_MASTER_KEY).
+func applyWebDBScanEnv(c *webdbscan.Config) error {
+	setString := func(envName string, dst *string) {
+		if raw := os.Getenv(envName); raw != "" {
+			*dst = os.ExpandEnv(raw)
+		}
+	}
+	setBool := func(envName string, dst *bool) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.ParseBool(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be true or false: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setInt := func(envName string, dst *int) error {
+		raw := os.Getenv(envName)
+		if raw == "" {
+			return nil
+		}
+		v, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return fmt.Errorf("%s must be an integer: %w", envName, err)
+		}
+		*dst = v
+		return nil
+	}
+	setString("WEBDB_SCAN_MASTER_KEY_ENV", &c.MasterKeyEnv)
+	if err := setBool("WEBDB_SCAN_ENABLED", &c.Enabled); err != nil {
+		return err
+	}
+	if err := setBool("WEBDB_SCAN_TLS_SKIP_VERIFY", &c.TLSInsecureSkipVerify); err != nil {
+		return err
+	}
+	if err := setInt("WEBDB_SCAN_TIMEOUT_SECONDS", &c.TimeoutSeconds); err != nil {
+		return err
+	}
+	if err := setInt("WEBDB_SCAN_CONCURRENCY", &c.Concurrency); err != nil {
+		return err
+	}
+	if c.MasterKeyEnv == "" && os.Getenv("WEBDB_SCAN_MASTER_KEY") != "" {
+		c.MasterKeyEnv = "WEBDB_SCAN_MASTER_KEY"
+	}
+	return nil
 }
 
 // applyCloudScanEnv applies CLOUD_SCAN_* environment overrides on top of any

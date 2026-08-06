@@ -34,6 +34,7 @@ type RESTServer struct {
 	alerts       *alert.Service
 	remoteCipher *remotescan.Cipher
 	cloudCipher  *remotescan.Cipher
+	webdbCipher  *remotescan.Cipher
 	tickets      *ticket.Service
 }
 
@@ -79,6 +80,15 @@ func NewRESTServer(s *store.Store, auth *AgentAuth, cfg *Config, worker *Worker,
 			if key, err := remotescan.ParseMasterKey(raw); err == nil {
 				if cp, err := remotescan.NewCipher(key); err == nil {
 					r.cloudCipher = cp
+				}
+			}
+		}
+	}
+	if cfg.WebDBScan != nil && cfg.WebDBScan.Enabled {
+		if raw := strings.TrimSpace(os.Getenv(cfg.WebDBScan.MasterKeyEnv)); raw != "" {
+			if key, err := remotescan.ParseMasterKey(raw); err == nil {
+				if cp, err := remotescan.NewCipher(key); err == nil {
+					r.webdbCipher = cp
 				}
 			}
 		}
@@ -211,6 +221,13 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/remote/scan", s.createRemoteScan)
 		r.Get("/remote/tasks", s.listRemoteScanTasks)
 		r.Get("/remote/hosts", s.listRemoteHosts)
+		r.Get("/webdb/credentials", s.listWebDBCredentials)
+		r.Post("/webdb/credentials", s.createWebDBCredential)
+		r.Put("/webdb/credentials/{credentialId}", s.updateWebDBCredential)
+		r.Delete("/webdb/credentials/{credentialId}", s.deleteWebDBCredential)
+		r.Post("/webdb/scan", s.createWebDBScan)
+		r.Get("/webdb/tasks", s.listWebDBScanTasks)
+		r.Get("/webdb/targets", s.listWebDBTargets)
 		r.Get("/cloud/accounts", s.listCloudAccounts)
 		r.Post("/cloud/accounts", s.createCloudAccount)
 		r.Put("/cloud/accounts/{accountId}", s.updateCloudAccount)
