@@ -131,10 +131,13 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Use(s.enforceRBAC)
 		r.Get("/auth/me", s.me)
 		r.Post("/auth/change-password", s.changePassword)
+		r.Get("/tenants", s.listTenants)
+		r.Post("/tenants", s.createTenant)
 		r.Get("/users", s.listUsers)
 		r.Post("/users", s.createUser)
 		r.Put("/users/{userId}", s.updateUser)
 		r.Delete("/users/{userId}", s.deleteUser)
+		r.Put("/users/{userId}/tenant", s.setUserTenant)
 		r.Post("/users/{userId}/password", s.resetPassword)
 		r.Get("/audit-logs", s.listAuditLogs)
 		r.Get("/audit-logs/export.csv", s.exportAuditLogs)
@@ -142,6 +145,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/agents", s.addAgent)
 		r.Get("/agents/{id}", s.getAgent)
 		r.Delete("/agents/{id}", s.deleteAgent)
+		r.Put("/agents/{agentId}/tenant", s.setAgentTenant)
 		r.Get("/agents/{id}/vulns", s.getAgentVulns)
 		r.Get("/agents/{id}/vulns/{cveId}", s.getAgentVulnDetail)
 		r.Get("/agents/{id}/report", s.getAgentReport)
@@ -323,7 +327,12 @@ func (s *RESTServer) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) listAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.store.ListAgents(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	agents, err := s.store.ListAgents(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -335,6 +344,7 @@ func (s *RESTServer) addAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Hostname string `json:"hostname"`
 		Platform string `json:"platform"`
+		TenantID int64  `json:"tenant_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, 400, "invalid body")
@@ -360,7 +370,12 @@ func (s *RESTServer) addAgent(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err := s.store.CreateAgent(r.Context(), agent); err != nil {
+	tenantID, err := s.effectiveTenant(r, req.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	if err := s.store.CreateAgent(r.Context(), agent, tenantID); err != nil {
 		writeError(w, 500, "create agent: "+err.Error())
 		return
 	}
@@ -387,6 +402,10 @@ func registerCommand(srvURL, code, platform string) string {
 
 func (s *RESTServer) getAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), id)
 	if err != nil {
 		writeError(w, 404, "agent not found")
@@ -397,6 +416,10 @@ func (s *RESTServer) getAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) deleteAgent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	if err := s.store.DeleteAgent(r.Context(), id); err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -406,6 +429,10 @@ func (s *RESTServer) deleteAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getAgentVulns(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	severity := r.URL.Query().Get("severity")
 	hasFix := r.URL.Query().Get("has_fix") == "true"
 
@@ -438,6 +465,10 @@ func (s *RESTServer) getAgentVulns(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getAgentVulnDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	cveID := chi.URLParam(r, "cveId")
 	result, err := s.store.GetCVEResult(r.Context(), id, cveID)
 	if err != nil {
@@ -450,6 +481,10 @@ func (s *RESTServer) getAgentVulnDetail(w http.ResponseWriter, r *http.Request) 
 
 func (s *RESTServer) getAgentReport(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), id)
 	if err != nil {
 		writeError(w, 404, "agent not found")
@@ -468,6 +503,10 @@ func (s *RESTServer) getAgentReport(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getInstallCommand(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), id)
 	if err != nil {
 		writeError(w, 404, "agent not found")
@@ -482,8 +521,13 @@ func (s *RESTServer) getInstallCommand(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) dashboard(w http.ResponseWriter, r *http.Request) {
-	agents, _ := s.store.ListAgents(r.Context())
-	stats, _ := s.store.GetCVEStats(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	agents, _ := s.store.ListAgents(r.Context(), tid)
+	stats, _ := s.store.GetCVEStats(r.Context(), tid)
 
 	onlineCount := 0
 	for _, a := range agents {
@@ -502,7 +546,12 @@ func (s *RESTServer) dashboard(w http.ResponseWriter, r *http.Request) {
 func (s *RESTServer) search(w http.ResponseWriter, r *http.Request) {
 	cveID := r.URL.Query().Get("cve")
 	if cveID != "" {
-		results, err := s.store.SearchByCVE(r.Context(), cveID)
+		tid, err := s.tid(r)
+		if err != nil {
+			writeScopeError(w, err)
+			return
+		}
+		results, err := s.store.SearchByCVE(r.Context(), cveID, tid)
 		if err != nil {
 			writeError(w, 500, err.Error())
 			return
@@ -519,8 +568,13 @@ func (s *RESTServer) search(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) stats(w http.ResponseWriter, r *http.Request) {
-	agents, _ := s.store.ListAgents(r.Context())
-	cveStats, _ := s.store.GetCVEStats(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	agents, _ := s.store.ListAgents(r.Context(), tid)
+	cveStats, _ := s.store.GetCVEStats(r.Context(), tid)
 
 	writeJSON(w, 200, map[string]interface{}{
 		"total_agents": len(agents),
@@ -650,6 +704,10 @@ func (s *RESTServer) refreshFeeds(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getRecommendations(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	recs, err := s.store.GetAgentRecommendations(r.Context(), id)
 	if err != nil {
 		writeError(w, 500, err.Error())

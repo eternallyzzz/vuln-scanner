@@ -367,6 +367,13 @@ LOW → 0（取 max，封顶 10），不改变 `RiskScore` 公式与既有 EPSS/
 | `operator` | 日常运维：补丁任务/campaign 审批流转、告警 ack/resolve/remediate、异常创建/撤销、触发扫描/分析、资产导入与元数据、alert-rules 与 SLA 策略维护 |
 | `viewer` | 只读（所有 GET；审计日志除外，仅 admin 可见） |
 
+- 多租户（v1）：`tenants` 表提供租户隔离，`users/agents/audit_logs/patch_campaigns`
+  带 `tenant_id`（默认租户 1，存量零变化）；`admin` 全局、`operator/viewer` 限本租户，
+  数据以 Agent 为锚点过滤；`X-API-Key` 可带 `X-Tenant-ID` 头做租户级自动化（缺省保持
+  全局）；租户管理仅 admin：`GET/POST /api/v1/tenants`、
+  `PUT /api/v1/users/{userId}/tenant`、`PUT /api/v1/agents/{agentId}/tenant`。
+- 系统级配置（alert_rules、内置情报、SLA/扫描策略、报表、云/远程/WebDB 凭据）v1 保持
+  全局；消息队列/分布式 worker 留作后续。
 - 登录：`POST /api/v1/auth/login`（`{username, password}`）返回 12 小时有效的 JWT（复用 `JWT_SECRET`，与 agent token 隔离）；`GET /api/v1/auth/me` 查看当前用户；`POST /api/v1/auth/change-password` 修改本人密码。
 - LDAP 登录（可选）：`POST /api/v1/auth/ldap/login`（body 同 `/auth/login`）由服务端完成目录绑定认证，按 `role_groups` 映射 admin/operator/viewer；首次登录自动建号（`auto_provision: true` 时），已有本地用户保留本地角色与状态（禁用即拒绝），登录成功后复用同一 JWT/RBAC/审计链路。未命中任何角色映射的目录用户返回 403，本地密码登录不受影响。
 - 用户管理（admin）：`GET/POST /api/v1/users`、`PUT/DELETE /api/v1/users/{id}`、`POST /api/v1/users/{id}/password`；禁止删除/降级最后一个 active admin。

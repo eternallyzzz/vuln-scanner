@@ -13,11 +13,14 @@ type ScanPolicy struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
-func (s *Store) ListScanPolicies(ctx context.Context) ([]ScanPolicy, error) {
+func (s *Store) ListScanPolicies(ctx context.Context, tenantID *int64) ([]ScanPolicy, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT agent_id, interval_minutes, enabled, next_run_at, updated_at
-		FROM scan_policies ORDER BY agent_id
-	`)
+		FROM scan_policies
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=scan_policies.agent_id AND a.tenant_id=$1))
+		ORDER BY agent_id
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}

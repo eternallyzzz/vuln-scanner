@@ -3,7 +3,12 @@ package server
 import "net/http"
 
 func (s *RESTServer) getEOLSummary(w http.ResponseWriter, r *http.Request) {
-	sum, err := s.store.EOLSummary(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	sum, err := s.store.EOLSummary(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -12,7 +17,12 @@ func (s *RESTServer) getEOLSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) getEOLAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.ListAgentsEOL(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	rows, err := s.store.ListAgentsEOL(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

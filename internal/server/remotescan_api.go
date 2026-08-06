@@ -282,7 +282,12 @@ func (s *RESTServer) listRemoteHosts(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-	hosts, total, err := s.store.ListRemoteHosts(r.Context(), limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	hosts, total, err := s.store.ListRemoteHosts(r.Context(), limit, offset, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

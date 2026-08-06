@@ -25,17 +25,17 @@ var (
 // RemoteCredential is one stored remote login. Secret fields hold AES-GCM
 // ciphertext and are never exposed by the API.
 type RemoteCredential struct {
-	ID                    int64      `json:"id"`
-	Name                  string     `json:"name"`
-	Username              string     `json:"username"`
-	AuthType              string     `json:"auth_type"`
-	PasswordCiphertext    string     `json:"-"`
-	PrivateKeyCiphertext  string     `json:"-"`
-	PassphraseCiphertext  string     `json:"-"`
-	CreatedBy             string     `json:"created_by"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
-	RevokedAt             *time.Time `json:"revoked_at"`
+	ID                   int64      `json:"id"`
+	Name                 string     `json:"name"`
+	Username             string     `json:"username"`
+	AuthType             string     `json:"auth_type"`
+	PasswordCiphertext   string     `json:"-"`
+	PrivateKeyCiphertext string     `json:"-"`
+	PassphraseCiphertext string     `json:"-"`
+	CreatedBy            string     `json:"created_by"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	RevokedAt            *time.Time `json:"revoked_at"`
 }
 
 // RemoteHost is one successfully collected remote target.
@@ -346,9 +346,13 @@ func (s *Store) UpsertRemoteHost(ctx context.Context, h RemoteHost) error {
 }
 
 // ListRemoteHosts returns collected hosts newest first.
-func (s *Store) ListRemoteHosts(ctx context.Context, limit, offset int) ([]RemoteHost, int64, error) {
+func (s *Store) ListRemoteHosts(ctx context.Context, limit, offset int, tenantID *int64) ([]RemoteHost, int64, error) {
 	var total int64
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM remote_hosts`).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM remote_hosts
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=remote_hosts.agent_id AND a.tenant_id=$1))
+	`, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	if limit <= 0 || limit > 500 {
@@ -356,9 +360,11 @@ func (s *Store) ListRemoteHosts(ctx context.Context, limit, offset int) ([]Remot
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+remoteHostColumns+` FROM remote_hosts
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=remote_hosts.agent_id AND a.tenant_id=$1))
 		ORDER BY last_seen DESC, address
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -34,6 +34,7 @@ func publicUser(u *store.User) map[string]interface{} {
 		"display_name": u.DisplayName,
 		"role":         u.Role,
 		"status":       u.Status,
+		"tenant_id":    u.TenantID,
 	}
 }
 
@@ -119,7 +120,12 @@ func (s *RESTServer) changePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) listUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := s.store.ListUsers(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	users, err := s.store.ListUsers(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -137,6 +143,7 @@ func (s *RESTServer) createUser(w http.ResponseWriter, r *http.Request) {
 		Password    string `json:"password"`
 		DisplayName string `json:"display_name"`
 		Role        string `json:"role"`
+		TenantID    int64  `json:"tenant_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, 400, "invalid body: "+err.Error())
@@ -161,7 +168,12 @@ func (s *RESTServer) createUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
-	u, err := s.store.CreateUser(r.Context(), in.Username, hash, in.DisplayName, in.Role)
+	tenantID, err := s.effectiveTenant(r, in.TenantID)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	u, err := s.store.CreateUser(r.Context(), in.Username, hash, in.DisplayName, in.Role, tenantID)
 	if err == store.ErrUserExists {
 		writeError(w, 409, "username already exists")
 		return

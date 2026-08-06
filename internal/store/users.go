@@ -18,6 +18,7 @@ type User struct {
 	DisplayName  string     `json:"display_name"`
 	Role         string     `json:"role"`
 	Status       string     `json:"status"`
+	TenantID     int64      `json:"tenant_id"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
@@ -25,23 +26,26 @@ type User struct {
 
 var ErrUserExists = errors.New("user already exists")
 
-const userColumns = `id, username, password_hash, display_name, role, status, created_at, updated_at, last_login_at`
+const userColumns = `id, username, password_hash, display_name, role, status, tenant_id, created_at, updated_at, last_login_at`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName,
-		&u.Role, &u.Status, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
+		&u.Role, &u.Status, &u.TenantID, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-func (s *Store) CreateUser(ctx context.Context, username, passwordHash, displayName, role string) (*User, error) {
+func (s *Store) CreateUser(ctx context.Context, username, passwordHash, displayName, role string, tenantID int64) (*User, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	u, err := scanUser(s.pool.QueryRow(ctx, `
-		INSERT INTO users (username, password_hash, display_name, role)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO users (username, password_hash, display_name, role, tenant_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING `+userColumns,
-		username, passwordHash, displayName, role))
+		username, passwordHash, displayName, role, tenantID))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -62,9 +66,11 @@ func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
 		SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 }
 
-func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+func (s *Store) ListUsers(ctx context.Context, tenantID *int64) ([]User, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+userColumns+` FROM users ORDER BY id ASC`)
+		SELECT `+userColumns+` FROM users
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id ASC`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +79,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var u User
 		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.DisplayName,
-			&u.Role, &u.Status, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
+			&u.Role, &u.Status, &u.TenantID, &u.CreatedAt, &u.UpdatedAt, &u.LastLoginAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

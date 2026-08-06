@@ -29,6 +29,10 @@ func (s *RESTServer) generatePatchTasks(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	agentID := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 
 	var in generatePatchTasksInput
 	if r.Body != nil {
@@ -151,6 +155,10 @@ func (s *RESTServer) generatePatchTasks(w http.ResponseWriter, r *http.Request) 
 
 func (s *RESTServer) listPatchTasks(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
@@ -177,6 +185,10 @@ func (s *RESTServer) getPatchTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	writeJSON(w, 200, task)
 }
 
@@ -189,6 +201,10 @@ func (s *RESTServer) setPatchTaskStatus(w http.ResponseWriter, r *http.Request, 
 	task, err := s.store.GetPatchTask(r.Context(), id)
 	if err != nil {
 		writeError(w, 404, "task not found")
+		return
+	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	next := status
@@ -230,6 +246,10 @@ func (s *RESTServer) cancelPatchTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	if task.Status == "running" {
 		s.requestPatchTaskCancel(w, r, task)
 		return
@@ -258,6 +278,10 @@ func (s *RESTServer) verifyPatchTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, 500, err.Error())
+		return
+	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	if task.Status != "success" {
@@ -309,6 +333,10 @@ func (s *RESTServer) stopPatchTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, err.Error())
 		return
 	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	if task.Status != "running" {
 		writeError(w, 409, "task is not running")
 		return
@@ -343,6 +371,10 @@ func (s *RESTServer) listPatchTaskEvents(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		writeError(w, 500, err.Error())
+		return
+	}
+	if err := s.requirePatchTask(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)

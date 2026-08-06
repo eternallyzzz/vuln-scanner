@@ -196,9 +196,9 @@ type fakeUserStore struct {
 }
 
 func (f *fakeUserStore) CountUsers(context.Context) (int64, error) { return f.count, nil }
-func (f *fakeUserStore) CreateUser(_ context.Context, username, passwordHash, displayName, role string) (*store.User, error) {
+func (f *fakeUserStore) CreateUser(_ context.Context, username, passwordHash, displayName, role string, tenantID int64) (*store.User, error) {
 	f.created++
-	return &store.User{ID: 1, Username: username, PasswordHash: passwordHash, DisplayName: displayName, Role: role}, nil
+	return &store.User{ID: 1, Username: username, PasswordHash: passwordHash, DisplayName: displayName, Role: role, TenantID: tenantID}, nil
 }
 
 func TestBootstrapAdmin(t *testing.T) {

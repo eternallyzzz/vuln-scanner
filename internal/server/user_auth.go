@@ -19,6 +19,7 @@ type UserClaims struct {
 	UserID   int64  `json:"uid"`
 	Username string `json:"username"`
 	Role     string `json:"role"`
+	TenantID int64  `json:"tid"`
 	jwt.RegisteredClaims
 }
 
@@ -42,6 +43,7 @@ func (a *UserAuth) IssueToken(u *store.User) (string, time.Time, error) {
 		UserID:   u.ID,
 		Username: u.Username,
 		Role:     u.Role,
+		TenantID: u.TenantID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   fmt.Sprintf("%d", u.ID),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -74,6 +76,11 @@ func (a *UserAuth) ValidateToken(tokenStr string) (*UserClaims, error) {
 	// into a zero-valued UserClaims; require a real user identity.
 	if claims.UserID == 0 || claims.Username == "" || claims.Role == "" {
 		return nil, fmt.Errorf("token is not a user token")
+	}
+	// Tokens issued before multi-tenancy carry no tenant claim; they keep
+	// working against the default tenant.
+	if claims.TenantID <= 0 {
+		claims.TenantID = 1
 	}
 	return claims, nil
 }

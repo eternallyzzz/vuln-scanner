@@ -76,6 +76,10 @@ func (s *RESTServer) reportEDRFinding(w http.ResponseWriter, r *http.Request) {
 	if hostname == "" {
 		hostname = agentID
 	}
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 
 	finding, created, err := s.store.UpsertEDRFinding(r.Context(), store.EDRFindingInput{
 		AgentID:     agentID,
@@ -109,9 +113,14 @@ func (s *RESTServer) listEDRFindings(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	findings, err := s.store.ListEDRFindings(r.Context(),
 		q.Get("status"), q.Get("source"), q.Get("agent_id"),
-		q.Get("severity"), q.Get("q"), limit, offset)
+		q.Get("severity"), q.Get("q"), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -123,6 +132,10 @@ func (s *RESTServer) getEDRFinding(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "findingId"), 10, 64)
 	if err != nil || id <= 0 {
 		writeError(w, 400, "invalid finding id")
+		return
+	}
+	if err := s.requireEDRFinding(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	finding, err := s.store.GetEDRFinding(r.Context(), id)
@@ -141,6 +154,10 @@ func (s *RESTServer) setEDRFindingStatus(w http.ResponseWriter, r *http.Request,
 	id, err := strconv.ParseInt(chi.URLParam(r, "findingId"), 10, 64)
 	if err != nil || id <= 0 {
 		writeError(w, 400, "invalid finding id")
+		return
+	}
+	if err := s.requireEDRFinding(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.SetEDRFindingStatus(r.Context(), id, status, actorFromRequest(r)); err != nil {

@@ -53,7 +53,7 @@ func (s *Store) UpdateAgentEOL(ctx context.Context, id, status, product, cycle s
 	return err
 }
 
-func (s *Store) EOLSummary(ctx context.Context) (EOLSummary, error) {
+func (s *Store) EOLSummary(ctx context.Context, tenantID *int64) (EOLSummary, error) {
 	var sum EOLSummary
 	sum.ByProduct = map[string]int{}
 	if err := s.pool.QueryRow(ctx, `
@@ -64,14 +64,16 @@ func (s *Store) EOLSummary(ctx context.Context) (EOLSummary, error) {
 			COUNT(*) FILTER (WHERE eol_status = 'supported'),
 			COUNT(*) FILTER (WHERE eol_status = '' OR eol_status = 'unknown')
 		FROM agents
-	`).Scan(&sum.TotalAgents, &sum.EOLAgents, &sum.UnsupportedAgents,
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&sum.TotalAgents, &sum.EOLAgents, &sum.UnsupportedAgents,
 		&sum.SupportedAgents, &sum.UnknownAgents); err != nil {
 		return sum, err
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT COALESCE(eol_product, ''), COUNT(*)
-		FROM agents WHERE eol_status = 'eol'
-		GROUP BY eol_product ORDER BY COUNT(*) DESC, eol_product`)
+		FROM agents
+		WHERE eol_status = 'eol' AND ($1::bigint IS NULL OR tenant_id=$1)
+		GROUP BY eol_product ORDER BY COUNT(*) DESC, eol_product`, tenantID)
 	if err != nil {
 		return sum, err
 	}
@@ -100,11 +102,11 @@ type EOLAgentRow struct {
 	LastSeen   time.Time  `json:"last_seen"`
 }
 
-func (s *Store) ListAgentsEOL(ctx context.Context) ([]EOLAgentRow, error) {
+func (s *Store) ListAgentsEOL(ctx context.Context, tenantID *int64) ([]EOLAgentRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, hostname, os_type, os_version, eol_status, eol_date, eol_product, eol_cycle, last_seen
-		FROM agents WHERE eol_status <> ''
-		ORDER BY eol_status = 'eol' DESC, hostname`)
+		FROM agents WHERE eol_status <> '' AND ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY eol_status = 'eol' DESC, hostname`, tenantID)
 	if err != nil {
 		return nil, err
 	}

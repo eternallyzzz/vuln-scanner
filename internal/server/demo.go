@@ -59,6 +59,10 @@ func (s *RESTServer) demoSummary(w http.ResponseWriter, r *http.Request) {
 // getAgentSystemInfo returns the latest host telemetry for one agent.
 func (s *RESTServer) getAgentSystemInfo(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	info, err := s.store.GetHostSystemInfo(r.Context(), id)
 	if store.IsHostSystemInfoNotFound(err) {
 		writeError(w, 404, "no host system info reported yet")
@@ -74,6 +78,10 @@ func (s *RESTServer) getAgentSystemInfo(w http.ResponseWriter, r *http.Request) 
 // getAgentUpdateFacts returns the latest WUA/WSUS update facts for one agent.
 func (s *RESTServer) getAgentUpdateFacts(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	facts, err := s.store.GetAgentUpdateFacts(r.Context(), id)
 	if err != nil {
 		writeError(w, 500, err.Error())
@@ -91,6 +99,10 @@ func (s *RESTServer) getAgentUpdateFacts(w http.ResponseWriter, r *http.Request)
 // getAgentUpdateStatus returns the latest WUA/WSUS reachability record.
 func (s *RESTServer) getAgentUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	status, err := s.store.GetAgentUpdateStatus(r.Context(), id)
 	if err != nil {
 		writeError(w, 500, err.Error())

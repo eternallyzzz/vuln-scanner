@@ -24,6 +24,7 @@ type AuditLog struct {
 	IP         string          `json:"ip"`
 	DurationMS int64           `json:"duration_ms"`
 	Detail     json.RawMessage `json:"detail"`
+	TenantID   int64           `json:"tenant_id"`
 }
 
 // AuditLogFilter narrows the unified audit log. Empty fields are ignored;
@@ -38,7 +39,7 @@ type AuditLogFilter struct {
 	Offset int
 }
 
-const auditLogColumns = `id, created_at, actor, method, path, status, ip, duration_ms, detail`
+const auditLogColumns = `id, created_at, actor, method, path, status, ip, duration_ms, detail, tenant_id`
 
 // AppendAuditLog inserts one audit entry. detail defaults to an empty JSON
 // object when nil so the JSONB column always contains valid JSON.
@@ -46,10 +47,13 @@ func (s *Store) AppendAuditLog(ctx context.Context, e AuditLog) error {
 	if e.Detail == nil {
 		e.Detail = json.RawMessage(`{}`)
 	}
+	if e.TenantID <= 0 {
+		e.TenantID = 1
+	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO audit_logs (actor, method, path, status, ip, duration_ms, detail)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-	`, e.Actor, e.Method, e.Path, e.Status, e.IP, e.DurationMS, e.Detail)
+		INSERT INTO audit_logs (actor, method, path, status, ip, duration_ms, detail, tenant_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+	`, e.Actor, e.Method, e.Path, e.Status, e.IP, e.DurationMS, e.Detail, e.TenantID)
 	return err
 }
 
@@ -115,7 +119,7 @@ func (s *Store) AuditExportCSV(ctx context.Context) ([]byte, error) {
 	w := csv.NewWriter(&buf)
 	_ = w.Write([]string{
 		"id", "created_at", "actor", "method", "path",
-		"status", "ip", "duration_ms", "detail",
+		"status", "ip", "duration_ms", "detail", "tenant_id",
 	})
 	for rows.Next() {
 		e, err := scanAuditLog(rows)
@@ -132,6 +136,7 @@ func (s *Store) AuditExportCSV(ctx context.Context) ([]byte, error) {
 			e.IP,
 			fmt.Sprintf("%d", e.DurationMS),
 			string(e.Detail),
+			fmt.Sprintf("%d", e.TenantID),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -181,7 +186,7 @@ func scanAuditLog(row pgx.Row) (*AuditLog, error) {
 	var e AuditLog
 	var detail []byte
 	if err := row.Scan(&e.ID, &e.CreatedAt, &e.Actor, &e.Method, &e.Path,
-		&e.Status, &e.IP, &e.DurationMS, &detail); err != nil {
+		&e.Status, &e.IP, &e.DurationMS, &detail, &e.TenantID); err != nil {
 		return nil, err
 	}
 	if len(detail) == 0 {

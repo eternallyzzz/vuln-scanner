@@ -55,11 +55,11 @@ func Build(ctx context.Context, s *store.Store) (*Data, error) {
 	if err != nil {
 		return nil, err
 	}
-	risk, err := s.RiskSummary(ctx)
+	risk, err := s.RiskSummary(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	risks, err := s.RiskTop(ctx, csvRiskLimit, "", false)
+	risks, err := s.RiskTop(ctx, csvRiskLimit, "", false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -67,11 +67,11 @@ func Build(ctx context.Context, s *store.Store) (*Data, error) {
 	if len(topRisks) > htmlTopRisks {
 		topRisks = topRisks[:htmlTopRisks]
 	}
-	trend, err := s.RiskTrend(ctx, trendDays)
+	trend, err := s.RiskTrend(ctx, trendDays, nil)
 	if err != nil {
 		return nil, err
 	}
-	eolAll, err := s.ListAgentsEOL(ctx)
+	eolAll, err := s.ListAgentsEOL(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +79,11 @@ func Build(ctx context.Context, s *store.Store) (*Data, error) {
 	if len(eolAgents) > eolTop {
 		eolAgents = eolAgents[:eolTop]
 	}
-	comp, err := s.ComplianceSummary(ctx)
+	comp, err := s.ComplianceSummary(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	alerts, err := s.ListAlerts(ctx, "open", "", "", "", alertTop, 0)
+	alerts, err := s.ListAlerts(ctx, "open", "", "", "", alertTop, 0, nil)
 	if err != nil {
 		return nil, err
 	}

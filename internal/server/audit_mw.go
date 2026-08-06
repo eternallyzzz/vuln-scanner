@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,12 +54,29 @@ func (s *RESTServer) auditMiddleware(next http.Handler) http.Handler {
 			IP:         clientIP(r),
 			DurationMS: time.Since(start).Milliseconds(),
 			Detail:     []byte(`{}`),
+			TenantID:   requestTenantID(r),
 		}
 		if err := s.store.AppendAuditLog(ctx, entry); err != nil {
 			slog.Warn("failed to append audit log", "error", err,
 				"method", entry.Method, "path", entry.Path)
 		}
 	})
+}
+
+// requestTenantID resolves the tenant recorded on audit entries: the session
+// user's tenant, the X-Tenant-ID header for API-key automation, or the
+// default tenant. Invalid headers fall back to 1 (best effort; validation
+// happens in the scoped handlers).
+func requestTenantID(r *http.Request) int64 {
+	if u := userFromContext(r.Context()); u != nil && u.TenantID > 0 {
+		return u.TenantID
+	}
+	if h := strings.TrimSpace(r.Header.Get("X-Tenant-ID")); h != "" {
+		if id, err := strconv.ParseInt(h, 10, 64); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 1
 }
 
 func isAuditedMethod(method string) bool {

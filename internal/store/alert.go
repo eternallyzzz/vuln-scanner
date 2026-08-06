@@ -371,7 +371,7 @@ func keysSlice(m map[string]bool) []string {
 	return out
 }
 
-func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, assetFilter string, limit, offset int) ([]AlertDetail, error) {
+func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, assetFilter string, limit, offset int, tenantID *int64) ([]AlertDetail, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -387,8 +387,10 @@ func (s *Store) ListAlerts(ctx context.Context, status, agentID, severity, asset
 		LEFT JOIN alert_rules r ON r.id=a.rule_id
 		WHERE (''=$1 OR a.status=$1) AND (''=$2 OR a.agent_id=$2) AND (''=$3 OR a.severity=$3)
 		  AND (''=$4 OR asset_name ILIKE '%' || $4 || '%')
-		ORDER BY last_seen DESC LIMIT $5 OFFSET $6
-	`, status, agentID, severity, assetFilter, limit, offset)
+		  AND ($5::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents ag WHERE ag.id=a.agent_id AND ag.tenant_id=$5))
+		ORDER BY last_seen DESC LIMIT $6 OFFSET $7
+	`, status, agentID, severity, assetFilter, tenantID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

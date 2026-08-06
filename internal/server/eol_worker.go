@@ -50,7 +50,7 @@ func (w *Worker) refreshAllEOL(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	agents, err := w.store.ListAgents(ctx)
+	agents, err := w.store.ListAgents(ctx, nil)
 	if err != nil {
 		return 0, err
 	}

@@ -184,7 +184,16 @@ func (s *RESTServer) generatePatchCampaign(w http.ResponseWriter, r *http.Reques
 		writeError(w, 400, "invalid body: "+err.Error())
 		return
 	}
-	res, err := runCampaignGeneration(r.Context(), s.store, s.cfg.Patch, in, requestActor(r))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	tenantID := int64(1)
+	if tid != nil {
+		tenantID = *tid
+	}
+	res, err := runCampaignGeneration(r.Context(), s.store, s.cfg.Patch, in, requestActor(r), tenantID)
 	if errors.Is(err, errPatchDisabled) || errors.Is(err, errTaskLimitExceeded) {
 		writeError(w, 400, err.Error())
 		return
@@ -220,7 +229,12 @@ func (s *RESTServer) listPatchCampaigns(w http.ResponseWriter, r *http.Request) 
 	if offset < 0 {
 		offset = 0
 	}
-	campaigns, total, err := s.store.ListPatchCampaigns(r.Context(), limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	campaigns, total, err := s.store.ListPatchCampaigns(r.Context(), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -241,6 +255,10 @@ func (s *RESTServer) getPatchCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, 500, err.Error())
+		return
+	}
+	if err := s.requireCampaign(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	summary, err := s.store.CampaignSummary(r.Context(), id)
@@ -270,6 +288,10 @@ func (s *RESTServer) listPatchCampaignTasks(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		writeError(w, 500, err.Error())
+		return
+	}
+	if err := s.requireCampaign(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	q := r.URL.Query()
@@ -317,6 +339,10 @@ func (s *RESTServer) campaignSetStatus(w http.ResponseWriter, r *http.Request, a
 			return
 		}
 		writeError(w, 500, err.Error())
+		return
+	}
+	if err := s.requireCampaign(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	from, to, ok := campaignStatusTransition(action)
@@ -381,8 +407,13 @@ func (s *RESTServer) listPatchTasksGlobal(w http.ResponseWriter, r *http.Request
 		}
 		campaignID = id
 	}
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	tasks, total, err := s.store.ListPatchTasksFiltered(r.Context(), q.Get("agent_id"),
-		campaignID, q.Get("status"), q.Get("asset_name"), limit, offset)
+		campaignID, q.Get("status"), q.Get("asset_name"), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -419,6 +450,10 @@ func (s *RESTServer) bulkUpdateAssetMeta(w http.ResponseWriter, r *http.Request)
 	for _, it := range in.Items {
 		if strings.TrimSpace(it.AssetKey) == "" {
 			writeError(w, 400, "asset_key is required for every item")
+			return
+		}
+		if err := s.requireAssetKey(r, strings.TrimSpace(it.AssetKey)); err != nil {
+			writeScopeError(w, err)
 			return
 		}
 		for _, field := range []struct{ name, val string }{

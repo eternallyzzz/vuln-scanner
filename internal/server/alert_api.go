@@ -234,6 +234,11 @@ func (s *RESTServer) listAlerts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -241,7 +246,7 @@ func (s *RESTServer) listAlerts(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 	alerts, err := s.store.ListAlerts(r.Context(),
-		q.Get("status"), q.Get("agent_id"), q.Get("severity"), q.Get("asset_filter"), limit, offset)
+		q.Get("status"), q.Get("agent_id"), q.Get("severity"), q.Get("asset_filter"), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -253,6 +258,10 @@ func (s *RESTServer) setAlertStatus(w http.ResponseWriter, r *http.Request, stat
 	id, err := strconv.ParseInt(chi.URLParam(r, "alertId"), 10, 64)
 	if err != nil {
 		writeError(w, 400, "invalid alert id")
+		return
+	}
+	if err := s.requireAlert(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.SetAlertStatus(r.Context(), id, status, actorFromRequest(r)); err != nil {
@@ -280,6 +289,10 @@ func (s *RESTServer) retryAlertTicket(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "alertId"), 10, 64)
 	if err != nil {
 		writeError(w, 400, "invalid alert id")
+		return
+	}
+	if err := s.requireAlert(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	detail, err := s.store.GetAlertDetail(r.Context(), id)
@@ -333,6 +346,10 @@ func (s *RESTServer) remediateAlert(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid alert id")
 		return
 	}
+	if err := s.requireAlert(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	detail, err := s.store.GetAlertDetail(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "alert not found")
@@ -374,7 +391,12 @@ func (s *RESTServer) remediateAlert(w http.ResponseWriter, r *http.Request) {
 		CVEIDs:           []string{detail.CVEID},
 		ApprovalRequired: &approval,
 	}
-	res, err := runCampaignGeneration(r.Context(), s.store, s.cfg.Patch, in, requestActor(r))
+	agent, err := s.store.GetAgent(r.Context(), detail.AgentID)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	res, err := runCampaignGeneration(r.Context(), s.store, s.cfg.Patch, in, requestActor(r), agent.TenantID)
 	if err != nil {
 		if errors.Is(err, errNoAgentsMatch) {
 			writeError(w, 404, err.Error())

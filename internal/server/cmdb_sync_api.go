@@ -26,6 +26,10 @@ func (s *RESTServer) reconcileAgentCMDB(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 400, "agent_id required")
 		return
 	}
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	snap, err := s.store.GetAssetSnapshot(r.Context(), agentID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -53,7 +57,7 @@ func (s *RESTServer) reconcileAgentCMDB(w http.ResponseWriter, r *http.Request) 
 
 // reconcileAllCMDB replays the latest snapshot for every agent that has one.
 func (s *RESTServer) reconcileAllCMDB(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.store.ListAgents(r.Context())
+	agents, err := s.store.ListAgents(r.Context(), nil)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -98,6 +102,11 @@ func (s *RESTServer) exportAssets(w http.ResponseWriter, r *http.Request) {
 	if format == "" {
 		format = "json"
 	}
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	filters := store.AssetFilters{
 		AssetType:    q.Get("asset_type"),
 		Environment:  q.Get("environment"),
@@ -107,6 +116,7 @@ func (s *RESTServer) exportAssets(w http.ResponseWriter, r *http.Request) {
 		AgentID:      q.Get("agent_id"),
 		Tag:          q.Get("tag"),
 		Q:            q.Get("q"),
+		TenantID:     tid,
 	}
 
 	const pageSize = 5000
@@ -122,6 +132,7 @@ func (s *RESTServer) exportAssets(w http.ResponseWriter, r *http.Request) {
 			AgentID:      filters.AgentID,
 			Tag:          filters.Tag,
 			Q:            filters.Q,
+			TenantID:     filters.TenantID,
 			Limit:        pageSize,
 			Offset:       offset,
 		})

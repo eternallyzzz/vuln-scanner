@@ -233,6 +233,10 @@ func (s *Store) ListCloudResources(ctx context.Context, f CloudResourceFilter) (
 	if f.Q != "" {
 		add("name ILIKE '%%' || $%d || '%%'", f.Q)
 	}
+	if f.TenantID != nil {
+		add("EXISTS (SELECT 1 FROM assets at JOIN agents ag ON ag.id=at.agent_id "+
+			"WHERE at.asset_key=cloud_resources.asset_key AND ag.tenant_id=$%d)", *f.TenantID)
+	}
 	if where != "" {
 		where = " WHERE " + where[5:]
 	}
@@ -274,6 +278,7 @@ type CloudResourceFilter struct {
 	Region       string
 	Status       string
 	Q            string
+	TenantID     *int64
 	Limit        int
 	Offset       int
 }

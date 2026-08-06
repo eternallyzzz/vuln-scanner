@@ -94,7 +94,7 @@ func (s *Store) UpsertEDRFinding(ctx context.Context, in EDRFindingInput) (EDRFi
 
 // ListEDRFindings returns findings ordered by last report, with optional
 // status/source/agent/severity filters and a free-text q over name/path/detail.
-func (s *Store) ListEDRFindings(ctx context.Context, status, source, agentID, severity, q string, limit, offset int) ([]EDRFinding, error) {
+func (s *Store) ListEDRFindings(ctx context.Context, status, source, agentID, severity, q string, limit, offset int, tenantID *int64) ([]EDRFinding, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -107,9 +107,11 @@ func (s *Store) ListEDRFindings(ctx context.Context, status, source, agentID, se
 		  AND (''=$4 OR severity=$4)
 		  AND (''=$5 OR name ILIKE '%'||$5||'%' OR path ILIKE '%'||$5||'%'
 		       OR detail ILIKE '%'||$5||'%')
+		  AND ($6::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=edr_findings.agent_id AND a.tenant_id=$6))
 		ORDER BY last_seen DESC, id DESC
-		LIMIT $6 OFFSET $7
-	`, status, source, agentID, severity, q, limit, offset)
+		LIMIT $7 OFFSET $8
+	`, status, source, agentID, severity, q, tenantID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,12 @@ type scanPolicyInput struct {
 }
 
 func (s *RESTServer) listScanPolicies(w http.ResponseWriter, r *http.Request) {
-	policies, err := s.store.ListScanPolicies(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	policies, err := s.store.ListScanPolicies(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -25,6 +30,10 @@ func (s *RESTServer) listScanPolicies(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) upsertScanPolicy(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "agentId")
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	var in scanPolicyInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeError(w, 400, "invalid body: "+err.Error())
@@ -64,6 +73,10 @@ func (s *RESTServer) upsertScanPolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) triggerAgentScan(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, agentID); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), agentID)
 	if err != nil {
 		writeError(w, 404, "agent not found")

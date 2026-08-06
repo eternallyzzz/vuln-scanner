@@ -337,9 +337,12 @@ func (s *Store) UpsertWebDBTarget(ctx context.Context, t WebDBTarget) error {
 
 // ListWebDBTargets returns known web/database services newest first with
 // optional kind and free-text filters.
-func (s *Store) ListWebDBTargets(ctx context.Context, kind, q string, limit, offset int) ([]WebDBTarget, int64, error) {
+func (s *Store) ListWebDBTargets(ctx context.Context, kind, q string, limit, offset int, tenantID *int64) ([]WebDBTarget, int64, error) {
 	where := []string{}
 	args := []interface{}{}
+	args = append(args, tenantID)
+	where = append(where, fmt.Sprintf("($%d::bigint IS NULL OR EXISTS ("+
+		"SELECT 1 FROM agents a WHERE a.id=webdb_targets.agent_id AND a.tenant_id=$%d))", len(args), len(args)))
 	if kind != "" {
 		args = append(args, kind)
 		where = append(where, fmt.Sprintf("kind=$%d", len(args)))

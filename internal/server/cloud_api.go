@@ -230,6 +230,11 @@ func (s *RESTServer) listCloudResources(w http.ResponseWriter, r *http.Request) 
 	accountID, _ := strconv.ParseInt(q.Get("account_id"), 10, 64)
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	resources, total, err := s.store.ListCloudResources(r.Context(), store.CloudResourceFilter{
 		Provider:     q.Get("provider"),
 		AccountID:    accountID,
@@ -237,6 +242,7 @@ func (s *RESTServer) listCloudResources(w http.ResponseWriter, r *http.Request) 
 		Region:       q.Get("region"),
 		Status:       q.Get("status"),
 		Q:            q.Get("q"),
+		TenantID:     tid,
 		Limit:        limit,
 		Offset:       offset,
 	})
@@ -248,7 +254,12 @@ func (s *RESTServer) listCloudResources(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *RESTServer) exportCloudResourcesCSV(w http.ResponseWriter, r *http.Request) {
-	resources, _, err := s.store.ListCloudResources(r.Context(), store.CloudResourceFilter{Limit: 10000})
+	tid, err := s.tid(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resources, _, err := s.store.ListCloudResources(r.Context(), store.CloudResourceFilter{Limit: 10000, TenantID: tid})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

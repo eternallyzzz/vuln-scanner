@@ -207,9 +207,13 @@ func (s *Store) UpsertNetworkHosts(ctx context.Context, hosts []NetworkHost, sca
 	return agentIDs, nil
 }
 
-func (s *Store) ListNetworkHosts(ctx context.Context, limit, offset int) ([]NetworkHost, int64, error) {
+func (s *Store) ListNetworkHosts(ctx context.Context, limit, offset int, tenantID *int64) ([]NetworkHost, int64, error) {
 	var total int64
-	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM network_hosts`).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM network_hosts
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=network_hosts.agent_id AND a.tenant_id=$1))
+	`, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	if limit <= 0 || limit > 500 {
@@ -217,9 +221,11 @@ func (s *Store) ListNetworkHosts(ctx context.Context, limit, offset int) ([]Netw
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+networkHostColumns+` FROM network_hosts
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=network_hosts.agent_id AND a.tenant_id=$1))
 		ORDER BY last_seen DESC, ip
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

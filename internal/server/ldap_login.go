@@ -62,7 +62,7 @@ func (s *RESTServer) ldapLogin(w http.ResponseWriter, r *http.Request) {
 		if displayName == "" {
 			displayName = username
 		}
-		u, err = s.store.CreateUser(r.Context(), username, "", displayName, role)
+		u, err = s.store.CreateUser(r.Context(), username, "", displayName, role, 1)
 		if errors.Is(err, store.ErrUserExists) {
 			// Concurrent provisioning: keep the existing local account.
 			u, err = s.store.GetUserByUsername(r.Context(), username)

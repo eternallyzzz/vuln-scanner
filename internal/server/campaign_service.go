@@ -60,12 +60,26 @@ type campaignGenerationResult struct {
 	Errors   []string            `json:"errors"`
 }
 
+func tidFilter(tenantID int64) *int64 {
+	if tenantID <= 0 {
+		return nil
+	}
+	return &tenantID
+}
+
+func tenantOr1(tenantID int64) int64 {
+	if tenantID <= 0 {
+		return 1
+	}
+	return tenantID
+}
+
 // runCampaignGeneration is the shared batch task generation pipeline used by
 // both the HTTP handler and alert-driven remediation. It validates the
 // input, resolves agents/assets, dedupes against open tasks, and either
 // previews (dry_run) or atomically creates a campaign with its tasks.
 func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch.Config,
-	in campaignGenerateInput, createdBy string) (campaignGenerationResult, error) {
+	in campaignGenerateInput, createdBy string, tenantID int64) (campaignGenerationResult, error) {
 	res := campaignGenerationResult{Counts: map[string]int{}}
 	if patchCfg == nil || !patchCfg.Enabled {
 		return res, errPatchDisabled
@@ -84,7 +98,7 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 			agentSet[id] = true
 		}
 	} else {
-		ids, err := st.AgentsByAssetFilters(ctx, in.Tags, in.Environments, in.AssetNames)
+		ids, err := st.AgentsByAssetFilters(ctx, in.Tags, in.Environments, in.AssetNames, tidFilter(tenantID))
 		if err != nil {
 			return res, err
 		}
@@ -106,6 +120,10 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 				continue
 			}
 			return res, err
+		}
+		if tenantID > 0 && ag.TenantID != tenantID {
+			agentErrors = append(agentErrors, "agent not in tenant: "+id)
+			continue
 		}
 		agents = append(agents, *ag)
 	}
@@ -240,7 +258,7 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 			WindowEnd: windowEnd, CreatedBy: createdBy,
 		})
 	}
-	campaign, created, err := st.CreatePatchCampaignWithTasks(ctx, name, filtersJSON, createdBy, tasks)
+	campaign, created, err := st.CreatePatchCampaignWithTasks(ctx, name, filtersJSON, createdBy, tenantOr1(tenantID), tasks)
 	if err != nil {
 		return res, err
 	}

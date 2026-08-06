@@ -254,7 +254,12 @@ func (s *RESTServer) listWebDBTargets(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-	targets, total, err := s.store.ListWebDBTargets(r.Context(), kind, q, limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	targets, total, err := s.store.ListWebDBTargets(r.Context(), kind, q, limit, offset, tid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

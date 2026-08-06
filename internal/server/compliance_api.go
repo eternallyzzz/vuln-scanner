@@ -9,7 +9,12 @@ import (
 )
 
 func (s *RESTServer) getComplianceSummary(w http.ResponseWriter, r *http.Request) {
-	sum, err := s.store.ComplianceSummary(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	sum, err := s.store.ComplianceSummary(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -18,7 +23,12 @@ func (s *RESTServer) getComplianceSummary(w http.ResponseWriter, r *http.Request
 }
 
 func (s *RESTServer) listComplianceAgents(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.ListComplianceAgents(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	rows, err := s.store.ListComplianceAgents(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -28,6 +38,10 @@ func (s *RESTServer) listComplianceAgents(w http.ResponseWriter, r *http.Request
 
 func (s *RESTServer) getComplianceDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if err := s.requireAgent(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	rep, err := s.store.GetComplianceReport(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "no compliance report for agent")
@@ -41,7 +55,12 @@ func (s *RESTServer) getComplianceDetail(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *RESTServer) exportComplianceCSV(w http.ResponseWriter, r *http.Request) {
-	data, err := s.store.ComplianceExportCSV(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	data, err := s.store.ComplianceExportCSV(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

@@ -17,6 +17,11 @@ func (s *RESTServer) listAssets(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -32,6 +37,7 @@ func (s *RESTServer) listAssets(w http.ResponseWriter, r *http.Request) {
 		AgentID:      q.Get("agent_id"),
 		Tag:          q.Get("tag"),
 		Q:            q.Get("q"),
+		TenantID:     tid,
 		Limit:        limit,
 		Offset:       offset,
 	})
@@ -46,6 +52,10 @@ func (s *RESTServer) getAsset(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "assetId"), 10, 64)
 	if err != nil {
 		writeError(w, 400, "invalid asset id")
+		return
+	}
+	if err := s.requireAsset(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	asset, err := s.store.GetAsset(r.Context(), id)
@@ -72,6 +82,10 @@ func (s *RESTServer) updateAsset(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "assetId"), 10, 64)
 	if err != nil {
 		writeError(w, 400, "invalid asset id")
+		return
+	}
+	if err := s.requireAsset(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	var in updateAssetInput
@@ -118,6 +132,10 @@ func (s *RESTServer) getAssetChanges(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid asset id")
 		return
 	}
+	if err := s.requireAsset(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	asset, err := s.store.GetAsset(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "asset not found")
@@ -142,6 +160,10 @@ func (s *RESTServer) getAssetRelations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid asset id")
 		return
 	}
+	if err := s.requireAsset(r, id); err != nil {
+		writeScopeError(w, err)
+		return
+	}
 	asset, err := s.store.GetAsset(r.Context(), id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, 404, "asset not found")
@@ -160,7 +182,12 @@ func (s *RESTServer) getAssetRelations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) assetSummary(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.AssetSummary(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	rows, err := s.store.AssetSummary(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

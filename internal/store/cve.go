@@ -90,14 +90,17 @@ func (s *Store) GetCVEResult(ctx context.Context, agentID, cveID string) (*CVERe
 	return &r, nil
 }
 
-func (s *Store) SearchByCVE(ctx context.Context, cveID string) ([]CVEResult, error) {
+func (s *Store) SearchByCVE(ctx context.Context, cveID string, tenantID *int64) ([]CVEResult, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.agent_id, r.cve_id, r.asset_name, r.asset_version,
 			r.fixed_version, r.fix_state, r.kb_article, r.kb_url, r.verification_source,
 			r.severity, r.cvss_score, r.summary, r.source, r.status, r.detected_at,
 			r.intel_threat_level, r.intel_exploited, r.intel_notes
-		FROM cve_results r WHERE r.cve_id=$1
-	`, cveID)
+		FROM cve_results r
+		WHERE r.cve_id=$1
+		  AND ($2::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=r.agent_id AND a.tenant_id=$2))
+	`, cveID, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,10 +128,14 @@ func (s *Store) ResolveCVEsForAsset(ctx context.Context, agentID, assetName, ass
 	return err
 }
 
-func (s *Store) GetCVEStats(ctx context.Context) (map[string]int, error) {
+func (s *Store) GetCVEStats(ctx context.Context, tenantID *int64) (map[string]int, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT severity, COUNT(*) FROM cve_results WHERE status='active' GROUP BY severity
-	`)
+		SELECT severity, COUNT(*) FROM cve_results
+		WHERE status='active'
+		  AND ($1::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
+		GROUP BY severity
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,12 @@ func (s *RESTServer) listNetworkHosts(w http.ResponseWriter, r *http.Request) {
 	if offset < 0 {
 		offset = 0
 	}
-	hosts, total, err := s.store.ListNetworkHosts(r.Context(), limit, offset)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	hosts, total, err := s.store.ListNetworkHosts(r.Context(), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

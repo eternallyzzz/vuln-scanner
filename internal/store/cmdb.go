@@ -290,6 +290,7 @@ type AssetFilters struct {
 	AgentID      string
 	Tag          string
 	Q            string
+	TenantID     *int64
 	Limit        int
 	Offset       int
 }
@@ -323,6 +324,9 @@ func (f AssetFilters) whereClause(args *[]interface{}) string {
 	}
 	if f.Q != "" {
 		add("name ILIKE '%%' || $%d || '%%'", f.Q)
+	}
+	if f.TenantID != nil {
+		add("EXISTS (SELECT 1 FROM agents a WHERE a.id=assets.agent_id AND a.tenant_id=$%d)", *f.TenantID)
 	}
 	if len(conds) == 0 {
 		return ""
@@ -380,6 +384,15 @@ func (s *Store) GetAsset(ctx context.Context, id int64) (Asset, error) {
 			vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags,
 			first_seen, last_seen, updated_at FROM assets WHERE id=$1
 	`, id))
+}
+
+// GetAssetByKey returns an asset by its unique asset_key.
+func (s *Store) GetAssetByKey(ctx context.Context, assetKey string) (Asset, error) {
+	return scanAsset(s.pool.QueryRow(ctx, `
+		SELECT id, asset_key, asset_type, name, version, os_type, os_version, format,
+			vendor, arch, location, source, hostname, ip, agent_id, lifecycle, environment, business_unit, owner, tags,
+			first_seen, last_seen, updated_at FROM assets WHERE asset_key=$1
+	`, assetKey))
 }
 
 var validLifecycles = map[string]bool{"active": true, "retired": true}
@@ -613,11 +626,14 @@ func (s *Store) ListAssetRelations(ctx context.Context, assetKey string) ([]Asse
 	return out, rows.Err()
 }
 
-func (s *Store) AssetSummary(ctx context.Context) ([]AssetSummaryRow, error) {
+func (s *Store) AssetSummary(ctx context.Context, tenantID *int64) ([]AssetSummaryRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT asset_type, environment, lifecycle, COUNT(*)
-		FROM assets GROUP BY 1,2,3 ORDER BY asset_type, environment, lifecycle
-	`)
+		FROM assets
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=assets.agent_id AND a.tenant_id=$1))
+		GROUP BY 1,2,3 ORDER BY asset_type, environment, lifecycle
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}

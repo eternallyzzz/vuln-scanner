@@ -578,7 +578,7 @@ func (w *Worker) feedLoop(ctx context.Context) {
 }
 
 func (w *Worker) collectAgentSummaries(ctx context.Context) []cve.AgentSnapshotSummary {
-	list, err := w.store.ListAgents(ctx)
+	list, err := w.store.ListAgents(ctx, nil)
 	if err != nil {
 		return nil
 	}
@@ -719,7 +719,7 @@ func (w *Worker) RunMatchCycle(ctx context.Context) {
 
 	slog.Info("match cycle started")
 
-	agents, err := w.store.ListAgents(ctx)
+	agents, err := w.store.ListAgents(ctx, nil)
 	if err != nil {
 		slog.Error("match: list agents failed", "error", err)
 		return

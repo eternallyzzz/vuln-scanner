@@ -456,7 +456,7 @@ func (s *Store) RecalcAllRisk(ctx context.Context) (int, error) {
 }
 
 // RiskSummary aggregates the governance dashboard counts.
-func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
+func (s *Store) RiskSummary(ctx context.Context, tenantID *int64) (RiskSummary, error) {
 	var sum RiskSummary
 	sum.ByRiskLevel = map[string]int{}
 	sum.BySeverity = map[string]int{}
@@ -472,7 +472,9 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 			COUNT(*) FILTER (WHERE status='active' AND risk_level='LOW'),
 			COALESCE(AVG(epss_score) FILTER (WHERE status='active' AND epss_score>0), 0)
 		FROM cve_results
-	`).Scan(&sum.TotalActive, &sum.TotalFixed, &sum.KEVCount,
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
+	`, tenantID).Scan(&sum.TotalActive, &sum.TotalFixed, &sum.KEVCount,
 		&crit, &high, &med, &low, &sum.AverageEPSS)
 	if err != nil {
 		return sum, err
@@ -486,7 +488,8 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 			COUNT(*) FILTER (WHERE eol_status = 'eol'),
 			COUNT(*) FILTER (WHERE eol_status = 'unsupported')
 		FROM agents
-	`).Scan(&sum.EOLAgents, &sum.UnsupportedAgents); err != nil {
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&sum.EOLAgents, &sum.UnsupportedAgents); err != nil {
 		return sum, err
 	}
 	if sum.EOLByProduct == nil {
@@ -494,9 +497,9 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 	}
 	eolGroups, err := scanCountGroups(ctx, s, `
 		SELECT COALESCE(eol_product, ''), COUNT(*)
-		FROM agents WHERE eol_status = 'eol'
+		FROM agents WHERE eol_status = 'eol' AND ($1::bigint IS NULL OR tenant_id=$1)
 		GROUP BY eol_product ORDER BY COUNT(*) DESC, eol_product
-	`)
+	`, tenantID)
 	if err != nil {
 		return sum, err
 	}
@@ -508,19 +511,26 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 		JOIN sla_policies sp ON sp.severity=cr.severity AND sp.enabled
 		WHERE cr.status='active' AND
 			cr.detected_at + (sp.max_remediation_hours * INTERVAL '1 hour') < NOW()
-	`).Scan(&sum.Overdue); err != nil {
+		  AND ($1::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=cr.agent_id AND a.tenant_id=$1))
+	`, tenantID).Scan(&sum.Overdue); err != nil {
 		return sum, err
 	}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM vulnerability_exceptions
 		WHERE revoked_at IS NULL AND expires_at > NOW()
-	`).Scan(&sum.Exempted); err != nil {
+		  AND ($1::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM assets at JOIN agents ag ON ag.id=at.agent_id
+		      WHERE at.asset_key=vulnerability_exceptions.asset_key AND ag.tenant_id=$1))
+	`, tenantID).Scan(&sum.Exempted); err != nil {
 		return sum, err
 	}
 	groups, err := scanCountGroups(ctx, s, `
 		SELECT severity, COUNT(*) FROM cve_results WHERE status='active'
+		  AND ($1::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
 		GROUP BY severity ORDER BY severity
-	`)
+	`, tenantID)
 	if err != nil {
 		return sum, err
 	}
@@ -535,7 +545,7 @@ func (s *Store) RiskSummary(ctx context.Context) (RiskSummary, error) {
 }
 
 // RiskTop returns the highest-risk active vulnerabilities.
-func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bool) ([]RiskRow, error) {
+func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bool, tenantID *int64) ([]RiskRow, error) {
 	if limit <= 0 || limit > 100000 {
 		limit = 100
 	}
@@ -547,9 +557,10 @@ func (s *Store) RiskTop(ctx context.Context, limit int, level string, kevOnly bo
 			cr.fixed_version, cr.kb_article, a.eol_status = 'eol', a.eol_product
 		FROM cve_results cr JOIN agents a ON a.id=cr.agent_id
 		WHERE cr.status='active' AND ($2='' OR cr.risk_level=$2) AND ($3=false OR cr.kev)
+		  AND ($4::bigint IS NULL OR a.tenant_id=$4)
 		ORDER BY cr.risk_score DESC, cr.epss_score DESC, cr.cve_id
 		LIMIT $1
-	`, limit, level, kevOnly)
+	`, limit, level, kevOnly, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -646,8 +657,8 @@ func (s *Store) OverdueCVEs(ctx context.Context) ([]OverdueCVE, error) {
 }
 
 // RiskExportCSV renders the top risk rows as CSV bytes.
-func (s *Store) RiskExportCSV(ctx context.Context) ([]byte, error) {
-	rows, err := s.RiskTop(ctx, 100000, "", false)
+func (s *Store) RiskExportCSV(ctx context.Context, tenantID *int64) ([]byte, error) {
+	rows, err := s.RiskTop(ctx, 100000, "", false, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -686,21 +697,27 @@ func b2s(v bool) string {
 }
 
 // RiskTrend returns daily active/new/fixed counts for the last N days.
-func (s *Store) RiskTrend(ctx context.Context, days int) ([]RiskTrendPoint, error) {
+func (s *Store) RiskTrend(ctx context.Context, days int, tenantID *int64) ([]RiskTrendPoint, error) {
 	if days <= 0 || days > 365 {
 		days = 30
 	}
 	rows, err := s.pool.Query(ctx, `
 		WITH days AS (
-			SELECT generate_series(NOW()::date - ($1 - 1), NOW()::date, '1 day')::date AS d
+			SELECT generate_series(NOW()::date - ($2 - 1), NOW()::date, '1 day')::date AS d
 		)
 		SELECT d.d,
-			(SELECT COUNT(*) FROM cve_results WHERE detected_at::date <= d.d
+			(SELECT COUNT(*) FROM cve_results WHERE ($1::bigint IS NULL OR EXISTS (
+				SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
+				AND detected_at::date <= d.d
 				AND (fixed_at IS NULL OR fixed_at::date > d.d)) AS active,
-			(SELECT COUNT(*) FROM cve_results WHERE detected_at::date = d.d) AS new_count,
-			(SELECT COUNT(*) FROM cve_results WHERE fixed_at::date = d.d) AS fixed_count
+			(SELECT COUNT(*) FROM cve_results WHERE ($1::bigint IS NULL OR EXISTS (
+				SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
+				AND detected_at::date = d.d) AS new_count,
+			(SELECT COUNT(*) FROM cve_results WHERE ($1::bigint IS NULL OR EXISTS (
+				SELECT 1 FROM agents a WHERE a.id=cve_results.agent_id AND a.tenant_id=$1))
+				AND fixed_at::date = d.d) AS fixed_count
 		FROM days d ORDER BY d.d
-	`, days)
+	`, days, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -735,11 +752,15 @@ func (s *Store) CreateException(ctx context.Context, cveID, assetKey, reason str
 }
 
 // ListExceptions returns exemption records, newest first.
-func (s *Store) ListExceptions(ctx context.Context) ([]VulnerabilityException, error) {
+func (s *Store) ListExceptions(ctx context.Context, tenantID *int64) ([]VulnerabilityException, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, cve_id, asset_key, reason, expires_at, created_by, created_at, revoked_at
-		FROM vulnerability_exceptions ORDER BY id DESC LIMIT 500
-	`)
+		FROM vulnerability_exceptions
+		WHERE ($1::bigint IS NULL OR EXISTS (
+			SELECT 1 FROM assets at JOIN agents ag ON ag.id=at.agent_id
+			WHERE at.asset_key=vulnerability_exceptions.asset_key AND ag.tenant_id=$1))
+		ORDER BY id DESC LIMIT 500
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -754,6 +775,17 @@ func (s *Store) ListExceptions(ctx context.Context) ([]VulnerabilityException, e
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// GetException returns one exemption record by id.
+func (s *Store) GetException(ctx context.Context, id int64) (VulnerabilityException, error) {
+	var e VulnerabilityException
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, cve_id, asset_key, reason, expires_at, created_by, created_at, revoked_at
+		FROM vulnerability_exceptions WHERE id=$1
+	`, id).Scan(&e.ID, &e.CVEID, &e.AssetKey, &e.Reason, &e.ExpiresAt,
+		&e.CreatedBy, &e.CreatedAt, &e.RevokedAt)
+	return e, err
 }
 
 // RevokeException soft-revokes an exemption.

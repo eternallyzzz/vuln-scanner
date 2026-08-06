@@ -236,6 +236,103 @@ paths:
                   status: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/tenants:
+    get:
+      tags: [auth]
+      summary: 租户列表（仅系统管理员）
+      x-roles: [admin]
+      responses:
+        '200':
+          description: 租户列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tenant'
+    post:
+      tags: [auth]
+      summary: 创建租户（仅系统管理员）
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantInput'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/users/{userId}/tenant:
+    put:
+      tags: [auth]
+      summary: 调整用户所属租户（仅系统管理员）
+      x-roles: [admin]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: {type: integer, format: int64}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id]
+              properties:
+                tenant_id: {type: integer, format: int64}
+      responses:
+        '200':
+          description: 调整成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: {type: integer, format: int64}
+                  tenant_id: {type: integer, format: int64}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/agents/{agentId}/tenant:
+    put:
+      tags: [agents]
+      summary: 调整 Agent 所属租户（仅系统管理员；资产数据随 Agent 迁移）
+      x-roles: [admin]
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id]
+              properties:
+                tenant_id: {type: integer, format: int64}
+      responses:
+        '200':
+          description: 调整成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  tenant_id: {type: integer, format: int64}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/users:
     get:
       tags: [auth]
@@ -2781,6 +2878,7 @@ components:
         display_name: {type: string}
         role: {type: string, enum: [admin, operator, viewer]}
         status: {type: string, enum: [active, disabled]}
+        tenant_id: {type: integer, format: int64}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         last_login_at: {type: string, format: date-time, nullable: true}
@@ -2805,6 +2903,21 @@ components:
         password: {type: string, minLength: 8}
         display_name: {type: string}
         role: {type: string, enum: [admin, operator, viewer]}
+        tenant_id: {type: integer, format: int64}
+    Tenant:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        name: {type: string}
+        slug: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    TenantInput:
+      type: object
+      required: [name, slug]
+      properties:
+        name: {type: string}
+        slug: {type: string, pattern: '^[a-z0-9-]+$'}
     UpdateUserRequest:
       type: object
       properties:
@@ -2833,6 +2946,7 @@ components:
         agent_ver: {type: string}
         ip: {type: string}
         status: {type: string}
+        tenant_id: {type: integer, format: int64}
         last_seen: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -3164,6 +3278,7 @@ components:
           type: object
         created_by: {type: string}
         created_at: {type: string, format: date-time}
+        tenant_id: {type: integer, format: int64}
     CampaignSummary:
       type: object
       properties:

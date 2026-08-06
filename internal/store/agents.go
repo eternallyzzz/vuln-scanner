@@ -9,17 +9,20 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *Store) CreateAgent(ctx context.Context, agent *Agent) error {
+func (s *Store) CreateAgent(ctx context.Context, agent *Agent, tenantID int64) error {
 	h := sha256.Sum256([]byte(agent.TokenHash))
 	agent.TokenHash = fmt.Sprintf("%x", h[:])
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO agents (id, hostname, os_type, os_version, arch, agent_ver, ip,
-			token_hash, status, fingerprint_hash, last_seen, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			token_hash, status, fingerprint_hash, tenant_id, last_seen, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	`, agent.ID, agent.Hostname, agent.OSType, agent.OSVersion, agent.Arch,
 		agent.AgentVer, agent.IP, agent.TokenHash, agent.Status, agent.FingerprintHash,
-		agent.LastSeen, agent.CreatedAt, agent.UpdatedAt)
+		tenantID, agent.LastSeen, agent.CreatedAt, agent.UpdatedAt)
 	return err
 }
 
@@ -27,7 +30,7 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,
 			status, fingerprint_hash, last_seen, created_at, updated_at,
-			eol_status, eol_date, eol_product, eol_cycle
+			eol_status, eol_date, eol_product, eol_cycle, tenant_id
 		FROM agents WHERE id=$1
 	`, id)
 
@@ -35,7 +38,7 @@ func (s *Store) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	err := row.Scan(&a.ID, &a.Hostname, &a.OSType, &a.OSVersion, &a.Arch,
 		&a.AgentVer, &a.IP, &a.TokenHash, &a.Status, &a.FingerprintHash,
 		&a.LastSeen, &a.CreatedAt, &a.UpdatedAt,
-		&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle)
+		&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle, &a.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +51,7 @@ func (s *Store) GetAgentByHostname(ctx context.Context, hostname string) (*Agent
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,
 			status, fingerprint_hash, last_seen, created_at, updated_at,
-			eol_status, eol_date, eol_product, eol_cycle
+			eol_status, eol_date, eol_product, eol_cycle, tenant_id
 		FROM agents WHERE hostname=$1 ORDER BY updated_at DESC LIMIT 1
 	`, hostname)
 
@@ -56,20 +59,22 @@ func (s *Store) GetAgentByHostname(ctx context.Context, hostname string) (*Agent
 	err := row.Scan(&a.ID, &a.Hostname, &a.OSType, &a.OSVersion, &a.Arch,
 		&a.AgentVer, &a.IP, &a.TokenHash, &a.Status, &a.FingerprintHash,
 		&a.LastSeen, &a.CreatedAt, &a.UpdatedAt,
-		&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle)
+		&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle, &a.TenantID)
 	if err != nil {
 		return nil, err
 	}
 	return &a, nil
 }
 
-func (s *Store) ListAgents(ctx context.Context) ([]Agent, error) {
+func (s *Store) ListAgents(ctx context.Context, tenantID *int64) ([]Agent, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,
 			status, fingerprint_hash, last_seen, created_at, updated_at,
-			eol_status, eol_date, eol_product, eol_cycle
-		FROM agents ORDER BY hostname
-	`)
+			eol_status, eol_date, eol_product, eol_cycle, tenant_id
+		FROM agents
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY hostname
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +86,7 @@ func (s *Store) ListAgents(ctx context.Context) ([]Agent, error) {
 		if err := rows.Scan(&a.ID, &a.Hostname, &a.OSType, &a.OSVersion, &a.Arch,
 			&a.AgentVer, &a.IP, &a.TokenHash, &a.Status, &a.FingerprintHash,
 			&a.LastSeen, &a.CreatedAt, &a.UpdatedAt,
-			&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle); err != nil {
+			&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle, &a.TenantID); err != nil {
 			return nil, err
 		}
 		agents = append(agents, a)
@@ -141,7 +146,7 @@ func (s *Store) GetDecayingAgents(ctx context.Context, decay time.Duration) ([]A
 	return s.queryAgents(ctx, `
 		SELECT id, hostname, os_type, os_version, arch, agent_ver, ip, token_hash,
 			status, fingerprint_hash, last_seen, created_at, updated_at,
-			eol_status, eol_date, eol_product, eol_cycle
+			eol_status, eol_date, eol_product, eol_cycle, tenant_id
 		FROM agents WHERE status='offline' AND last_seen < $1 AND last_seen > $2
 	`, time.Now().Add(-decay), time.Now().Add(-90*24*time.Hour))
 }
@@ -159,7 +164,7 @@ func (s *Store) queryAgents(ctx context.Context, query string, args ...interface
 		if err := rows.Scan(&a.ID, &a.Hostname, &a.OSType, &a.OSVersion, &a.Arch,
 			&a.AgentVer, &a.IP, &a.TokenHash, &a.Status, &a.FingerprintHash,
 			&a.LastSeen, &a.CreatedAt, &a.UpdatedAt,
-			&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle); err != nil {
+			&a.EOLStatus, &a.EOLDate, &a.EOLProduct, &a.EOLCycle, &a.TenantID); err != nil {
 			return nil, err
 		}
 		agents = append(agents, a)

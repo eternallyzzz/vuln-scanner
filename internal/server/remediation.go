@@ -135,7 +135,12 @@ func (w *Worker) processRemediation(ctx context.Context, req remediationRequest)
 		CVEIDs:           []string{req.CVEID},
 		ApprovalRequired: &approval,
 	}
-	res, err := runCampaignGeneration(ctx, w.store, w.patchCfg, in, "auto-remediation")
+	agent, err := w.store.GetAgent(ctx, req.AgentID)
+	if err != nil {
+		slog.Warn("remediation: agent lookup failed", "agent_id", req.AgentID, "error", err)
+		return
+	}
+	res, err := runCampaignGeneration(ctx, w.store, w.patchCfg, in, "auto-remediation", agent.TenantID)
 	if err != nil {
 		msg := "generation failed: " + err.Error()
 		if e := w.store.SetAlertRemediation(ctx, req.AlertID, nil, msg); e != nil {

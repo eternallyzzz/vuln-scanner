@@ -19,6 +19,7 @@ type requestUser struct {
 	ID       int64
 	Username string
 	Role     string
+	TenantID int64
 }
 
 func userFromContext(ctx context.Context) *requestUser {
@@ -51,6 +52,7 @@ func (s *RESTServer) userAuthMiddleware(next http.Handler) http.Handler {
 			ID:       claims.UserID,
 			Username: claims.Username,
 			Role:     claims.Role,
+			TenantID: claims.TenantID,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -90,6 +92,12 @@ func actorFromRequest(r *http.Request) string {
 // read-only; operator gets the daily operational mutations; self-service
 // password change and /auth/me are available to every logged-in role.
 func userCan(role, method, path string) bool {
+	// Tenant management is a system-level surface: only admin may read or
+	// mutate tenants and reassign users/agents between them.
+	if strings.HasPrefix(path, "/api/v1/tenants") ||
+		strings.HasSuffix(path, "/tenant") {
+		return role == "admin"
+	}
 	// The unified audit trail is a governance surface: only admins may read
 	// or export it, regardless of the generic GET permissions below.
 	if strings.HasPrefix(path, "/api/v1/audit-logs") {
@@ -180,7 +188,7 @@ func operatorCan(method, path string) bool {
 // small so the bootstrap logic is unit-testable without a database.
 type userStore interface {
 	CountUsers(ctx context.Context) (int64, error)
-	CreateUser(ctx context.Context, username, passwordHash, displayName, role string) (*store.User, error)
+	CreateUser(ctx context.Context, username, passwordHash, displayName, role string, tenantID int64) (*store.User, error)
 }
 
 // BootstrapAdmin creates the first admin account on an empty users table when
@@ -202,7 +210,7 @@ func BootstrapAdmin(ctx context.Context, us userStore, username, password string
 	if err != nil {
 		return err
 	}
-	if _, err := us.CreateUser(ctx, username, hash, "Administrator", "admin"); err != nil {
+	if _, err := us.CreateUser(ctx, username, hash, "Administrator", "admin", 1); err != nil {
 		return err
 	}
 	slog.Info("bootstrapped admin user", "username", username)

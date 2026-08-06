@@ -84,13 +84,14 @@ func (s *Store) UpsertComplianceReport(ctx context.Context, r *ComplianceReport)
 
 // ListComplianceAgents returns one row per reported agent, lowest score
 // first so the weakest hosts are easiest to find.
-func (s *Store) ListComplianceAgents(ctx context.Context) ([]ComplianceAgentRow, error) {
+func (s *Store) ListComplianceAgents(ctx context.Context, tenantID *int64) ([]ComplianceAgentRow, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.agent_id, COALESCE(a.hostname,''), COALESCE(a.os_type,''), COALESCE(a.os_version,''),
 		       c.score, c.total, c.passed, c.failed, c.na, c.checked_at
 		FROM compliance_reports c
 		JOIN agents a ON a.id = c.agent_id
-		ORDER BY c.score ASC, a.hostname`)
+		WHERE ($1::bigint IS NULL OR a.tenant_id=$1)
+		ORDER BY c.score ASC, a.hostname`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,21 +130,29 @@ func (s *Store) GetComplianceReport(ctx context.Context, agentID string) (*Compl
 // ComplianceSummary aggregates fleet counts and the most common failing
 // checks. Check details live in JSONB, so the aggregation walks the latest
 // reports in Go; fleet sizes here stay small.
-func (s *Store) ComplianceSummary(ctx context.Context) (ComplianceSummary, error) {
+func (s *Store) ComplianceSummary(ctx context.Context, tenantID *int64) (ComplianceSummary, error) {
 	var sum ComplianceSummary
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM agents`).Scan(&sum.TotalAgents); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM agents
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&sum.TotalAgents); err != nil {
 		return sum, err
 	}
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*), COALESCE(AVG(score),0), COALESCE(MIN(score),0), COALESCE(MAX(score),0),
 		       COALESCE(SUM(total),0), COALESCE(SUM(passed),0), COALESCE(SUM(failed),0), COALESCE(SUM(na),0)
-		FROM compliance_reports`).
-		Scan(&sum.ReportedAgents, &sum.AvgScore, &sum.MinScore, &sum.MaxScore,
-			&sum.TotalChecks, &sum.PassedChecks, &sum.FailedChecks, &sum.NAChecks); err != nil {
+		FROM compliance_reports c JOIN agents a ON a.id=c.agent_id
+		WHERE ($1::bigint IS NULL OR a.tenant_id=$1)
+	`, tenantID).Scan(&sum.ReportedAgents, &sum.AvgScore, &sum.MinScore, &sum.MaxScore,
+		&sum.TotalChecks, &sum.PassedChecks, &sum.FailedChecks, &sum.NAChecks); err != nil {
 		return sum, err
 	}
 
-	rows, err := s.pool.Query(ctx, `SELECT agent_id, checks FROM compliance_reports`)
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.agent_id, c.checks FROM compliance_reports c
+		JOIN agents a ON a.id=c.agent_id
+		WHERE ($1::bigint IS NULL OR a.tenant_id=$1)
+	`, tenantID)
 	if err != nil {
 		return sum, err
 	}
@@ -190,8 +199,8 @@ func (s *Store) ComplianceSummary(ctx context.Context) (ComplianceSummary, error
 
 // ComplianceExportCSV renders the latest report rows as CSV, same columns as
 // the compliance agents API.
-func (s *Store) ComplianceExportCSV(ctx context.Context) ([]byte, error) {
-	rows, err := s.ListComplianceAgents(ctx)
+func (s *Store) ComplianceExportCSV(ctx context.Context, tenantID *int64) ([]byte, error) {
+	rows, err := s.ListComplianceAgents(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}

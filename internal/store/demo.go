@@ -193,8 +193,8 @@ func (s *Store) DemoSummary(ctx context.Context) (DemoSummary, error) {
 	return ds, nil
 }
 
-func scanCountGroups(ctx context.Context, s *Store, query string) (map[string]int, error) {
-	rows, err := s.pool.Query(ctx, query)
+func scanCountGroups(ctx context.Context, s *Store, query string, args ...interface{}) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

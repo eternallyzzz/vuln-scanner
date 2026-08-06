@@ -12,7 +12,12 @@ import (
 )
 
 func (s *RESTServer) getRiskSummary(w http.ResponseWriter, r *http.Request) {
-	sum, err := s.store.RiskSummary(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	sum, err := s.store.RiskSummary(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -30,7 +35,12 @@ func (s *RESTServer) getRiskTop(w http.ResponseWriter, r *http.Request) {
 		limit = 1000
 	}
 	kevOnly := strings.EqualFold(q.Get("kev"), "true") || q.Get("kev") == "1"
-	rows, err := s.store.RiskTop(r.Context(), limit, strings.ToUpper(q.Get("level")), kevOnly)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	rows, err := s.store.RiskTop(r.Context(), limit, strings.ToUpper(q.Get("level")), kevOnly, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -39,7 +49,12 @@ func (s *RESTServer) getRiskTop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) getRiskExport(w http.ResponseWriter, r *http.Request) {
-	data, err := s.store.RiskExportCSV(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	data, err := s.store.RiskExportCSV(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -52,7 +67,12 @@ func (s *RESTServer) getRiskExport(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getRiskTrend(w http.ResponseWriter, r *http.Request) {
 	days, _ := strconv.Atoi(r.URL.Query().Get("days"))
-	points, err := s.store.RiskTrend(r.Context(), days)
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	points, err := s.store.RiskTrend(r.Context(), days, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -61,7 +81,12 @@ func (s *RESTServer) getRiskTrend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) listExceptions(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListExceptions(r.Context())
+	tid, err := s.tid(r)
+	if err != nil {
+		writeScopeError(w, err)
+		return
+	}
+	items, err := s.store.ListExceptions(r.Context(), tid)
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return
@@ -92,6 +117,12 @@ func (s *RESTServer) createException(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "expires_at must be RFC3339")
 		return
 	}
+	if strings.TrimSpace(in.AssetKey) != "" {
+		if err := s.requireAssetKey(r, strings.TrimSpace(in.AssetKey)); err != nil {
+			writeScopeError(w, err)
+			return
+		}
+	}
 	createdBy := actorFromRequest(r)
 	if createdBy == "api" && strings.TrimSpace(in.CreatedBy) != "" {
 		createdBy = strings.TrimSpace(in.CreatedBy)
@@ -109,6 +140,10 @@ func (s *RESTServer) revokeException(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "exceptionId"), 10, 64)
 	if err != nil {
 		writeError(w, 400, "invalid exception id")
+		return
+	}
+	if err := s.requireException(r, id); err != nil {
+		writeScopeError(w, err)
 		return
 	}
 	if err := s.store.RevokeException(r.Context(), id, actorFromRequest(r)); err != nil {

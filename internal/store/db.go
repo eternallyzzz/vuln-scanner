@@ -32,6 +32,7 @@ type Agent struct {
 	EOLDate         *time.Time `json:"eol_date,omitempty"`
 	EOLProduct      string     `json:"eol_product,omitempty"`
 	EOLCycle        string     `json:"eol_cycle,omitempty"`
+	TenantID        int64      `json:"tenant_id"`
 }
 
 type AssetSnapshot struct {

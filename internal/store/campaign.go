@@ -15,6 +15,7 @@ type PatchCampaign struct {
 	Filters   json.RawMessage `json:"filters"`
 	CreatedBy string          `json:"created_by"`
 	CreatedAt time.Time       `json:"created_at"`
+	TenantID  int64           `json:"tenant_id"`
 }
 
 type CampaignSummary struct {
@@ -51,7 +52,7 @@ type CampaignTaskInput struct {
 func scanPatchCampaign(row pgx.Row) (PatchCampaign, error) {
 	var c PatchCampaign
 	var filtersRaw []byte
-	if err := row.Scan(&c.ID, &c.Name, &filtersRaw, &c.CreatedBy, &c.CreatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &filtersRaw, &c.CreatedBy, &c.CreatedAt, &c.TenantID); err != nil {
 		return c, err
 	}
 	c.Filters = json.RawMessage(filtersRaw)
@@ -61,7 +62,10 @@ func scanPatchCampaign(row pgx.Row) (PatchCampaign, error) {
 // CreatePatchCampaignWithTasks atomically creates a campaign and its tasks.
 // Tasks with ApprovalRequired=false are created directly in 'approved' state
 // so agents can claim them immediately.
-func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, filters json.RawMessage, createdBy string, tasks []CampaignTaskInput) (PatchCampaign, []PatchTask, error) {
+func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, filters json.RawMessage, createdBy string, tenantID int64, tasks []CampaignTaskInput) (PatchCampaign, []PatchTask, error) {
+	if tenantID <= 0 {
+		tenantID = 1
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return PatchCampaign{}, nil, err
@@ -69,10 +73,10 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 	defer tx.Rollback(ctx)
 
 	campaign, err := scanPatchCampaign(tx.QueryRow(ctx, `
-		INSERT INTO patch_campaigns (name, filters, created_by)
-		VALUES ($1,$2,$3)
-		RETURNING id, name, filters, created_by, created_at
-	`, name, filters, createdBy))
+		INSERT INTO patch_campaigns (name, filters, created_by, tenant_id)
+		VALUES ($1,$2,$3,$4)
+		RETURNING id, name, filters, created_by, created_at, tenant_id
+	`, name, filters, createdBy, tenantID))
 	if err != nil {
 		return PatchCampaign{}, nil, err
 	}
@@ -113,23 +117,28 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 
 func (s *Store) GetPatchCampaign(ctx context.Context, id int64) (PatchCampaign, error) {
 	return scanPatchCampaign(s.pool.QueryRow(ctx, `
-		SELECT id, name, filters, created_by, created_at
+		SELECT id, name, filters, created_by, created_at, tenant_id
 		FROM patch_campaigns WHERE id=$1
 	`, id))
 }
 
-func (s *Store) ListPatchCampaigns(ctx context.Context, limit, offset int) ([]PatchCampaign, int, error) {
+func (s *Store) ListPatchCampaigns(ctx context.Context, limit, offset int, tenantID *int64) ([]PatchCampaign, int, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	var total int
-	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM patch_campaigns`).Scan(&total); err != nil {
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM patch_campaigns
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+	`, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, filters, created_by, created_at
-		FROM patch_campaigns ORDER BY id DESC LIMIT $1 OFFSET $2
-	`, limit, offset)
+		SELECT id, name, filters, created_by, created_at, tenant_id
+		FROM patch_campaigns
+		WHERE ($1::bigint IS NULL OR tenant_id=$1)
+		ORDER BY id DESC LIMIT $2 OFFSET $3
+	`, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -281,7 +290,7 @@ func (s *Store) GetCampaignAudit(ctx context.Context, campaignID int64, limit in
 
 // ListPatchTasksFiltered is the global task list; empty agentID/status/assetName
 // and campaignID=0 mean "any".
-func (s *Store) ListPatchTasksFiltered(ctx context.Context, agentID string, campaignID int64, status, assetName string, limit, offset int) ([]PatchTask, int, error) {
+func (s *Store) ListPatchTasksFiltered(ctx context.Context, agentID string, campaignID int64, status, assetName string, limit, offset int, tenantID *int64) ([]PatchTask, int, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -292,7 +301,9 @@ func (s *Store) ListPatchTasksFiltered(ctx context.Context, agentID string, camp
 		  AND ($2=0 OR campaign_id=$2)
 		  AND (''=$3 OR status=$3)
 		  AND (''=$4 OR asset_name=$4)
-	`, agentID, campaignID, status, assetName).Scan(&total); err != nil {
+		  AND ($5::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=patch_tasks.agent_id AND a.tenant_id=$5))
+	`, agentID, campaignID, status, assetName, tenantID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	rows, err := s.pool.Query(ctx, `
@@ -301,8 +312,10 @@ func (s *Store) ListPatchTasksFiltered(ctx context.Context, agentID string, camp
 		  AND ($2=0 OR campaign_id=$2)
 		  AND (''=$3 OR status=$3)
 		  AND (''=$4 OR asset_name=$4)
-		ORDER BY id DESC LIMIT $5 OFFSET $6
-	`, agentID, campaignID, status, assetName, limit, offset)
+		  AND ($5::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=patch_tasks.agent_id AND a.tenant_id=$5))
+		ORDER BY id DESC LIMIT $6 OFFSET $7
+	`, agentID, campaignID, status, assetName, tenantID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -335,17 +348,19 @@ func (s *Store) HasOpenPatchTask(ctx context.Context, agentID, assetName string)
 // AgentsByAssetFilters returns distinct agent ids that have at least one
 // active software asset matching tags, environments or asset names (AND of
 // non-empty selectors).
-func (s *Store) AgentsByAssetFilters(ctx context.Context, tags, environments, assetNames []string) ([]string, error) {
+func (s *Store) AgentsByAssetFilters(ctx context.Context, tags, environments, assetNames []string, tenantID *int64) ([]string, error) {
 	if len(tags) == 0 && len(environments) == 0 && len(assetNames) == 0 {
 		return nil, nil
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT agent_id FROM assets
+		JOIN agents a ON a.id=assets.agent_id
 		WHERE asset_type='software' AND lifecycle='active'
+		  AND ($4::bigint IS NULL OR a.tenant_id=$4)
 		  AND (cardinality(COALESCE($1::text[],'{}'))=0 OR tags && COALESCE($1::text[],'{}'))
 		  AND (cardinality(COALESCE($2::text[],'{}'))=0 OR environment = ANY(COALESCE($2::text[],'{}')))
 		  AND (cardinality(COALESCE($3::text[],'{}'))=0 OR name = ANY(COALESCE($3::text[],'{}')))
-	`, tags, environments, assetNames)
+	`, tags, environments, assetNames, tenantID)
 	if err != nil {
 		return nil, err
 	}
