@@ -139,6 +139,22 @@ func (c *Client) ReportPatchTask(ctx context.Context, taskID int64, status strin
 	return err
 }
 
+// ReportPatchProgress uploads one incremental execution chunk and returns
+// whether the server has a pending cancel request for the task.
+func (c *Client) ReportPatchProgress(ctx context.Context, taskID int64, stream, data string) (bool, error) {
+	resp, err := c.rawClient.ReportPatchProgress(ctx, &pb.ReportPatchProgressRequest{
+		TaskId:  taskID,
+		AgentId: c.cfg.Agent.ID,
+		Token:   c.cfg.Agent.Token,
+		Stream:  stream,
+		Data:    data,
+	})
+	if err != nil {
+		return false, err
+	}
+	return resp.GetCancelRequested(), nil
+}
+
 // FetchNetworkScanTasks claims pending server-dispatched network scan tasks
 // for this agent.
 func (c *Client) FetchNetworkScanTasks(ctx context.Context) ([]*pb.NetworkScanTaskInfo, error) {

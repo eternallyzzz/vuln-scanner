@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -193,6 +194,14 @@ func (s *Scheduler) doPatchLoop(ctx context.Context) {
 			}
 			continue
 		}
+		if task.GetCancelRequested() {
+			slog.Info("patch task cancelled before start", "task_id", task.GetId())
+			if err := s.client.ReportPatchTask(ctx, task.GetId(), "cancelled", -1,
+				"cancelled before start"); err != nil {
+				slog.Warn("report patch task failed", "task_id", task.GetId(), "error", err)
+			}
+			continue
+		}
 
 		slog.Info("patch task executing", "task_id", task.GetId(),
 			"asset", task.GetAssetName(), "command", task.GetCommand())
@@ -202,9 +211,17 @@ func (s *Scheduler) doPatchLoop(ctx context.Context) {
 				argvLists = append(argvLists, c.GetArgv())
 			}
 		}
-		exitCode, output, err := executeCommands(ctx, argvLists, timeout)
+		exitCode, output, err := executeCommandsStreaming(ctx, argvLists, timeout,
+			func(chunk OutputChunk) (bool, error) {
+				return s.client.ReportPatchProgress(ctx, task.GetId(), chunk.Stream, chunk.Data)
+			})
 		status := "success"
-		if err != nil {
+		switch {
+		case errors.Is(err, errCancelled):
+			status = "cancelled"
+			exitCode = -1
+			slog.Info("patch task cancelled", "task_id", task.GetId())
+		case err != nil:
 			status = "failed"
 			slog.Error("patch task failed", "task_id", task.GetId(),
 				"exit_code", exitCode, "error", err)

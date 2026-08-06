@@ -96,6 +96,12 @@ curl -s -X POST http://SERVER:8080/api/v1/remote/scan \
 # 查看远程扫描任务与已采集主机
 curl -s http://SERVER:8080/api/v1/remote/tasks -H "X-API-Key: $API_KEY"
 curl -s http://SERVER:8080/api/v1/remote/hosts -H "X-API-Key: $API_KEY"
+
+# 实时查看补丁任务执行事件（after 为游标，轮询时带上一次返回的 next_cursor）
+curl -s "http://SERVER:8080/api/v1/patch-tasks/123/events?after=0" -H "X-API-Key: $API_KEY"
+
+# 中止运行中的补丁任务（operator+；agent 心跳感知后终止进程树并上报 cancelled）
+curl -s -X POST http://SERVER:8080/api/v1/patch-tasks/123/stop -H "X-API-Key: $API_KEY"
 ```
 
 ## 维护约定

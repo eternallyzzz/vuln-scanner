@@ -163,7 +163,7 @@ func (s *RESTServer) listPatchTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) getPatchTask(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		writeError(w, 400, "invalid task id")
 		return
 	}
@@ -181,7 +181,7 @@ func (s *RESTServer) getPatchTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) setPatchTaskStatus(w http.ResponseWriter, r *http.Request, status string) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
-	if err != nil {
+	if err != nil || id <= 0 {
 		writeError(w, 400, "invalid task id")
 		return
 	}
@@ -215,9 +215,98 @@ func (s *RESTServer) rejectPatchTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) cancelPatchTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, 400, "invalid task id")
+		return
+	}
+	task, err := s.store.GetPatchTask(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, 404, "task not found")
+			return
+		}
+		writeError(w, 500, err.Error())
+		return
+	}
+	if task.Status == "running" {
+		s.requestPatchTaskCancel(w, r, task)
+		return
+	}
 	s.setPatchTaskStatus(w, r, "cancelled")
 }
 
 func (s *RESTServer) retryPatchTask(w http.ResponseWriter, r *http.Request) {
 	s.setPatchTaskStatus(w, r, "retry")
+}
+
+// stopPatchTask requests cancellation of a running patch task. The agent
+// picks the flag up on its next progress heartbeat and terminates the
+// process tree, then reports the task as cancelled.
+func (s *RESTServer) stopPatchTask(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, 400, "invalid task id")
+		return
+	}
+	task, err := s.store.GetPatchTask(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, 404, "task not found")
+			return
+		}
+		writeError(w, 500, err.Error())
+		return
+	}
+	if task.Status != "running" {
+		writeError(w, 409, "task is not running")
+		return
+	}
+	s.requestPatchTaskCancel(w, r, task)
+}
+
+func (s *RESTServer) requestPatchTaskCancel(w http.ResponseWriter, r *http.Request, task store.PatchTask) {
+	ok, err := s.store.RequestPatchTaskCancel(r.Context(), task.ID)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	if !ok {
+		writeError(w, 409, "task is not running")
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"task_id": task.ID, "cancel_requested": true})
+}
+
+// listPatchTaskEvents returns execution events after a cursor id, oldest
+// first, so clients can poll the live patch stream with `after`.
+func (s *RESTServer) listPatchTaskEvents(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "taskId"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, 400, "invalid task id")
+		return
+	}
+	if _, err := s.store.GetPatchTask(r.Context(), id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, 404, "task not found")
+			return
+		}
+		writeError(w, 500, err.Error())
+		return
+	}
+	after, _ := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	if after < 0 {
+		after = 0
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	events, err := s.store.ListPatchTaskEvents(r.Context(), id, after, limit)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
+	next := int64(0)
+	if len(events) > 0 {
+		next = events[len(events)-1].ID
+	}
+	writeJSON(w, 200, map[string]interface{}{"events": events, "next_cursor": next})
 }

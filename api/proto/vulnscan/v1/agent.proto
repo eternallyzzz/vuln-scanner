@@ -12,6 +12,7 @@ service AgentService {
   rpc SyncCompliance(SyncComplianceRequest) returns (SyncComplianceResponse);
   rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
   rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
+  rpc ReportPatchProgress(ReportPatchProgressRequest) returns (ReportPatchProgressResponse);
   rpc FetchNetworkScanTasks(FetchNetworkScanTasksRequest) returns (FetchNetworkScanTasksResponse);
   rpc SyncNetworkScan(SyncNetworkScanRequest) returns (SyncNetworkScanResponse);
 }
@@ -100,6 +101,7 @@ message PatchTaskInfo {
   string command = 5;
   repeated CommandArgv commands = 6;
   bool dry_run = 7;
+  bool cancel_requested = 8;
 }
 
 message CommandArgv {
@@ -126,6 +128,19 @@ message ReportPatchTaskRequest {
 
 message ReportPatchTaskResponse {
   bool ok = 1;
+}
+
+message ReportPatchProgressRequest {
+  int64 task_id = 1;
+  string agent_id = 2;
+  string token = 3;
+  string stream = 4; // stdout | stderr
+  string data = 5;
+}
+
+message ReportPatchProgressResponse {
+  bool ok = 1;
+  bool cancel_requested = 2;
 }
 
 message NetworkScanTaskInfo {

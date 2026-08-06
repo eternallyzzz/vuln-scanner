@@ -202,7 +202,7 @@ The repository contains **no hardcoded API keys**; every deployer supplies their
 
 - 资产：`GET/PUT /api/v1/assets...`（筛选、标签/环境/负责人、生命周期、变更历史、关系、summary）
 - 告警：`/api/v1/alert-rules` CRUD、`/api/v1/alerts` 查询/ack/resolve/remediate、`test` 通道测试；规则支持 severity/source/agent/asset/tag/environment/min_cvss/cooldown，`auto_remediate: true` 时新告警自动生成补丁 campaign（告警上回填 remediation_campaign_id）
-- 补丁：`POST /agents/{id}/patch-tasks/generate`、`/patch-tasks/{id}/approve|reject|cancel|retry`；agent 轮询执行并回传结果
+- 补丁：`POST /agents/{id}/patch-tasks/generate`、`/patch-tasks/{id}/approve|reject|cancel|retry|stop`；agent 轮询执行并回传结果，执行期间 stdout/stderr 通过 `GET /patch-tasks/{id}/events` 游标轮询实时查看，`POST /patch-tasks/{id}/stop` 可中止运行中任务（agent 终止进程树后上报 cancelled）
 - 批量补丁：`POST /api/v1/patch-campaigns`（按 agent_ids/tags/environments/asset_names/cve_ids/min_severity/min_cvss 批量生成，支持 `dry_run` 预演、重复任务去重）、`/patch-campaigns/{id}/approve|reject|cancel|retry` 批量状态流转、`/patch-campaigns/{id}` 汇总与审计、`GET /api/v1/patch-tasks` 全局任务列表
 - 容器扫描：`POST /api/v1/container/scan` 异步触发 Trivy 扫描、`GET /api/v1/container/status` 扫描状态、`GET /api/v1/container/images` 镜像清单；结果落入合成 agent（默认 agent-container-docker），修复建议为 rebuild（不可自动部署）
 - 网络扫描：`GET /api/v1/network/hosts`（发现主机与服务指纹）、`GET /api/v1/network/tasks`（任务列表）、`POST /api/v1/network/scan`（operator+ 下发一次性任务，Agent 领取执行）；每台主机生成合成 agent（agent-net-*）复用匹配/风险/告警链路

@@ -26,6 +26,7 @@ const (
 	AgentService_SyncCompliance_FullMethodName        = "/vulnscan.v1.AgentService/SyncCompliance"
 	AgentService_FetchPatchTasks_FullMethodName       = "/vulnscan.v1.AgentService/FetchPatchTasks"
 	AgentService_ReportPatchTask_FullMethodName       = "/vulnscan.v1.AgentService/ReportPatchTask"
+	AgentService_ReportPatchProgress_FullMethodName   = "/vulnscan.v1.AgentService/ReportPatchProgress"
 	AgentService_FetchNetworkScanTasks_FullMethodName = "/vulnscan.v1.AgentService/FetchNetworkScanTasks"
 	AgentService_SyncNetworkScan_FullMethodName       = "/vulnscan.v1.AgentService/SyncNetworkScan"
 )
@@ -41,6 +42,7 @@ type AgentServiceClient interface {
 	SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error)
 	FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(ctx context.Context, in *ReportPatchTaskRequest, opts ...grpc.CallOption) (*ReportPatchTaskResponse, error)
+	ReportPatchProgress(ctx context.Context, in *ReportPatchProgressRequest, opts ...grpc.CallOption) (*ReportPatchProgressResponse, error)
 	FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error)
 	SyncNetworkScan(ctx context.Context, in *SyncNetworkScanRequest, opts ...grpc.CallOption) (*SyncNetworkScanResponse, error)
 }
@@ -116,6 +118,15 @@ func (c *agentServiceClient) ReportPatchTask(ctx context.Context, in *ReportPatc
 	return out, nil
 }
 
+func (c *agentServiceClient) ReportPatchProgress(ctx context.Context, in *ReportPatchProgressRequest, opts ...grpc.CallOption) (*ReportPatchProgressResponse, error) {
+	out := new(ReportPatchProgressResponse)
+	err := c.cc.Invoke(ctx, AgentService_ReportPatchProgress_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *agentServiceClient) FetchNetworkScanTasks(ctx context.Context, in *FetchNetworkScanTasksRequest, opts ...grpc.CallOption) (*FetchNetworkScanTasksResponse, error) {
 	out := new(FetchNetworkScanTasksResponse)
 	err := c.cc.Invoke(ctx, AgentService_FetchNetworkScanTasks_FullMethodName, in, out, opts...)
@@ -145,6 +156,7 @@ type AgentServiceServer interface {
 	SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error)
 	FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error)
+	ReportPatchProgress(context.Context, *ReportPatchProgressRequest) (*ReportPatchProgressResponse, error)
 	FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error)
 	SyncNetworkScan(context.Context, *SyncNetworkScanRequest) (*SyncNetworkScanResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
@@ -174,6 +186,9 @@ func (UnimplementedAgentServiceServer) FetchPatchTasks(context.Context, *FetchPa
 }
 func (UnimplementedAgentServiceServer) ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReportPatchTask not implemented")
+}
+func (UnimplementedAgentServiceServer) ReportPatchProgress(context.Context, *ReportPatchProgressRequest) (*ReportPatchProgressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReportPatchProgress not implemented")
 }
 func (UnimplementedAgentServiceServer) FetchNetworkScanTasks(context.Context, *FetchNetworkScanTasksRequest) (*FetchNetworkScanTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchNetworkScanTasks not implemented")
@@ -320,6 +335,24 @@ func _AgentService_ReportPatchTask_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_ReportPatchProgress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportPatchProgressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).ReportPatchProgress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_ReportPatchProgress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).ReportPatchProgress(ctx, req.(*ReportPatchProgressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AgentService_FetchNetworkScanTasks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchNetworkScanTasksRequest)
 	if err := dec(in); err != nil {
@@ -390,6 +423,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReportPatchTask",
 			Handler:    _AgentService_ReportPatchTask_Handler,
+		},
+		{
+			MethodName: "ReportPatchProgress",
+			Handler:    _AgentService_ReportPatchProgress_Handler,
 		},
 		{
 			MethodName: "FetchNetworkScanTasks",

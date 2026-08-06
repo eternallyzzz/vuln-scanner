@@ -129,6 +129,8 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/patch-tasks/{taskId}/approve", s.approvePatchTask)
 		r.Post("/patch-tasks/{taskId}/reject", s.rejectPatchTask)
 		r.Post("/patch-tasks/{taskId}/cancel", s.cancelPatchTask)
+		r.Post("/patch-tasks/{taskId}/stop", s.stopPatchTask)
+		r.Get("/patch-tasks/{taskId}/events", s.listPatchTaskEvents)
 		r.Post("/patch-tasks/{taskId}/retry", s.retryPatchTask)
 		r.Post("/patch-campaigns", s.generatePatchCampaign)
 		r.Get("/patch-campaigns", s.listPatchCampaigns)

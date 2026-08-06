@@ -28,6 +28,7 @@ type PatchTask struct {
 	ApprovedBy       string          `json:"approved_by"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
+	CancelRequested  bool            `json:"cancel_requested"`
 }
 
 type PatchTaskInput struct {
@@ -52,7 +53,8 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 	err := row.Scan(&t.ID, &t.AgentID, &t.AssetName, &t.FixType, &t.FixValue,
 		&t.Action, &t.CVEIDs, &t.Command, &commandsRaw, &t.Status,
 		&t.ApprovalRequired, &t.WindowStart, &t.WindowEnd, &resultRaw,
-		&t.CreatedBy, &t.ApprovedBy, &t.CreatedAt, &t.UpdatedAt, &t.CampaignID)
+		&t.CreatedBy, &t.ApprovedBy, &t.CreatedAt, &t.UpdatedAt, &t.CampaignID,
+		&t.CancelRequested)
 	if err != nil {
 		return t, err
 	}
@@ -63,7 +65,17 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 
 const patchTaskColumns = `id, agent_id, asset_name, fix_type, fix_value, action, cve_ids,
 	command, commands, status, approval_required, window_start, window_end,
-	result, created_by, approved_by, created_at, updated_at, campaign_id`
+	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested`
+
+// PatchTaskEvent is one incremental execution event (stdout/stderr chunk or
+// heartbeat). id is the monotonic cursor used by the REST event stream.
+type PatchTaskEvent struct {
+	ID        int64     `json:"id"`
+	TaskID    int64     `json:"task_id"`
+	Stream    string    `json:"stream"`
+	Data      string    `json:"data"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 func (s *Store) CreatePatchTask(ctx context.Context, in PatchTaskInput) (PatchTask, error) {
 	commands, _ := json.Marshal(in.Commands)
@@ -114,6 +126,7 @@ func (s *Store) SetPatchTaskStatus(ctx context.Context, id int64, status, actor 
 	_, err := s.pool.Exec(ctx, `
 		UPDATE patch_tasks SET status=$2,
 			approved_by=CASE WHEN $2='approved' THEN $3 ELSE approved_by END,
+			cancel_requested=FALSE,
 			updated_at=NOW()
 		WHERE id=$1
 	`, id, status, actor)
@@ -140,10 +153,85 @@ func (s *Store) ClaimNextPatchTask(ctx context.Context, agentID string) (PatchTa
 func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, result map[string]interface{}) error {
 	raw, _ := json.Marshal(result)
 	_, err := s.pool.Exec(ctx, `
-		UPDATE patch_tasks SET status=$2, result=$3, updated_at=NOW()
+		UPDATE patch_tasks SET status=$2, result=$3, cancel_requested=FALSE, updated_at=NOW()
 		WHERE id=$1
 	`, id, status, raw)
 	return err
+}
+
+// AppendPatchTaskEvents appends one batch of execution events inside a
+// transaction so the stream cursor stays consistent.
+func (s *Store) AppendPatchTaskEvents(ctx context.Context, taskID int64, events []PatchTaskEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, e := range events {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO patch_task_events (task_id, stream, data)
+			VALUES ($1,$2,$3)
+		`, taskID, e.Stream, e.Data); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ListPatchTaskEvents returns events after the given cursor id, oldest
+// first. limit defaults to 200 and is capped at 1000.
+func (s *Store) ListPatchTaskEvents(ctx context.Context, taskID, afterID int64, limit int) ([]PatchTaskEvent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, task_id, stream, data, created_at
+		FROM patch_task_events
+		WHERE task_id=$1 AND id>$2
+		ORDER BY id
+		LIMIT $3
+	`, taskID, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PatchTaskEvent
+	for rows.Next() {
+		var e PatchTaskEvent
+		if err := rows.Scan(&e.ID, &e.TaskID, &e.Stream, &e.Data, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// RequestPatchTaskCancel sets the cancel flag on a running task. It reports
+// whether the task was actually running (and therefore flagged).
+func (s *Store) RequestPatchTaskCancel(ctx context.Context, id int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET cancel_requested=TRUE, updated_at=NOW()
+		WHERE id=$1 AND status='running'
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// PatchTaskCancelRequested reports whether a task has a pending cancel
+// request. It is returned with every progress acknowledgment.
+func (s *Store) PatchTaskCancelRequested(ctx context.Context, id int64) (bool, error) {
+	var v bool
+	if err := s.pool.QueryRow(ctx, `
+		SELECT cancel_requested FROM patch_tasks WHERE id=$1
+	`, id).Scan(&v); err != nil {
+		return false, err
+	}
+	return v, nil
 }
 
 func (s *Store) ReapStalePatchTasks(ctx context.Context, timeout time.Duration) (int64, error) {
