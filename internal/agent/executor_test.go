@@ -131,8 +131,13 @@ func TestExecuteCommandsStreamsOutput(t *testing.T) {
 
 func TestExecuteCommandsCancel(t *testing.T) {
 	var sent atomic.Bool
+	var cancelStart time.Time
 	sink := func(chunk OutputChunk) (bool, error) {
 		if strings.Contains(chunk.Data, "start") && !sent.Swap(true) {
+			// Measure cancellation latency from the moment the command
+			// actually produced output, so slow CI runner startup does not
+			// count against the kill.
+			cancelStart = time.Now()
 			return true, nil
 		}
 		return false, nil
@@ -143,7 +148,6 @@ func TestExecuteCommandsCancel(t *testing.T) {
 	} else {
 		argv = []string{"sh", "-c", "echo start; sleep 10"}
 	}
-	start := time.Now()
 	code, _, err := executeCommandsStreaming(context.Background(), [][]string{argv}, 30*time.Second, sink)
 	if !errors.Is(err, errCancelled) {
 		t.Fatalf("expected errCancelled, got %v", err)
@@ -151,7 +155,7 @@ func TestExecuteCommandsCancel(t *testing.T) {
 	if code != -1 {
 		t.Fatalf("expected -1 on cancel, got %d", code)
 	}
-	if elapsed := time.Since(start); elapsed > 8*time.Second {
+	if elapsed := time.Since(cancelStart); elapsed > 8*time.Second {
 		t.Fatalf("cancel too slow: %v", elapsed)
 	}
 }
