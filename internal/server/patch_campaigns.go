@@ -21,18 +21,19 @@ const (
 )
 
 type campaignGenerateInput struct {
-	Name             string   `json:"name"`
-	AgentIDs         []string `json:"agent_ids"`
-	Tags             []string `json:"tags"`
-	Environments     []string `json:"environments"`
-	AssetNames       []string `json:"asset_names"`
-	CVEIDs           []string `json:"cve_ids"`
-	MinSeverity      string   `json:"min_severity"`
-	MinCVSS          float64  `json:"min_cvss"`
-	ApprovalRequired *bool    `json:"approval_required"`
-	WindowStart      string   `json:"window_start"`
-	WindowEnd        string   `json:"window_end"`
-	DryRun           bool     `json:"dry_run"`
+	Name                 string   `json:"name"`
+	AgentIDs             []string `json:"agent_ids"`
+	Tags                 []string `json:"tags"`
+	Environments         []string `json:"environments"`
+	AssetNames           []string `json:"asset_names"`
+	CVEIDs               []string `json:"cve_ids"`
+	MinSeverity          string   `json:"min_severity"`
+	MinCVSS              float64  `json:"min_cvss"`
+	ApprovalRequired     *bool    `json:"approval_required"`
+	WindowStart          string   `json:"window_start"`
+	WindowEnd            string   `json:"window_end"`
+	DryRun               bool     `json:"dry_run"`
+	FollowUpSourceTaskID int64    `json:"-"`
 }
 
 func normalizeSeverity(s string) string {

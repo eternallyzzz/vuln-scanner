@@ -66,7 +66,7 @@ func scanPatchCampaign(row pgx.Row) (PatchCampaign, error) {
 // CreatePatchCampaignWithTasks atomically creates a campaign and its tasks.
 // Tasks with ApprovalRequired=false are created directly in 'approved' state
 // so agents can claim them immediately.
-func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, filters json.RawMessage, createdBy string, tenantID int64, tasks []CampaignTaskInput) (PatchCampaign, []PatchTask, error) {
+func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, filters json.RawMessage, createdBy string, tenantID int64, tasks []CampaignTaskInput, followUpSourceTaskID int64) (PatchCampaign, []PatchTask, error) {
 	if tenantID <= 0 {
 		tenantID = 1
 	}
@@ -75,6 +75,24 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 		return PatchCampaign{}, nil, err
 	}
 	defer tx.Rollback(ctx)
+
+	var followUpDepth int
+	var followUpSourceID *int64
+	if followUpSourceTaskID > 0 {
+		var status string
+		if err := tx.QueryRow(ctx, `
+			SELECT post_patch_follow_up_status, post_patch_follow_up_depth
+			FROM patch_tasks WHERE id=$1 FOR UPDATE
+		`, followUpSourceTaskID).Scan(&status, &followUpDepth); err != nil {
+			return PatchCampaign{}, nil, err
+		}
+		if status != "pending" {
+			return PatchCampaign{}, nil, ErrPostPatchFollowUpAlreadyHandled
+		}
+		followUpDepth++
+		sid := followUpSourceTaskID
+		followUpSourceID = &sid
+	}
 
 	campaign, err := scanPatchCampaign(tx.QueryRow(ctx, `
 		INSERT INTO patch_campaigns (name, filters, created_by, tenant_id)
@@ -98,19 +116,36 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 		task, err := scanPatchTask(tx.QueryRow(ctx, `
 			INSERT INTO patch_tasks (agent_id, asset_name, fix_type, fix_value, action,
 				cve_ids, command, commands, status, approval_required, window_start, window_end,
-				created_by, campaign_id, fix_set, fix_set_hash)
+				created_by, campaign_id, fix_set, fix_set_hash,
+				post_patch_follow_up_depth, post_patch_source_task_id)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
 				CASE WHEN $9 THEN 'pending' ELSE 'approved' END,
-				$9,$10,$11,$12,$13,$14,$15)
+				$9,$10,$11,$12,$13,$14,$15,$16,$17)
 			RETURNING `+patchTaskColumns,
 			in.AgentID, in.AssetName, in.FixType, in.FixValue, in.Action,
 			in.CVEIDs, in.Command, commands, in.ApprovalRequired,
 			in.WindowStart, in.WindowEnd, in.CreatedBy, campaign.ID,
-			fixSet, in.FixSetHash))
+			fixSet, in.FixSetHash, followUpDepth, followUpSourceID))
 		if err != nil {
 			return PatchCampaign{}, nil, err
 		}
 		created = append(created, task)
+	}
+
+	if followUpSourceTaskID > 0 {
+		tag, err := tx.Exec(ctx, `
+			UPDATE patch_tasks SET
+				post_patch_follow_up_status='created',
+				post_patch_follow_up_campaign_id=$1,
+				updated_at=NOW()
+			WHERE id=$2 AND post_patch_follow_up_status='pending'
+		`, campaign.ID, followUpSourceTaskID)
+		if err != nil {
+			return PatchCampaign{}, nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			return PatchCampaign{}, nil, ErrPostPatchFollowUpAlreadyHandled
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

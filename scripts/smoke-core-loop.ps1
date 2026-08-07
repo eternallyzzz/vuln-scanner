@@ -181,6 +181,27 @@ try {
     }
     Write-Host ("post_patch_status=" + $postPatchStatus + " detail=" + $task.post_patch_detail)
 
+    if ($dryRun) {
+        Write-Host ">>> wait for follow-up skip (up to 60s)"
+        $deadline = (Get-Date).AddSeconds(60)
+        $followUpStatus = $null
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep 5
+            $task = Invoke-RestMethod -Uri "http://localhost:$HTTPPort/api/v1/patch-tasks/$taskID" -Headers $headers
+            if ($task.post_patch_follow_up_status -in @("created", "skipped")) {
+                $followUpStatus = $task.post_patch_follow_up_status
+                break
+            }
+        }
+        if ($followUpStatus -ne "skipped") {
+            Fail "dry-run follow-up expected skipped, got $followUpStatus"
+        }
+        $taskCount = (docker exec $pgID psql -U vulnscan -d vulnscan -t -A -c "SELECT COUNT(*) FROM patch_tasks WHERE agent_id='$agentID';").Trim()
+        if ($taskCount -ne "1") {
+            Fail "follow-up created a duplicate patch task (count=$taskCount)"
+        }
+    }
+
     Write-Host ""
     Write-Host "SMOKE PASS: asset scan -> CVE match -> patch approval -> agent execution -> success -> post-patch verification" -ForegroundColor Green
 }

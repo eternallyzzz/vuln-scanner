@@ -3513,6 +3513,20 @@ components:
         approved_by: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+        post_patch_status: {type: string, enum: ['', pending, passed, failed, na]}
+        post_patch_detail: {type: string}
+        post_patch_at: {type: string, format: date-time, nullable: true}
+        post_patch_follow_up_status: {type: string, enum: ['', pending, created, skipped]}
+        post_patch_follow_up_campaign_id: {type: integer, format: int64, nullable: true}
+        post_patch_follow_up_attempts: {type: integer}
+        post_patch_follow_up_depth: {type: integer}
+        post_patch_follow_up_detail: {type: string}
+        post_patch_source_task_id: {type: integer, format: int64, nullable: true}
+        fix_set:
+          type: array
+          items:
+            type: object
+        fix_set_hash: {type: string}
     WorkerLease:
       type: object
       properties:

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -15,35 +16,41 @@ import (
 )
 
 type PatchTask struct {
-	ID                    int64           `json:"id"`
-	AgentID               string          `json:"agent_id"`
-	AssetName             string          `json:"asset_name"`
-	FixType               string          `json:"fix_type"`
-	FixValue              string          `json:"fix_value"`
-	Action                string          `json:"action"`
-	CVEIDs                []string        `json:"cve_ids"`
-	Command               string          `json:"command"`
-	Commands              [][]string      `json:"commands"`
-	Status                string          `json:"status"`
-	ApprovalRequired      bool            `json:"approval_required"`
-	WindowStart           *time.Time      `json:"window_start,omitempty"`
-	WindowEnd             *time.Time      `json:"window_end,omitempty"`
-	CampaignID            *int64          `json:"campaign_id,omitempty"`
-	Result                json.RawMessage `json:"result"`
-	CreatedBy             string          `json:"created_by"`
-	ApprovedBy            string          `json:"approved_by"`
-	CreatedAt             time.Time       `json:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at"`
-	CancelRequested       bool            `json:"cancel_requested"`
-	RuntimeVerifyBaseline json.RawMessage `json:"runtime_verify_baseline,omitempty"`
-	RuntimeVerifyStatus   string          `json:"runtime_verify_status,omitempty"`
-	RuntimeVerifyDetail   string          `json:"runtime_verify_detail,omitempty"`
-	RuntimeVerifyAt       *time.Time      `json:"runtime_verify_at,omitempty"`
-	PostPatchStatus       string          `json:"post_patch_status,omitempty"`
-	PostPatchDetail       string          `json:"post_patch_detail,omitempty"`
-	PostPatchAt           *time.Time      `json:"post_patch_at,omitempty"`
-	FixSet                json.RawMessage `json:"fix_set,omitempty"`
-	FixSetHash            string          `json:"fix_set_hash,omitempty"`
+	ID                          int64           `json:"id"`
+	AgentID                     string          `json:"agent_id"`
+	AssetName                   string          `json:"asset_name"`
+	FixType                     string          `json:"fix_type"`
+	FixValue                    string          `json:"fix_value"`
+	Action                      string          `json:"action"`
+	CVEIDs                      []string        `json:"cve_ids"`
+	Command                     string          `json:"command"`
+	Commands                    [][]string      `json:"commands"`
+	Status                      string          `json:"status"`
+	ApprovalRequired            bool            `json:"approval_required"`
+	WindowStart                 *time.Time      `json:"window_start,omitempty"`
+	WindowEnd                   *time.Time      `json:"window_end,omitempty"`
+	CampaignID                  *int64          `json:"campaign_id,omitempty"`
+	Result                      json.RawMessage `json:"result"`
+	CreatedBy                   string          `json:"created_by"`
+	ApprovedBy                  string          `json:"approved_by"`
+	CreatedAt                   time.Time       `json:"created_at"`
+	UpdatedAt                   time.Time       `json:"updated_at"`
+	CancelRequested             bool            `json:"cancel_requested"`
+	RuntimeVerifyBaseline       json.RawMessage `json:"runtime_verify_baseline,omitempty"`
+	RuntimeVerifyStatus         string          `json:"runtime_verify_status,omitempty"`
+	RuntimeVerifyDetail         string          `json:"runtime_verify_detail,omitempty"`
+	RuntimeVerifyAt             *time.Time      `json:"runtime_verify_at,omitempty"`
+	PostPatchStatus             string          `json:"post_patch_status,omitempty"`
+	PostPatchDetail             string          `json:"post_patch_detail,omitempty"`
+	PostPatchAt                 *time.Time      `json:"post_patch_at,omitempty"`
+	PostPatchFollowUpStatus     string          `json:"post_patch_follow_up_status,omitempty"`
+	PostPatchFollowUpCampaignID *int64          `json:"post_patch_follow_up_campaign_id,omitempty"`
+	PostPatchFollowUpAttempts   int             `json:"post_patch_follow_up_attempts,omitempty"`
+	PostPatchFollowUpDepth      int             `json:"post_patch_follow_up_depth,omitempty"`
+	PostPatchFollowUpDetail     string          `json:"post_patch_follow_up_detail,omitempty"`
+	PostPatchSourceTaskID       *int64          `json:"post_patch_source_task_id,omitempty"`
+	FixSet                      json.RawMessage `json:"fix_set,omitempty"`
+	FixSetHash                  string          `json:"fix_set_hash,omitempty"`
 }
 
 type PatchTaskInput struct {
@@ -76,7 +83,10 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 		&t.CancelRequested, &baselineRaw, &t.RuntimeVerifyStatus,
 		&t.RuntimeVerifyDetail, &t.RuntimeVerifyAt,
 		&t.PostPatchStatus, &t.PostPatchDetail, &t.PostPatchAt,
-		&fixSetRaw, &t.FixSetHash)
+		&fixSetRaw, &t.FixSetHash,
+		&t.PostPatchFollowUpStatus, &t.PostPatchFollowUpCampaignID,
+		&t.PostPatchFollowUpAttempts, &t.PostPatchFollowUpDepth,
+		&t.PostPatchFollowUpDetail, &t.PostPatchSourceTaskID)
 	if err != nil {
 		return t, err
 	}
@@ -92,7 +102,10 @@ const patchTaskColumns = `id, agent_id, asset_name, fix_type, fix_value, action,
 	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested,
 	runtime_verify_baseline, runtime_verify_status, runtime_verify_detail, runtime_verify_at,
 	post_patch_status, post_patch_detail, post_patch_at,
-	fix_set, fix_set_hash`
+	fix_set, fix_set_hash,
+	post_patch_follow_up_status, post_patch_follow_up_campaign_id,
+	post_patch_follow_up_attempts, post_patch_follow_up_depth,
+	post_patch_follow_up_detail, post_patch_source_task_id`
 
 // PatchTaskEvent is one incremental execution event (stdout/stderr chunk or
 // heartbeat). id is the monotonic cursor used by the REST event stream.
@@ -338,6 +351,24 @@ const (
 	postPatchNoRescanDetail  = "no post-patch re-scan observed"
 )
 
+// ErrPostPatchFollowUpAlreadyHandled is returned when a follow-up campaign
+// was already created for the same source task (or the source task is no
+// longer in pending follow-up state).
+var ErrPostPatchFollowUpAlreadyHandled = errors.New("post-patch follow-up already handled")
+
+// MissingFix is one actionable follow-up candidate produced from a failed
+// post-patch verification: either a newer fixed version of the task asset or
+// an installed dependency required by the static dependency rules.
+type MissingFix struct {
+	AssetName string   `json:"asset_name"`
+	FixType   string   `json:"fix_type"`
+	FixValue  string   `json:"fix_value,omitempty"`
+	Action    string   `json:"action"`
+	Reason    string   `json:"reason"`
+	CVEIDs    []string `json:"cve_ids,omitempty"`
+	SourceRef string   `json:"source_ref,omitempty"`
+}
+
 // postPatchVerdict evaluates the task's own CVE IDs against the active CVEs
 // left after the latest match. It is a pure function so each branch is easy
 // to unit test.
@@ -446,12 +477,16 @@ func (s *Store) VerifyPendingPostPatchTasks(ctx context.Context, agentID string)
 		}
 		status, detail := postPatchVerdict(t.CVEIDs, remaining)
 		if status == "failed" {
-			missing, err := s.missingFixesForTask(ctx, t, remaining)
+			missing, err := s.MissingFixesForTask(ctx, t)
 			if err != nil {
 				return err
 			}
 			if len(missing) > 0 {
-				detail += postPatchMissingPrefix + strings.Join(missing, ", ")
+				labels := make([]string, len(missing))
+				for i, m := range missing {
+					labels[i] = missingFixLabel(m)
+				}
+				detail += postPatchMissingPrefix + strings.Join(labels, ", ")
 			}
 		}
 		if err := s.CompletePostPatchVerification(ctx, t.ID, status, detail); err != nil {
@@ -461,47 +496,66 @@ func (s *Store) VerifyPendingPostPatchTasks(ctx context.Context, agentID string)
 	return nil
 }
 
-// missingFixesForTask derives actionable follow-up fixes for a failed
+// MissingFixesForTask derives actionable follow-up fixes for a failed
 // post-patch verification: remaining CVEs whose fixed version is newer than
 // the task's fix value, plus installed dependency assets required by the
-// task's static dependency rules.
-func (s *Store) missingFixesForTask(ctx context.Context, t PatchTask, remaining []string) ([]string, error) {
-	if len(remaining) == 0 {
+// task's static dependency rules. Fixes already present in the task's fix set
+// are skipped so a follow-up never reproduces the exact same closure.
+func (s *Store) MissingFixesForTask(ctx context.Context, t PatchTask) ([]MissingFix, error) {
+	if t.FixType != "version" {
 		return nil, nil
 	}
+	remaining, err := s.activeCVEsForPatchTask(ctx, t)
+	if err != nil || len(remaining) == 0 {
+		return nil, err
+	}
 	taskFix := strings.TrimPrefix(t.FixValue, ">= ")
-	var out []string
+	var out []MissingFix
 	seen := map[string]bool{}
-	add := func(v string) {
-		if v != "" && !seen[v] {
-			seen[v] = true
-			out = append(out, v)
+	add := func(m MissingFix) {
+		if m.FixValue != "" && m.FixValue == taskFix {
+			return
 		}
+		key := m.AssetName + "\x00" + m.FixType + "\x00" + m.FixValue
+		if seen[key] || fixSetContains(t.FixSet, m) {
+			return
+		}
+		seen[key] = true
+		out = append(out, m)
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT COALESCE(NULLIF(fixed_version, ''), '')
+		SELECT COALESCE(NULLIF(fixed_version, ''), ''), cve_id
 		FROM cve_results
 		WHERE agent_id=$1 AND asset_name=$2 AND status='active'
 		  AND cve_id = ANY($3::text[])
 		  AND fixed_version <> ''
+		ORDER BY cve_id
 	`, t.AgentID, t.AssetName, remaining)
 	if err != nil {
 		return nil, err
 	}
+	cvesByFixed := map[string][]string{}
 	for rows.Next() {
-		var fixed string
-		if err := rows.Scan(&fixed); err != nil {
+		var fixed, cveID string
+		if err := rows.Scan(&fixed, &cveID); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if fixed != taskFix {
-			add(t.AssetName + " >= " + fixed)
-		}
+		cvesByFixed[fixed] = append(cvesByFixed[fixed], cveID)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	for fixed, cves := range cvesByFixed {
+		if fixed == taskFix {
+			continue
+		}
+		add(MissingFix{
+			AssetName: t.AssetName, FixType: "version", FixValue: fixed,
+			Action: "upgrade_package", Reason: "newer_fixed", CVEIDs: cves,
+		})
 	}
 
 	rules, err := s.ListDependencyRules(ctx)
@@ -525,10 +579,49 @@ func (s *Store) missingFixesForTask(ctx context.Context, t PatchTask, remaining 
 		if !installed[r.DependencyAsset] {
 			continue
 		}
-		add(r.DependencyAsset)
+		action := "upgrade_package"
+		if r.DependencyFixType == "kb" {
+			action = "install_patch"
+		}
+		add(MissingFix{
+			AssetName: r.DependencyAsset, FixType: r.DependencyFixType,
+			FixValue: r.DependencyFixValue, Action: action,
+			Reason: "dependency", CVEIDs: remaining, SourceRef: r.SourceRef,
+		})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].AssetName != out[j].AssetName {
+			return out[i].AssetName < out[j].AssetName
+		}
+		return out[i].FixValue < out[j].FixValue
+	})
 	return out, nil
+}
+
+func missingFixLabel(m MissingFix) string {
+	if m.FixValue != "" {
+		return m.AssetName + " >= " + m.FixValue
+	}
+	return m.AssetName
+}
+
+func fixSetContains(raw json.RawMessage, m MissingFix) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var items []patch.FixSetItem
+	if json.Unmarshal(raw, &items) != nil {
+		return false
+	}
+	for _, it := range items {
+		if it.AssetName != m.AssetName || it.FixType != m.FixType {
+			continue
+		}
+		if m.Reason == "dependency" || it.FixValue == m.FixValue {
+			return true
+		}
+	}
+	return false
 }
 
 // CompletePostPatchVerification writes the post-patch result and appends a
@@ -540,6 +633,7 @@ func (s *Store) CompletePostPatchVerification(ctx context.Context, id int64, sta
 	}
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE patch_tasks SET post_patch_status=$2, post_patch_detail=$3,
+			post_patch_follow_up_status=CASE WHEN $2='failed' THEN 'pending' ELSE post_patch_follow_up_status END,
 			post_patch_at=NOW(), updated_at=NOW()
 		WHERE id=$1 AND post_patch_status='pending'
 	`, id, status, detail)
@@ -590,6 +684,60 @@ func (s *Store) ReapStalePostPatchVerifications(ctx context.Context, timeout tim
 		}
 	}
 	return count, rows.Err()
+}
+
+// ListPendingPostPatchFollowUps returns failed post-patch tasks that are
+// waiting for the follow-up loop to generate a closure campaign.
+func (s *Store) ListPendingPostPatchFollowUps(ctx context.Context) ([]PatchTask, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+patchTaskColumns+` FROM patch_tasks
+		WHERE status='success' AND post_patch_status='failed'
+		  AND post_patch_follow_up_status='pending'
+		ORDER BY id
+		LIMIT 50
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PatchTask
+	for rows.Next() {
+		t, err := scanPatchTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// BeginPostPatchFollowUpAttempt atomically claims one follow-up attempt for a
+// pending source task and increments the attempt counter. It returns false
+// when the task is no longer pending (already handled elsewhere).
+func (s *Store) BeginPostPatchFollowUpAttempt(ctx context.Context, id int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET
+			post_patch_follow_up_attempts = post_patch_follow_up_attempts + 1,
+			updated_at=NOW()
+		WHERE id=$1 AND post_patch_follow_up_status='pending'
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// MarkPostPatchFollowUpSkipped records why no follow-up campaign was created
+// for a pending source task.
+func (s *Store) MarkPostPatchFollowUpSkipped(ctx context.Context, id int64, detail string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET
+			post_patch_follow_up_status='skipped',
+			post_patch_follow_up_detail=$2,
+			updated_at=NOW()
+		WHERE id=$1 AND post_patch_follow_up_status='pending'
+	`, id, detail)
+	return err
 }
 
 // AppendPatchTaskEvents appends one batch of execution events inside a

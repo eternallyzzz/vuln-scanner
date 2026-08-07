@@ -440,7 +440,10 @@ func runCampaignGeneration(ctx context.Context, st *store.Store, patchCfg *patch
 			FixSet: p.FixSet, FixSetHash: p.FixSetHash,
 		})
 	}
-	campaign, created, err := st.CreatePatchCampaignWithTasks(ctx, name, filtersJSON, createdBy, tenantOr1(tenantID), tasks)
+	if in.FollowUpSourceTaskID > 0 && len(tasks) == 0 {
+		return res, nil
+	}
+	campaign, created, err := st.CreatePatchCampaignWithTasks(ctx, name, filtersJSON, createdBy, tenantOr1(tenantID), tasks, in.FollowUpSourceTaskID)
 	if err != nil {
 		return res, err
 	}

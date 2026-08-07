@@ -147,6 +147,7 @@ func (w *Worker) Start(ctx context.Context) {
 	}
 	go w.runLeaseLoop(ctx, "archive", w.archiveLoop)
 	go w.runLeaseLoop(ctx, "reap_patch", w.reapPatchLoop)
+	go w.runLeaseLoop(ctx, "post_patch_followup", w.postPatchFollowUpLoop)
 
 	// Parallel loops (DB-claimed, safe on every worker).
 	go w.matchJobLoop(ctx)
@@ -749,6 +750,8 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 	if saveErr == nil {
 		if err := w.store.VerifyPendingPostPatchTasks(ctx, agentID); err != nil {
 			slog.Error("post-patch verification failed", "agent_id", agentID, "error", err)
+		} else {
+			w.wake()
 		}
 	}
 }
