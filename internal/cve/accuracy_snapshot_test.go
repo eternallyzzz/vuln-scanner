@@ -63,8 +63,11 @@ func TestAccuracySnapshot(t *testing.T) {
 	if err := json.Unmarshal(b, &want); err != nil {
 		t.Fatalf("decode snapshot: %v", err)
 	}
-	if got := mustJSON(snap); got != strings.TrimSpace(string(b)) {
-		t.Fatalf("snapshot drift:\n got: %s\nwant: %s", got, strings.TrimSpace(string(b)))
+	// Normalize CRLF so Windows checkouts (git autocrlf) compare equal to the
+	// LF snapshot committed on any platform.
+	wanted := strings.TrimSpace(strings.ReplaceAll(string(b), "\r\n", "\n"))
+	if got := mustJSON(snap); got != wanted {
+		t.Fatalf("snapshot drift:\n got: %s\nwant: %s", got, wanted)
 	}
 }
 
