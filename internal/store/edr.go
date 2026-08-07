@@ -94,7 +94,7 @@ func (s *Store) UpsertEDRFinding(ctx context.Context, in EDRFindingInput) (EDRFi
 
 // ListEDRFindings returns findings ordered by last report, with optional
 // status/source/agent/severity filters and a free-text q over name/path/detail.
-func (s *Store) ListEDRFindings(ctx context.Context, status, source, agentID, severity, q string, limit, offset int, tenantID *int64) ([]EDRFinding, error) {
+func (s *Store) ListEDRFindings(ctx context.Context, status, source, findingType, agentID, severity, q string, limit, offset int, tenantID *int64) ([]EDRFinding, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -104,14 +104,15 @@ func (s *Store) ListEDRFindings(ctx context.Context, status, source, agentID, se
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+edrFindingColumns+` FROM edr_findings
 		WHERE (''=$1 OR status=$1) AND (''=$2 OR source=$2) AND (''=$3 OR agent_id=$3)
-		  AND (''=$4 OR severity=$4)
-		  AND (''=$5 OR name ILIKE '%'||$5||'%' OR path ILIKE '%'||$5||'%'
-		       OR detail ILIKE '%'||$5||'%')
-		  AND ($6::bigint IS NULL OR EXISTS (
-		      SELECT 1 FROM agents a WHERE a.id=edr_findings.agent_id AND a.tenant_id=$6))
+		  AND (''=$4 OR finding_type=$4)
+		  AND (''=$5 OR severity=$5)
+		  AND (''=$6 OR name ILIKE '%'||$6||'%' OR path ILIKE '%'||$6||'%'
+		       OR detail ILIKE '%'||$6||'%')
+		  AND ($7::bigint IS NULL OR EXISTS (
+		      SELECT 1 FROM agents a WHERE a.id=edr_findings.agent_id AND a.tenant_id=$7))
 		ORDER BY last_seen DESC, id DESC
-		LIMIT $7 OFFSET $8
-	`, status, source, agentID, severity, q, tenantID, limit, offset)
+		LIMIT $8 OFFSET $9
+	`, status, source, agentID, findingType, severity, q, tenantID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -166,18 +167,28 @@ func (s *Store) SetEDRFindingStatus(ctx context.Context, id int64, status, actor
 // rule+agent+finding through uq_alerts_edr_finding_open, and the finding row
 // records the alert id when a new alert is created.
 func (s *Store) UpsertEDRFindingAlert(ctx context.Context, ruleID int64, agentID, assetName, severity string, findingID int64) (int64, bool, error) {
+	return s.UpsertFindingAlert(ctx, ruleID, agentID, assetName, severity, findingID, "edr")
+}
+
+// UpsertFindingAlert creates or refreshes the open alert linked to a
+// HIGH/CRITICAL finding. cve_id stays empty; the alert is deduplicated by
+// rule+agent+finding through uq_alerts_edr_finding_open.
+func (s *Store) UpsertFindingAlert(ctx context.Context, ruleID int64, agentID, assetName, severity string, findingID int64, source string) (int64, bool, error) {
+	if source == "" {
+		source = "edr"
+	}
 	var id int64
 	var created bool
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO alerts (rule_id, agent_id, cve_id, asset_name, severity, cvss_score,
 			status, first_seen, last_seen, occurrence_count, source, edr_finding_id)
-		VALUES ($1,$2,'',$3,$4,0,'open',NOW(),NOW(),1,'edr',$5)
+		VALUES ($1,$2,'',$3,$4,0,'open',NOW(),NOW(),1,$6,$5)
 		ON CONFLICT (rule_id, agent_id, edr_finding_id)
 			WHERE status='open' AND edr_finding_id IS NOT NULL
 		DO UPDATE SET last_seen=NOW(), occurrence_count=alerts.occurrence_count+1,
 			severity=EXCLUDED.severity, asset_name=EXCLUDED.asset_name, source=EXCLUDED.source
 		RETURNING id, (xmax=0)
-	`, ruleID, agentID, assetName, severity, findingID).Scan(&id, &created)
+	`, ruleID, agentID, assetName, severity, findingID, source).Scan(&id, &created)
 	if err != nil {
 		return id, created, err
 	}
@@ -187,8 +198,8 @@ func (s *Store) UpsertEDRFindingAlert(ctx context.Context, ruleID int64, agentID
 		`, findingID, id); err != nil {
 			return id, created, err
 		}
-		if e := s.appendSiemAlert(ctx, "alert.created", id, "open", "edr"); e != nil {
-			slog.Warn("siem edr alert created event failed", "alert_id", id, "error", e)
+		if e := s.appendSiemAlert(ctx, "alert.created", id, "open", source); e != nil {
+			slog.Warn("siem finding alert created event failed", "alert_id", id, "error", e)
 		}
 	}
 	return id, created, nil

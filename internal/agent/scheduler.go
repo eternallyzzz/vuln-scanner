@@ -10,6 +10,7 @@ import (
 
 	pb "vuln-scanner/api/gen/vulnscan/v1"
 	"vuln-scanner/internal/collector"
+	"vuln-scanner/internal/collector/fileint"
 	"vuln-scanner/internal/compliance"
 	"vuln-scanner/internal/netscan"
 
@@ -52,8 +53,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 	complianceTicker := time.NewTicker(complianceSyncInterval)
 	netScanTicker := time.NewTicker(netScanInterval)
+	telemetryInterval := time.Duration(s.cfg.Monitor.IntervalMinutes) * time.Minute
+	if telemetryInterval < 15*time.Minute {
+		telemetryInterval = 15 * time.Minute
+	}
+	telemetryTicker := time.NewTicker(telemetryInterval)
 	defer complianceTicker.Stop()
 	defer netScanTicker.Stop()
+	defer telemetryTicker.Stop()
 
 	s.ticker = time.NewTicker(interval)
 	hbTicker := time.NewTicker(heartbeatInterval)
@@ -62,6 +69,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	_, sys := s.doFullSync(ctx)
 	s.syncCompliance(ctx, sys)
+	s.syncTelemetry(ctx)
 	if s.cfg.NetworkScan.Enabled && len(s.cfg.NetworkScan.Targets) > 0 {
 		s.runNetworkScan(ctx, "", nil, 0, "scheduled")
 	}
@@ -100,7 +108,65 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			if s.cfg.NetworkScan.Enabled && len(s.cfg.NetworkScan.Targets) > 0 {
 				s.runNetworkScan(ctx, "", nil, 0, "scheduled")
 			}
+		case <-telemetryTicker.C:
+			s.syncTelemetry(ctx)
 		}
+	}
+}
+
+// syncTelemetry collects the configured file-integrity and behavior facts
+// and reports them to the server. The first report warms the server-side
+// baseline; later reports drive drift findings.
+func (s *Scheduler) syncTelemetry(ctx context.Context) {
+	if !s.cfg.Monitor.Files.Enabled && !s.cfg.Monitor.Behavior.Enabled {
+		return
+	}
+	timeout := time.Duration(s.cfg.Monitor.Files.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	collectCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var files []*pb.FileFact
+	if s.cfg.Monitor.Files.Enabled {
+		paths := s.cfg.Monitor.Files.Paths
+		if len(paths) == 0 {
+			paths = fileint.DefaultPaths()
+		}
+		facts, err := fileint.Collect(collectCtx, paths, fileint.Config{
+			MaxFileBytes:   s.cfg.Monitor.Files.MaxFileBytes,
+			MaxFilesPerDir: s.cfg.Monitor.Files.MaxFilesPerDir,
+		})
+		if err != nil {
+			slog.Warn("telemetry file collection failed", "error", err)
+		} else {
+			for _, f := range facts {
+				files = append(files, &pb.FileFact{
+					Path:       f.Path,
+					Sha256:     f.SHA256,
+					SizeBytes:  f.SizeBytes,
+					Mode:       f.Mode,
+					ModifiedAt: f.ModifiedAt,
+				})
+			}
+		}
+	}
+
+	var sys *pb.SystemInfo
+	if s.cfg.Monitor.Behavior.Enabled {
+		info, err := s.collect.SystemInfo(collectCtx)
+		if err != nil {
+			slog.Warn("telemetry behavior collection failed", "error", err)
+		} else {
+			sys = systemInfoToPb(info)
+		}
+	}
+	if files == nil && sys == nil {
+		return
+	}
+	if err := s.client.SyncTelemetry(ctx, files, sys); err != nil {
+		slog.Warn("telemetry sync failed", "error", err)
 	}
 }
 

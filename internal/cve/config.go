@@ -12,12 +12,16 @@ type Config struct {
 	OSVRefresh    time.Duration
 	DebianRefresh time.Duration
 	RedHatRefresh time.Duration
+	UbuntuRefresh time.Duration
+	AlpineRefresh time.Duration
 
 	MSRCTTL   time.Duration
 	NVDTTL    time.Duration
 	OSVTTL    time.Duration
 	DebianTTL time.Duration
 	RedHatTTL time.Duration
+	UbuntuTTL time.Duration
+	AlpineTTL time.Duration
 }
 
 // DefaultConfig returns the production defaults matching the previous
@@ -29,12 +33,16 @@ func DefaultConfig() *Config {
 		OSVRefresh:    6 * time.Hour,
 		DebianRefresh: 6 * time.Hour,
 		RedHatRefresh: 24 * time.Hour,
+		UbuntuRefresh: 6 * time.Hour,
+		AlpineRefresh: 6 * time.Hour,
 
 		MSRCTTL:   30 * 24 * time.Hour,
 		NVDTTL:    7 * 24 * time.Hour,
 		OSVTTL:    12 * time.Hour,
 		DebianTTL: 7 * 24 * time.Hour,
 		RedHatTTL: 24 * time.Hour,
+		UbuntuTTL: 12 * time.Hour,
+		AlpineTTL: 12 * time.Hour,
 	}
 }
 
@@ -61,6 +69,12 @@ func (c *Config) Normalized() *Config {
 	if out.RedHatRefresh < minRefresh {
 		out.RedHatRefresh = minRefresh
 	}
+	if out.UbuntuRefresh < minRefresh {
+		out.UbuntuRefresh = minRefresh
+	}
+	if out.AlpineRefresh < minRefresh {
+		out.AlpineRefresh = minRefresh
+	}
 	if out.MSRCTTL <= 0 || out.MSRCTTL < out.MSRCRefresh {
 		out.MSRCTTL = out.MSRCRefresh
 	}
@@ -76,6 +90,12 @@ func (c *Config) Normalized() *Config {
 	if out.RedHatTTL <= 0 || out.RedHatTTL < out.RedHatRefresh {
 		out.RedHatTTL = out.RedHatRefresh
 	}
+	if out.UbuntuTTL <= 0 || out.UbuntuTTL < out.UbuntuRefresh {
+		out.UbuntuTTL = out.UbuntuRefresh
+	}
+	if out.AlpineTTL <= 0 || out.AlpineTTL < out.AlpineRefresh {
+		out.AlpineTTL = out.AlpineRefresh
+	}
 	return &out
 }
 
@@ -83,10 +103,12 @@ func (c *Config) String() string {
 	if c == nil {
 		c = DefaultConfig()
 	}
-	return fmt.Sprintf("msrc=%s/%s nvd=%s/%s osv=%s/%s debian=%s/%s redhat=%s/%s",
+	return fmt.Sprintf("msrc=%s/%s nvd=%s/%s osv=%s/%s debian=%s/%s redhat=%s/%s ubuntu=%s/%s alpine=%s/%s",
 		c.MSRCRefresh, c.MSRCTTL,
 		c.NVDRefresh, c.NVDTTL,
 		c.OSVRefresh, c.OSVTTL,
 		c.DebianRefresh, c.DebianTTL,
-		c.RedHatRefresh, c.RedHatTTL)
+		c.RedHatRefresh, c.RedHatTTL,
+		c.UbuntuRefresh, c.UbuntuTTL,
+		c.AlpineRefresh, c.AlpineTTL)
 }

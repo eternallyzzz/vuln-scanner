@@ -14,7 +14,8 @@
         {
           "cve_id": "CVE-2099-0006",
           "asset": "sample",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "2.0.0"
         }
       ]
     },
@@ -32,12 +33,44 @@
         {
           "cve_id": "CVE-2023-51385",
           "asset": "openssh",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "8.7p1-8.amzn2023.0.10"
         }
       ]
     },
     {
       "name": "linux-arch-openssh-fixed",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-curl-socks5-active",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2023-38545",
+          "asset": "curl",
+          "status": "active",
+          "fixed_version": "8.4.0"
+        }
+      ]
+    },
+    {
+      "name": "linux-curl-socks5-fixed",
       "metrics": {
         "tp": 0,
         "fp": 0,
@@ -62,7 +95,8 @@
         {
           "cve_id": "CVE-2099-0004",
           "asset": "libldb2",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "1:2.6.2+samba4.17.9+dfsg-0+deb12u1"
         }
       ]
     },
@@ -80,7 +114,8 @@
         {
           "cve_id": "CVE-2023-34966",
           "asset": "libldb2",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "2:2.6.2+samba4.17.10+dfsg-0+deb12u1"
         }
       ]
     },
@@ -98,7 +133,8 @@
         {
           "cve_id": "CVE-2023-34966",
           "asset": "libldb2",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "2:2.6.2+samba4.17.10+dfsg-0+deb12u1"
         }
       ]
     },
@@ -134,7 +170,39 @@
         {
           "cve_id": "CVE-2099-0005",
           "asset": "example",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "1.0-1"
+        }
+      ]
+    },
+    {
+      "name": "linux-fixed-in-range-invalid",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-fixed-version-assert",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0302",
+          "asset": "curl",
+          "status": "active",
+          "fixed_version": "8.4.0"
         }
       ]
     },
@@ -152,7 +220,8 @@
         {
           "cve_id": "CVE-2099-0008",
           "asset": "lib",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "1.2.0"
         }
       ]
     },
@@ -170,7 +239,8 @@
         {
           "cve_id": "CVE-2099-0009",
           "asset": "node",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "2.0.0"
         }
       ]
     },
@@ -188,14 +258,78 @@
         {
           "cve_id": "CVE-2024-24789",
           "asset": "gitea",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "1.21.1"
         },
         {
           "cve_id": "CVE-2024-32002",
           "asset": "git",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "2.43.1"
         }
       ]
+    },
+    {
+      "name": "linux-heartbleed-active",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2014-0160",
+          "asset": "openssl",
+          "status": "active",
+          "fixed_version": "1.0.1g"
+        }
+      ]
+    },
+    {
+      "name": "linux-heartbleed-fixed",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-log4j-core-active",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2021-44228",
+          "asset": "log4j",
+          "status": "active",
+          "fixed_version": "2.15.0"
+        }
+      ]
+    },
+    {
+      "name": "linux-log4j-core-fixed",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
     },
     {
       "name": "linux-multisource-priority",
@@ -211,7 +345,77 @@
         {
           "cve_id": "CVE-2099-0003",
           "asset": "openssl",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "1.1.1n-0+deb11u6"
+        }
+      ]
+    },
+    {
+      "name": "linux-nvd-cpe-ver-embedded",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0111",
+          "asset": "libssl1.1",
+          "status": "active",
+          "fixed_version": "99.99.99"
+        }
+      ]
+    },
+    {
+      "name": "linux-nvd-cpe-ver-lib111",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-nvd-cpe-ver-prefix",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0109",
+          "asset": "openssl",
+          "status": "active",
+          "fixed_version": "99.99.99"
+        }
+      ]
+    },
+    {
+      "name": "linux-nvd-cpe-ver-reverse-prefix",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0110",
+          "asset": "openssl",
+          "status": "active",
+          "fixed_version": "99.99.99"
         }
       ]
     },
@@ -229,7 +433,8 @@
         {
           "cve_id": "CVE-2099-0002",
           "asset": "openssl",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "99.99.99"
         }
       ]
     },
@@ -259,7 +464,8 @@
         {
           "cve_id": "CVE-2024-11174",
           "asset": "python",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "3.11.3"
         }
       ]
     },
@@ -277,7 +483,8 @@
         {
           "cve_id": "CVE-2020-25648",
           "asset": "nss",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "0:3.79.0-5.el9_3"
         }
       ]
     },
@@ -295,7 +502,8 @@
         {
           "cve_id": "CVE-2099-0007",
           "asset": "openssl",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "3.0.7-24.el8"
         }
       ]
     },
@@ -313,7 +521,8 @@
         {
           "cve_id": "CVE-2002-20001",
           "asset": "libopenssl1_1",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "0:1.1.1l-150500.15.4"
         }
       ]
     },
@@ -331,7 +540,27 @@
         {
           "cve_id": "CVE-2022-29800",
           "asset": "networkd-dispatcher",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "0:2.1-2~ubuntu20.04.2"
+        }
+      ]
+    },
+    {
+      "name": "linux-xz-backdoor-liblzma5",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2024-3094",
+          "asset": "xz",
+          "status": "active",
+          "fixed_version": "5.6.2"
         }
       ]
     },
@@ -349,9 +578,22 @@
         {
           "cve_id": "CVE-2014-3524",
           "asset": "libreoffice",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "4.2.6"
         }
       ]
+    },
+    {
+      "name": "windows-msrc-kburl-mismatch",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
     },
     {
       "name": "windows-msrc-os-build-active",
@@ -385,7 +627,56 @@
         {
           "cve_id": "CVE-2024-21405",
           "asset": "Windows 10 Pro 22H2",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "10.0.19045.5011"
+        }
+      ]
+    },
+    {
+      "name": "windows-msrc-per-product-kb",
+      "metrics": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0402",
+          "asset": "Windows 11 Pro 22H2",
+          "status": "active",
+          "fixed_version": "KB5008218",
+          "kb_article": "KB5008218",
+          "kb_url": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5008218"
+        },
+        {
+          "cve_id": "CVE-2099-0403",
+          "asset": "Windows 11 Pro 22H2",
+          "status": "active",
+          "fixed_version": "KB5008215",
+          "kb_article": "KB5008215",
+          "kb_url": "https://catalog.update.microsoft.com/v7/site/Search.aspx?q=KB5008215"
+        }
+      ]
+    },
+    {
+      "name": "windows-office-translation",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0101",
+          "asset": "office",
+          "status": "active",
+          "fixed_version": "99.99.99"
         }
       ]
     },
@@ -403,7 +694,9 @@
         {
           "cve_id": "CVE-2016-0145",
           "asset": "Skype for Business Basic 2016",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "KB3114960",
+          "kb_article": "KB3114960"
         }
       ]
     },
@@ -421,7 +714,28 @@
         {
           "cve_id": "CVE-2016-0145",
           "asset": "Skype for Business Basic 2016",
-          "status": "active"
+          "status": "active",
+          "fixed_version": "KB3114960",
+          "kb_article": "KB3114960"
+        }
+      ]
+    },
+    {
+      "name": "windows-vscode-translation-priority",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0103",
+          "asset": "visual_studio_code",
+          "status": "active",
+          "fixed_version": "99.99.99"
         }
       ]
     },
@@ -439,13 +753,15 @@
         {
           "cve_id": "CVE-2016-0145",
           "asset": "Skype for Business Basic 2016",
-          "status": "fixed"
+          "status": "fixed",
+          "fixed_version": "KB3114960",
+          "kb_article": "KB3114960"
         }
       ]
     }
   ],
   "aggregate": {
-    "tp": 24,
+    "tp": 36,
     "fp": 0,
     "fn": 0,
     "precision": 1,

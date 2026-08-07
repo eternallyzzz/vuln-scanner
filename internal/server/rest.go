@@ -172,6 +172,7 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Post("/patch-tasks/{taskId}/verify", s.verifyPatchTask)
 		r.Get("/patch-tasks/{taskId}/events", s.listPatchTaskEvents)
 		r.Post("/patch-tasks/{taskId}/retry", s.retryPatchTask)
+		r.Post("/patch/kb-downloads/import", s.importKBDownloads)
 		r.Post("/edr/findings", s.reportEDRFinding)
 		r.Get("/edr/findings", s.listEDRFindings)
 		r.Get("/edr/findings/{findingId}", s.getEDRFinding)
@@ -269,6 +270,8 @@ func (s *RESTServer) Handler() http.Handler {
 		r.Put("/assets/{assetId}", s.updateAsset)
 		r.Get("/assets/{assetId}/changes", s.getAssetChanges)
 		r.Get("/assets/{assetId}/relations", s.getAssetRelations)
+		r.Get("/monitor/baselines/{agentId}", s.getTelemetryStatus)
+		r.Post("/monitor/baselines/{agentId}/rebaseline", s.rebaselineTelemetry)
 	})
 
 	return r
@@ -744,19 +747,15 @@ func (s *RESTServer) getRecommendations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	kbMeta := loadKBMetadata(r.Context(), s.store, recs)
+	kbDownloads := loadKBDownloads(r.Context(), s.store, recs)
 	for i := range recs {
 		rec := &recs[i]
 		if rec.FixType == "kb" {
 			rec.ReferenceURL = advisoryURLFor(rec.ExampleCVE, rec.ReferenceURL)
-			enrichKBLinks(rec.KBs, kbMeta)
+			enrichKBLinks(rec.KBs, kbMeta, kbDownloads, agent.OSType, agent.Arch)
 			if len(rec.KBs) > 0 {
-				if m, ok := kbMeta[rec.KBs[0].Kb]; ok {
-					rec.PatchURL = bestPatchURL(m)
-					rec.PatchSHA256 = m.DownloadSHA256
-				}
-				if rec.PatchURL == "" {
-					rec.PatchURL = rec.KBs[0].PatchURL
-				}
+				rec.PatchURL = rec.KBs[0].PatchURL
+				rec.PatchSHA256 = rec.KBs[0].PatchSHA256
 			}
 		}
 		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,

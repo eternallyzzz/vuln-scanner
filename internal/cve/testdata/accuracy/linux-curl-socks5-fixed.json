@@ -1,0 +1,23 @@
+{
+  "name": "linux-curl-socks5-fixed",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "curl", "version": "8.4.0", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2023-38545",
+      "severity": "HIGH",
+      "cvss_score": 8.1,
+      "summary": "curl SOCKS5 heap buffer overflow",
+      "affected": [
+        {"name": "curl", "vendor": "haxx", "max_ver": "8.4.0", "fixed_in": "8.4.0"}
+      ]
+    }
+  ],
+  "expected": []
+}

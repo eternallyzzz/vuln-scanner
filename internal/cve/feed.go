@@ -62,6 +62,13 @@ func NewFeedManager(s *store.Store) *FeedManager {
 }
 
 func (f *FeedManager) Upsert(ctx context.Context, entry *FeedEntry) error {
+	cleaned := cleanAffectedProducts(entry.Source, entry.Affected)
+	if len(cleaned) == 0 {
+		slog.Warn("feed upsert skipped: no valid affected products",
+			"source", entry.Source, "cve_id", entry.CVEID)
+		return nil
+	}
+	entry.Affected, _ = json.Marshal(cleaned)
 	_, err := f.pool.Exec(ctx, `
 		INSERT INTO cve_feed (source, source_key, cve_id, cve_url, affected, fixed_kb, fixed_ver,
 			severity, cvss_score, summary, published_at, fetched_at, ttl_seconds)
@@ -79,6 +86,21 @@ func (f *FeedManager) BatchUpsert(ctx context.Context, entries []*FeedEntry) err
 	if len(entries) == 0 {
 		return nil
 	}
+	valid := make([]*FeedEntry, 0, len(entries))
+	for _, e := range entries {
+		cleaned := cleanAffectedProducts(e.Source, e.Affected)
+		if len(cleaned) == 0 {
+			slog.Warn("feed batch upsert skipped entry: no valid affected products",
+				"source", e.Source, "cve_id", e.CVEID)
+			continue
+		}
+		e.Affected, _ = json.Marshal(cleaned)
+		valid = append(valid, e)
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	entries = valid
 	batch := &pgx.Batch{}
 	for _, e := range entries {
 		batch.Queue(`
@@ -326,7 +348,7 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, m
 	}
 
 	var allMatched []MatchedCVE
-	for _, source := range []string{"debian", "msrc", "redhat", "nvd", "osv", "custom"} {
+	for _, source := range sourceOrder {
 		matches := f.matchByName(ctx, source, softwareNames, msrcNames,
 			assetVersions, msrcVersions, installedKBs, agentOS, agentVersion, agentArch, osAssetName)
 		allMatched = append(allMatched, matches...)
@@ -335,20 +357,43 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, m
 	return selectBestMatches(allMatched), nil
 }
 
-// sourceOrder is the canonical feed-source ordering used to break ties when
-// the same CVE+asset is reported by several sources.
-var sourceOrder = []string{"debian", "msrc", "redhat", "nvd", "osv", "custom"}
+// sourceCatalog is the single source of truth for feed-source priority:
+// native distro/vendor sources rank above generic NVD/OSV/custom rows, and
+// the catalog order breaks remaining ties deterministically.
+var sourceCatalog = []struct {
+	name   string
+	native bool
+}{
+	{name: "debian", native: true},
+	{name: "ubuntu", native: true},
+	{name: "redhat", native: true},
+	{name: "alpine", native: true},
+	{name: "msrc", native: true},
+	{name: "nvd", native: false},
+	{name: "osv", native: false},
+	{name: "custom", native: false},
+}
+
+var sourceOrder []string
+var nativeSources map[string]bool
+
+func init() {
+	sourceOrder = make([]string, 0, len(sourceCatalog))
+	nativeSources = make(map[string]bool, len(sourceCatalog))
+	for _, s := range sourceCatalog {
+		sourceOrder = append(sourceOrder, s.name)
+		nativeSources[s.name] = s.native
+	}
+}
 
 // sourceRank returns the resolution priority for duplicate CVE+asset rows:
 // distro-native advisories (debian/redhat/osv/msrc) win over generic
 // NVD/custom rows so fixed versions and statuses reflect the distro.
 func sourceRank(source string) int {
-	switch source {
-	case "debian", "redhat", "osv", "msrc":
+	if nativeSources[source] {
 		return 0
-	default:
-		return 1
 	}
+	return 1
 }
 
 // selectBestMatches collapses duplicate CVE+asset results: the best source
@@ -498,8 +543,7 @@ func matchFeedEntry(e FeedEntry, queryNames []string, queryVersions map[string]s
 		return matchRedHatEntry(&e, agentOS, agentVersion, queryNames, queryVersions, lowerNames)
 	}
 
-	var affected []AffectedProduct
-	json.Unmarshal(e.Affected, &affected)
+	affected := cleanAffectedProducts(e.Source, e.Affected)
 	var results []MatchedCVE
 	for _, ap := range affected {
 		if ap.Name == "" {
@@ -999,7 +1043,7 @@ func isRelevantProduct(ap AffectedProduct, source, agentOS, agentVersion, agentA
 	if source == "nvd" {
 		return isRelevantNVDProduct(ap, lower, agentVersion, lowerNames)
 	}
-	if source == "osv" {
+	if source == "osv" || source == "ubuntu" || source == "alpine" {
 		osEco := strings.ToLower(ap.Ecosystem)
 		if isOsAgnosticEcosystem(osEco) {
 			return true
@@ -1490,26 +1534,73 @@ func cpeVersionCompatible(feedCpeVer, agentVer, agentName string, agentCPEIndex 
 	if feedCpeVer == "" || feedCpeVer == "*" || feedCpeVer == "-" {
 		return true
 	}
-	if agentName != "" && strings.Contains(strings.ToLower(agentName), strings.ToLower(feedCpeVer)) {
+	if versionEmbeddedInName(agentName, feedCpeVer) {
 		return true
 	}
 	for k := range agentCPEIndex {
-		if !strings.HasPrefix(k, agentName) && !strings.Contains(k, agentName) &&
-			!strings.Contains(agentName, k) {
+		if !cpeNameRelated(agentName, k) {
 			continue
 		}
-		if strings.Contains(k, feedCpeVer) {
+		if versionEmbeddedInName(k, feedCpeVer) {
 			return true
 		}
 	}
 	if agentVer != "" {
-		agentClean := cleanVersion(agentVer)
-		feedClean := cleanVersion(feedCpeVer)
-		if strings.HasPrefix(agentClean, feedClean+".") || agentClean == feedClean {
-			return true
-		}
+		return versionSegmentPrefixCompatible(feedCpeVer, agentVer)
 	}
 	return false
+}
+
+// cpeNameRelated reports whether two agent CPE index keys can denote the same
+// installed product family. It preserves the previous containment relation
+// used by the version-embedded fallback while letting the version check
+// itself stay boundary-aware.
+func cpeNameRelated(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || strings.HasPrefix(b, a) || strings.HasPrefix(a, b) ||
+		strings.Contains(b, a) || strings.Contains(a, b)
+}
+
+// versionEmbeddedInName reports whether ver appears as a whole version
+// segment inside an installed package name. "1.1" matches "libssl1.1" but
+// not "lib11.1" or "libssl1.10"; the digits before/after the needle must not
+// be part of a longer numeric segment.
+func versionEmbeddedInName(name, ver string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	ver = strings.ToLower(strings.TrimSpace(ver))
+	if name == "" || ver == "" {
+		return false
+	}
+	from := 0
+	for {
+		idx := strings.Index(name[from:], ver)
+		if idx < 0 {
+			return false
+		}
+		idx += from
+		beforeOK := idx == 0 || !isASCIIDigit(name[idx-1])
+		after := idx + len(ver)
+		afterOK := after == len(name) || !isASCIIDigit(name[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		from = idx + 1
+	}
+}
+
+// versionSegmentPrefixCompatible reports whether two version strings are
+// equal or one is a dot-segment prefix of the other. The comparison is
+// symmetric so a feed CPE version "1.0" accepts an agent version "1.0.3"
+// and vice versa, while "1.0.3" never accepts "1.0.30" or "1.0.1f".
+func versionSegmentPrefixCompatible(a, b string) bool {
+	a = cleanVersion(a)
+	b = cleanVersion(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || strings.HasPrefix(b, a+".") || strings.HasPrefix(a, b+".")
 }
 
 func dedupStrings(in []string) []string {
@@ -1574,4 +1665,92 @@ func extractKBNumber(kb string) int {
 		}
 	}
 	return n
+}
+
+// cleanAffectedProducts decodes a feed row's affected products and drops any
+// entry whose product/version/KB metadata is internally contradictory. The
+// same validation runs before persistence and before matching so invalid rows
+// can never produce a false positive or a wrong patch recommendation.
+func cleanAffectedProducts(source string, raw json.RawMessage) []AffectedProduct {
+	var affected []AffectedProduct
+	if err := json.Unmarshal(raw, &affected); err != nil {
+		return nil
+	}
+	out := make([]AffectedProduct, 0, len(affected))
+	for _, ap := range affected {
+		if !affectedProductConsistent(source, ap) {
+			slog.Warn("feed affected product dropped: inconsistent metadata",
+				"source", source, "product", ap.Name, "fixed_in", ap.FixedIn,
+				"min_ver", ap.MinVer, "max_ver", ap.MaxVer, "kb_url", ap.KBURL)
+			continue
+		}
+		out = append(out, ap)
+	}
+	return out
+}
+
+func affectedProductConsistent(source string, ap AffectedProduct) bool {
+	if strings.TrimSpace(ap.Name) == "" {
+		return false
+	}
+	if source == "msrc" {
+		if ap.FixedIn == "" {
+			return true
+		}
+		if !isKBArticle(ap.FixedIn) {
+			return false
+		}
+		if ap.KBURL != "" && !kbURLContains(ap.KBURL, ap.FixedIn) {
+			return false
+		}
+		return true
+	}
+	return fixedVersionRangeConsistent(ap)
+}
+
+func fixedVersionRangeConsistent(ap AffectedProduct) bool {
+	if ap.MinVer != "" && ap.MaxVer != "" {
+		if compareVersionForEcosystem(ap.MinVer, ap.MaxVer, ap.Ecosystem) > 0 {
+			return false
+		}
+	}
+	if ap.FixedIn == "" || isKBArticle(ap.FixedIn) {
+		return true
+	}
+	maxInclusive := ap.MaxInclusive != nil && *ap.MaxInclusive
+	minExclusive := ap.MinExclusive != nil && *ap.MinExclusive
+	if ap.MaxVer != "" {
+		cmp := compareVersionForEcosystem(ap.FixedIn, ap.MaxVer, ap.Ecosystem)
+		if maxInclusive {
+			if cmp <= 0 {
+				return false
+			}
+		} else if cmp < 0 {
+			return false
+		}
+	}
+	if ap.MinVer != "" {
+		cmp := compareVersionForEcosystem(ap.FixedIn, ap.MinVer, ap.Ecosystem)
+		if minExclusive {
+			if cmp < 0 {
+				return false
+			}
+		} else if cmp <= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func kbURLContains(kbURL, kb string) bool {
+	num := extractKBNumber(kb)
+	if num == 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(kbURL), fmt.Sprintf("kb%d", num))
+}
+
+func isKBArticle(s string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(s)), "kb") &&
+		extractKBNumber(s) > 0
 }

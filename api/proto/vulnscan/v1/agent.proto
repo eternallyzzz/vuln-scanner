@@ -10,6 +10,7 @@ service AgentService {
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc SyncInventory(SyncInventoryRequest) returns (SyncInventoryResponse);
   rpc SyncCompliance(SyncComplianceRequest) returns (SyncComplianceResponse);
+  rpc SyncTelemetry(SyncTelemetryRequest) returns (SyncTelemetryResponse);
   rpc FetchPatchTasks(FetchPatchTasksRequest) returns (FetchPatchTasksResponse);
   rpc ReportPatchTask(ReportPatchTaskRequest) returns (ReportPatchTaskResponse);
   rpc ReportPatchProgress(ReportPatchProgressRequest) returns (ReportPatchProgressResponse);
@@ -74,6 +75,31 @@ message SyncComplianceRequest {
 
 message SyncComplianceResponse {
   bool ok = 1;
+}
+
+// FileFact is one monitored file's integrity state (path + SHA256 + size +
+// mode + mtime), collected periodically by the agent.
+message FileFact {
+  string path = 1;
+  string sha256 = 2;
+  int64 size_bytes = 3;
+  string mode = 4;
+  string modified_at = 5;
+}
+
+// SyncTelemetryRequest carries the periodic file-integrity and behavior
+// facts used to build server-side baselines and drift findings. The
+// behavior facts reuse the relevant SystemInfo repeated fields.
+message SyncTelemetryRequest {
+  string agent_id = 1;
+  string token = 2;
+  repeated FileFact file_facts = 3;
+  SystemInfo system_info = 4;
+}
+
+message SyncTelemetryResponse {
+  bool ok = 1;
+  bool rebaseline = 2;
 }
 
 message ComplianceReport {

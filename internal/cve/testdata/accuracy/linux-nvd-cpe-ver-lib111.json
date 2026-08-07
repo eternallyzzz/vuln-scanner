@@ -1,0 +1,23 @@
+{
+  "name": "linux-nvd-cpe-ver-lib111",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "lib11.1", "version": "9.9.9", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0112",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "False embedded version boundary advisory",
+      "affected": [
+        {"name": "lib11.1", "vendor": "openssl", "cpe_ver": "1.1", "max_ver": "99.99.99"}
+      ]
+    }
+  ],
+  "expected": []
+}

@@ -22,6 +22,29 @@ type KBMetadata struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
+// KBDownload is one verified direct .msu download resolved for a KB and a
+// concrete Windows OS family/architecture. Keeping the variant in the key
+// prevents an x64 Windows 11 package from being offered to a Server or
+// ARM64 agent.
+type KBDownload struct {
+	KB         string     `json:"kb"`
+	OSFamily   string     `json:"os_family"`
+	Arch       string     `json:"arch"`
+	Title      string     `json:"title"`
+	URL        string     `json:"url"`
+	SHA256     string     `json:"sha256,omitempty"`
+	VerifiedAt *time.Time `json:"verified_at,omitempty"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// KBDownloadTarget is one active (agent KB, OS type, architecture) tuple the
+// background resolver must cover.
+type KBDownloadTarget struct {
+	KB     string
+	OSType string
+	Arch   string
+}
+
 func (s *Store) GetMeta(ctx context.Context, key string) (string, error) {
 	var value string
 	err := s.pool.QueryRow(ctx,
@@ -82,6 +105,75 @@ func (s *Store) SetKBDownloadInfo(ctx context.Context, kb, downloadURL, sha256 s
 		WHERE kb=$1
 	`, kb, downloadURL, sha256)
 	return err
+}
+
+// SetKBDownload records a resolved direct download for one KB/OS/arch tuple.
+func (s *Store) SetKBDownload(ctx context.Context, d KBDownload) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO kb_downloads (kb, os_family, arch, title, url, sha256, verified_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,now(),now())
+		ON CONFLICT (kb, os_family, arch) DO UPDATE SET
+			title=EXCLUDED.title,
+			url=EXCLUDED.url,
+			sha256=EXCLUDED.sha256,
+			verified_at=now(),
+			updated_at=now()
+	`, d.KB, d.OSFamily, d.Arch, d.Title, d.URL, d.SHA256)
+	return err
+}
+
+// GetKBDownloads returns all resolved downloads for the requested KBs, keyed
+// by KB and ordered deterministically.
+func (s *Store) GetKBDownloads(ctx context.Context, kbs []string) (map[string][]KBDownload, error) {
+	out := make(map[string][]KBDownload, len(kbs))
+	if len(kbs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT kb, os_family, arch, title, url, sha256, verified_at, updated_at
+		FROM kb_downloads WHERE kb = ANY($1)
+		ORDER BY kb, os_family, arch
+	`, kbs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var d KBDownload
+		if err := rows.Scan(&d.KB, &d.OSFamily, &d.Arch, &d.Title, &d.URL,
+			&d.SHA256, &d.VerifiedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out[d.KB] = append(out[d.KB], d)
+	}
+	return out, rows.Err()
+}
+
+// ActiveKBDownloadTargets returns the distinct KB/OS/arch combinations
+// currently needed by active Windows MSRC recommendations.
+func (s *Store) ActiveKBDownloadTargets(ctx context.Context) ([]KBDownloadTarget, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT r.kb_article, a.os_type, a.arch
+		FROM cve_results r
+		JOIN agents a ON a.id = r.agent_id
+		JOIN kb_metadata m ON m.kb = r.kb_article
+		WHERE r.status = 'active'
+		  AND r.kb_article LIKE 'KB%'
+		  AND m.product_family = 'windows'
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []KBDownloadTarget
+	for rows.Next() {
+		var t KBDownloadTarget
+		if err := rows.Scan(&t.KB, &t.OSType, &t.Arch); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) GetKBMetadataMap(ctx context.Context, kbs []string) (map[string]KBMetadata, error) {

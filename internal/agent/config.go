@@ -42,6 +42,20 @@ type Config struct {
 		Paths          []string `mapstructure:"paths"`
 		TimeoutSeconds int      `mapstructure:"timeout_seconds"`
 	} `mapstructure:"edr_scan"`
+
+	Monitor struct {
+		IntervalMinutes int `mapstructure:"interval_minutes"`
+		Files           struct {
+			Enabled        bool     `mapstructure:"enabled"`
+			Paths          []string `mapstructure:"paths"`
+			TimeoutSeconds int      `mapstructure:"timeout_seconds"`
+			MaxFileBytes   int64    `mapstructure:"max_file_bytes"`
+			MaxFilesPerDir int      `mapstructure:"max_files_per_dir"`
+		} `mapstructure:"files"`
+		Behavior struct {
+			Enabled bool `mapstructure:"enabled"`
+		} `mapstructure:"behavior"`
+	} `mapstructure:"monitor"`
 }
 
 func ConfigDir() string {
@@ -78,6 +92,12 @@ func LoadConfig() (*Config, error) {
 	cfg.NetworkScan.MaxHosts = 1024
 	cfg.EDRScan.Enabled = false
 	cfg.EDRScan.TimeoutSeconds = 120
+	cfg.Monitor.IntervalMinutes = 60
+	cfg.Monitor.Files.Enabled = false
+	cfg.Monitor.Files.TimeoutSeconds = 60
+	cfg.Monitor.Files.MaxFileBytes = 64 << 20
+	cfg.Monitor.Files.MaxFilesPerDir = 200
+	cfg.Monitor.Behavior.Enabled = false
 
 	v := viper.New()
 	v.SetConfigFile(configPath())
@@ -131,6 +151,13 @@ func SaveConfig(cfg *Config) error {
 	v.Set("edr_scan.enabled", cfg.EDRScan.Enabled)
 	v.Set("edr_scan.paths", cfg.EDRScan.Paths)
 	v.Set("edr_scan.timeout_seconds", cfg.EDRScan.TimeoutSeconds)
+	v.Set("monitor.interval_minutes", cfg.Monitor.IntervalMinutes)
+	v.Set("monitor.files.enabled", cfg.Monitor.Files.Enabled)
+	v.Set("monitor.files.paths", cfg.Monitor.Files.Paths)
+	v.Set("monitor.files.timeout_seconds", cfg.Monitor.Files.TimeoutSeconds)
+	v.Set("monitor.files.max_file_bytes", cfg.Monitor.Files.MaxFileBytes)
+	v.Set("monitor.files.max_files_per_dir", cfg.Monitor.Files.MaxFilesPerDir)
+	v.Set("monitor.behavior.enabled", cfg.Monitor.Behavior.Enabled)
 
 	return v.WriteConfigAs(configPath())
 }

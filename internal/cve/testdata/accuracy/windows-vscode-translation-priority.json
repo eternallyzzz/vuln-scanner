@@ -1,0 +1,49 @@
+{
+  "name": "windows-vscode-translation-priority",
+  "platform": "windows",
+  "agent_os": "Windows 11 Pro 23H2",
+  "agent_version": "10.0.22631.3007",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "Microsoft Visual Studio Code 1.85.0", "version": "1.85.0", "format": "win", "vendor": "Microsoft Corporation"}
+  ],
+  "translations": [
+    {
+      "pattern": "^Microsoft Visual Studio Code.*",
+      "product": "visual_studio_code",
+      "platform": "windows",
+      "priority": 20
+    },
+    {
+      "pattern": "^Microsoft Visual Studio .*",
+      "product": "visual_studio",
+      "platform": "windows",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "custom",
+      "cve_id": "CVE-2099-0102",
+      "severity": "HIGH",
+      "cvss_score": 8.8,
+      "summary": "Visual Studio (not VS Code) advisory",
+      "affected": [
+        {"name": "visual_studio", "max_ver": "99.99.99"}
+      ]
+    },
+    {
+      "source": "custom",
+      "cve_id": "CVE-2099-0103",
+      "severity": "HIGH",
+      "cvss_score": 8.8,
+      "summary": "Visual Studio Code advisory",
+      "affected": [
+        {"name": "visual_studio_code", "max_ver": "99.99.99"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0103", "asset": "visual_studio_code", "status": "active"}
+  ]
+}

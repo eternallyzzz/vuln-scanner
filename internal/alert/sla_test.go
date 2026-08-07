@@ -18,8 +18,8 @@ func TestSLACheckInterval(t *testing.T) {
 }
 
 func TestDefaultRuleSpecs(t *testing.T) {
-	if len(defaultRuleSpecs) != 5 {
-		t.Fatalf("expected 5 default rules, got %d", len(defaultRuleSpecs))
+	if len(defaultRuleSpecs) != 7 {
+		t.Fatalf("expected 7 default rules, got %d", len(defaultRuleSpecs))
 	}
 	seen := map[string]bool{}
 	for _, d := range defaultRuleSpecs {

@@ -1074,6 +1074,88 @@ paths:
                   status: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/patch/kb-downloads/import:
+    post:
+      tags: [patch]
+      summary: 导入运维维护的 KB 直链下载
+      x-roles: [admin, operator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [downloads]
+              properties:
+                downloads:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [kb, url]
+                    properties:
+                      kb: {type: string}
+                      os_family: {type: string}
+                      arch: {type: string, enum: ['', x64, arm64]}
+                      title: {type: string}
+                      url: {type: string, format: uri}
+                      sha256: {type: string}
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: {type: integer}
+                  downloads:
+                    type: array
+                    items:
+                      type: object
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v1/monitor/baselines/{agentId}:
+    get:
+      tags: [monitoring]
+      summary: 查看代理的文件/行为基线状态
+      x-roles: [admin, operator, viewer]
+      parameters:
+        - {name: agentId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 基线状态
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  status:
+                    type: object
+                    properties:
+                      warm: {type: boolean}
+                      file_count: {type: integer}
+                      categories: {type: array, items: {type: string}}
+                      last_sync_at: {type: string, format: date-time}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/monitor/baselines/{agentId}/rebaseline:
+    post:
+      tags: [monitoring]
+      summary: 重建基线并关闭相关 open 发现
+      x-roles: [admin, operator]
+      parameters:
+        - {name: agentId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: 已重建
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: {type: string}
+                  rebaselined: {type: boolean}
+        '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/edr/findings:
     post:
       tags: [alerting]
@@ -1117,6 +1199,7 @@ paths:
       parameters:
         - {name: status, in: query, schema: {type: string, enum: [open, acknowledged, ignored, resolved]}}
         - {name: source, in: query, schema: {type: string}}
+        - {name: finding_type, in: query, schema: {type: string}}
         - {name: agent_id, in: query, schema: {type: string}}
         - {name: severity, in: query, schema: {type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL]}}
         - {name: q, in: query, schema: {type: string}}

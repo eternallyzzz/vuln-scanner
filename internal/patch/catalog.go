@@ -24,7 +24,7 @@ var (
 	catalogRowRe         = regexp.MustCompile(`(?is)<tr id="([0-9a-fA-F-]{36})_R0".*?</tr>`)
 	catalogTitleRe       = regexp.MustCompile(`(?is)onclick='goToDetails\("[0-9a-fA-F-]{36}"\);'[^>]*>(.*?)</a>`)
 	downloadURLLineRe    = regexp.MustCompile(`(?m)downloadInformation\[\d+\]\.files\[\d+\]\.url\s*=\s*'([^']+)'`)
-	downloadDigestLineRe = regexp.MustCompile(`(?m)downloadInformation\[\d+\]\.files\[\d+\]\.digest\s*=\s*'([^']*)'`)
+	downloadSHA256LineRe = regexp.MustCompile(`(?m)downloadInformation\[\d+\]\.files\[\d+\]\.sha256\s*=\s*'([^']*)'`)
 )
 
 // DownloadInfo is a resolved direct .msu download for one KB article.
@@ -74,8 +74,9 @@ func (r *CatalogResolver) Resolve(ctx context.Context, kb, osType, arch string) 
 	if catalogKBNumber(kb) == 0 {
 		return DownloadInfo{}, errors.New("invalid kb article")
 	}
+	cacheKey := kb + "|" + osType + "|" + arch
 	r.mu.Lock()
-	if c, ok := r.cache[kb]; ok && time.Since(c.at) < 24*time.Hour {
+	if c, ok := r.cache[cacheKey]; ok && time.Since(c.at) < 24*time.Hour {
 		r.mu.Unlock()
 		return c.info, nil
 	}
@@ -86,7 +87,7 @@ func (r *CatalogResolver) Resolve(ctx context.Context, kb, osType, arch string) 
 		return DownloadInfo{}, err
 	}
 	r.mu.Lock()
-	r.cache[kb] = cachedDownload{info: info, at: time.Now()}
+	r.cache[cacheKey] = cachedDownload{info: info, at: time.Now()}
 	r.mu.Unlock()
 	return info, nil
 }
@@ -105,6 +106,9 @@ func (r *CatalogResolver) resolve(ctx context.Context, kb, osType, arch string) 
 	if entry.GUID == "" {
 		return DownloadInfo{}, fmt.Errorf("catalog: no %s/%s entry for %s", osType, arch, kb)
 	}
+	if !catalogEntryMatchesKB(entry.Title, kb) {
+		return DownloadInfo{}, fmt.Errorf("catalog: selected entry %q does not match %s", entry.Title, kb)
+	}
 
 	payload := `updateIDs=[{"size":0,"languages":"","uidInfo":"` + entry.GUID +
 		`","updateID":"` + entry.GUID + `"}]`
@@ -112,11 +116,14 @@ func (r *CatalogResolver) resolve(ctx context.Context, kb, osType, arch string) 
 	if err != nil {
 		return DownloadInfo{}, fmt.Errorf("catalog download dialog: %w", err)
 	}
-	dlURL, digest := parseCatalogDownloadInfo(dialogBody)
+	dlURL, sha256 := parseCatalogDownloadInfo(dialogBody)
 	if dlURL == "" {
 		return DownloadInfo{}, fmt.Errorf("catalog: no download link for %s", kb)
 	}
-	return DownloadInfo{Title: entry.Title, URL: dlURL, SHA256: digest}, nil
+	if !catalogDownloadMatchesKB(dlURL, kb) {
+		return DownloadInfo{}, fmt.Errorf("catalog: download %q does not match %s", dlURL, kb)
+	}
+	return DownloadInfo{Title: entry.Title, URL: dlURL, SHA256: sha256}, nil
 }
 
 func (r *CatalogResolver) getWithRetry(ctx context.Context, target string) (string, error) {
@@ -211,7 +218,8 @@ func selectCatalogEntry(entries []CatalogEntry, osType, arch string) CatalogEntr
 		family = "server"
 	}
 	archTok := "x64"
-	if strings.Contains(strings.ToLower(arch), "arm") {
+	lowerArch := strings.ToLower(arch)
+	if strings.Contains(lowerArch, "arm") || strings.Contains(lowerArch, "aarch64") {
 		archTok = "arm64"
 	}
 
@@ -237,9 +245,10 @@ func selectCatalogEntry(entries []CatalogEntry, osType, arch string) CatalogEntr
 	return best
 }
 
-// parseCatalogDownloadInfo extracts the first direct .msu URL and its digest
-// from the DownloadDialog response.
-func parseCatalogDownloadInfo(page string) (downloadURL, digest string) {
+// parseCatalogDownloadInfo extracts the first direct .msu URL and its SHA256
+// from the DownloadDialog response. The .digest field is not a SHA256 and is
+// intentionally ignored; without a real 64-hex .sha256 the hash stays empty.
+func parseCatalogDownloadInfo(page string) (downloadURL, sha256 string) {
 	urls := downloadURLLineRe.FindAllStringSubmatch(page, -1)
 	for _, m := range urls {
 		u := strings.TrimSpace(m[1])
@@ -248,10 +257,47 @@ func parseCatalogDownloadInfo(page string) (downloadURL, digest string) {
 			break
 		}
 	}
-	if d := downloadDigestLineRe.FindStringSubmatch(page); len(d) >= 2 {
-		digest = strings.TrimSpace(d[1])
+	if m := downloadSHA256LineRe.FindStringSubmatch(page); len(m) >= 2 {
+		candidate := strings.TrimSpace(m[1])
+		if isSHA256Hex(candidate) {
+			sha256 = candidate
+		}
 	}
-	return downloadURL, digest
+	return downloadURL, sha256
+}
+
+// catalogEntryMatchesKB requires the selected Update Catalog title to carry
+// the same KB article number as the query, e.g. "(KB5018427)".
+func catalogEntryMatchesKB(title, kb string) bool {
+	num := catalogKBNumber(kb)
+	if num == 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(title), fmt.Sprintf("kb%d", num))
+}
+
+// catalogDownloadMatchesKB requires the direct .msu URL filename to carry the
+// same KB article number as the query, e.g. "windows11.0-kb5018427-x64.msu".
+func catalogDownloadMatchesKB(downloadURL, kb string) bool {
+	num := catalogKBNumber(kb)
+	if num == 0 {
+		return false
+	}
+	lower := strings.ToLower(downloadURL)
+	return strings.Contains(lower, fmt.Sprintf("kb%d", num)) &&
+		strings.HasSuffix(lower, ".msu")
+}
+
+func isSHA256Hex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func catalogKBNumber(kb string) int {

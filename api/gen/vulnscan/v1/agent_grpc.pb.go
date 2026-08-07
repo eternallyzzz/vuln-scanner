@@ -24,6 +24,7 @@ const (
 	AgentService_Heartbeat_FullMethodName               = "/vulnscan.v1.AgentService/Heartbeat"
 	AgentService_SyncInventory_FullMethodName           = "/vulnscan.v1.AgentService/SyncInventory"
 	AgentService_SyncCompliance_FullMethodName          = "/vulnscan.v1.AgentService/SyncCompliance"
+	AgentService_SyncTelemetry_FullMethodName           = "/vulnscan.v1.AgentService/SyncTelemetry"
 	AgentService_FetchPatchTasks_FullMethodName         = "/vulnscan.v1.AgentService/FetchPatchTasks"
 	AgentService_ReportPatchTask_FullMethodName         = "/vulnscan.v1.AgentService/ReportPatchTask"
 	AgentService_ReportPatchProgress_FullMethodName     = "/vulnscan.v1.AgentService/ReportPatchProgress"
@@ -42,6 +43,7 @@ type AgentServiceClient interface {
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
 	SyncInventory(ctx context.Context, in *SyncInventoryRequest, opts ...grpc.CallOption) (*SyncInventoryResponse, error)
 	SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error)
+	SyncTelemetry(ctx context.Context, in *SyncTelemetryRequest, opts ...grpc.CallOption) (*SyncTelemetryResponse, error)
 	FetchPatchTasks(ctx context.Context, in *FetchPatchTasksRequest, opts ...grpc.CallOption) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(ctx context.Context, in *ReportPatchTaskRequest, opts ...grpc.CallOption) (*ReportPatchTaskResponse, error)
 	ReportPatchProgress(ctx context.Context, in *ReportPatchProgressRequest, opts ...grpc.CallOption) (*ReportPatchProgressResponse, error)
@@ -98,6 +100,15 @@ func (c *agentServiceClient) SyncInventory(ctx context.Context, in *SyncInventor
 func (c *agentServiceClient) SyncCompliance(ctx context.Context, in *SyncComplianceRequest, opts ...grpc.CallOption) (*SyncComplianceResponse, error) {
 	out := new(SyncComplianceResponse)
 	err := c.cc.Invoke(ctx, AgentService_SyncCompliance_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *agentServiceClient) SyncTelemetry(ctx context.Context, in *SyncTelemetryRequest, opts ...grpc.CallOption) (*SyncTelemetryResponse, error) {
+	out := new(SyncTelemetryResponse)
+	err := c.cc.Invoke(ctx, AgentService_SyncTelemetry_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +187,7 @@ type AgentServiceServer interface {
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 	SyncInventory(context.Context, *SyncInventoryRequest) (*SyncInventoryResponse, error)
 	SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error)
+	SyncTelemetry(context.Context, *SyncTelemetryRequest) (*SyncTelemetryResponse, error)
 	FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error)
 	ReportPatchTask(context.Context, *ReportPatchTaskRequest) (*ReportPatchTaskResponse, error)
 	ReportPatchProgress(context.Context, *ReportPatchProgressRequest) (*ReportPatchProgressResponse, error)
@@ -204,6 +216,9 @@ func (UnimplementedAgentServiceServer) SyncInventory(context.Context, *SyncInven
 }
 func (UnimplementedAgentServiceServer) SyncCompliance(context.Context, *SyncComplianceRequest) (*SyncComplianceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncCompliance not implemented")
+}
+func (UnimplementedAgentServiceServer) SyncTelemetry(context.Context, *SyncTelemetryRequest) (*SyncTelemetryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncTelemetry not implemented")
 }
 func (UnimplementedAgentServiceServer) FetchPatchTasks(context.Context, *FetchPatchTasksRequest) (*FetchPatchTasksResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchPatchTasks not implemented")
@@ -325,6 +340,24 @@ func _AgentService_SyncCompliance_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AgentServiceServer).SyncCompliance(ctx, req.(*SyncComplianceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AgentService_SyncTelemetry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncTelemetryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).SyncTelemetry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_SyncTelemetry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).SyncTelemetry(ctx, req.(*SyncTelemetryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -481,6 +514,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncCompliance",
 			Handler:    _AgentService_SyncCompliance_Handler,
+		},
+		{
+			MethodName: "SyncTelemetry",
+			Handler:    _AgentService_SyncTelemetry_Handler,
 		},
 		{
 			MethodName: "FetchPatchTasks",

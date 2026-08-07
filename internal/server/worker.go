@@ -502,6 +502,8 @@ func (w *Worker) RefreshFeeds(ctx context.Context) {
 	go w.loader.RefreshAllNVD(context.Background(), agents)
 	go w.loader.RefreshAllOSV(context.Background(), agents)
 	go w.loader.RefreshRedHat(context.Background(), agents)
+	go w.loader.RefreshAllUbuntu(context.Background(), agents)
+	go w.loader.RefreshAllAlpine(context.Background(), agents)
 }
 
 // feedLoop runs on the "feed" lease holder: it mirrors custom intel, loads
@@ -560,6 +562,18 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	}()
 
 	go func() {
+		slog.Info("feed: preloading Ubuntu OVAL...")
+		agents := w.collectAgentSummaries(context.Background())
+		w.loader.RefreshAllUbuntu(context.Background(), agents)
+	}()
+
+	go func() {
+		slog.Info("feed: preloading Alpine secdb...")
+		agents := w.collectAgentSummaries(context.Background())
+		w.loader.RefreshAllAlpine(context.Background(), agents)
+	}()
+
+	go func() {
 		slog.Info("feed: loading EPSS/KEV intel...")
 		if err := w.loader.RefreshIntel(context.Background()); err != nil {
 			slog.Error("feed: intel refresh failed", "error", err)
@@ -574,6 +588,8 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	osvTicker := time.NewTicker(w.feedCfg.OSVRefresh)
 	debianTicker := time.NewTicker(w.feedCfg.DebianRefresh)
 	redhatTicker := time.NewTicker(w.feedCfg.RedHatRefresh)
+	ubuntuTicker := time.NewTicker(w.feedCfg.UbuntuRefresh)
+	alpineTicker := time.NewTicker(w.feedCfg.AlpineRefresh)
 	intelTicker := time.NewTicker(24 * time.Hour)
 	kbLinkTicker := time.NewTicker(6 * time.Hour)
 	defer refreshTicker.Stop()
@@ -581,6 +597,8 @@ func (w *Worker) feedLoop(ctx context.Context) {
 	defer osvTicker.Stop()
 	defer debianTicker.Stop()
 	defer redhatTicker.Stop()
+	defer ubuntuTicker.Stop()
+	defer alpineTicker.Stop()
 	defer intelTicker.Stop()
 	defer kbLinkTicker.Stop()
 
@@ -609,6 +627,12 @@ func (w *Worker) feedLoop(ctx context.Context) {
 		case <-redhatTicker.C:
 			agents := w.collectAgentSummaries(ctx)
 			go w.loader.RefreshRedHat(context.Background(), agents)
+		case <-ubuntuTicker.C:
+			agents := w.collectAgentSummaries(ctx)
+			go w.loader.RefreshAllUbuntu(context.Background(), agents)
+		case <-alpineTicker.C:
+			agents := w.collectAgentSummaries(ctx)
+			go w.loader.RefreshAllAlpine(context.Background(), agents)
 		case <-intelTicker.C:
 			if err := w.RefreshIntel(ctx); err != nil {
 				slog.Error("feed: intel refresh failed", "error", err)

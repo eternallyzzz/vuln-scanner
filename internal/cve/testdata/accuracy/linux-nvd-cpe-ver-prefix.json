@@ -1,0 +1,25 @@
+{
+  "name": "linux-nvd-cpe-ver-prefix",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "openssl", "version": "1.0.3", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0109",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "OpenSSL CPE version prefix advisory",
+      "affected": [
+        {"name": "openssl", "vendor": "openssl", "cpe_ver": "1.0", "max_ver": "99.99.99"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0109", "asset": "openssl", "status": "active"}
+  ]
+}

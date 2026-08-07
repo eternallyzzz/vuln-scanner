@@ -1,0 +1,23 @@
+{
+  "name": "linux-fixed-in-range-invalid",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "openssl", "version": "1.5.0", "format": "deb", "vendor": "Ubuntu"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0301",
+      "severity": "HIGH",
+      "cvss_score": 8.0,
+      "summary": "Contradictory fixed version must not match",
+      "affected": [
+        {"name": "openssl", "vendor": "openssl", "min_ver": "1.0.0", "max_ver": "2.0.0", "fixed_in": "1.5.0"}
+      ]
+    }
+  ],
+  "expected": []
+}

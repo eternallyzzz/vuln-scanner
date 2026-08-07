@@ -89,68 +89,255 @@ func (s *RESTServer) generatePatchTasks(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 500, err.Error())
 		return
 	}
+	fixGroupsMap, err := s.store.ActiveVersionFixGroups(r.Context(), agentID, "", 0, nil)
+	if err != nil {
+		writeError(w, 500, err.Error())
+		return
+	}
 	kbMeta := loadKBMetadata(r.Context(), s.store, recs)
+	kbDownloads := loadKBDownloads(r.Context(), s.store, recs)
+	rules, err := s.store.ListDependencyRules(r.Context())
+	if err != nil {
+		writeError(w, 500, "load dependency rules: "+err.Error())
+		return
+	}
+	installed, err := s.store.AgentInstalledAssets(r.Context(), agentID)
+	if err != nil {
+		writeError(w, 500, "installed assets: "+err.Error())
+		return
+	}
 
 	created := 0
+	var skipped []campaignSkipped
 	var tasks []store.PatchTask
 	for _, rec := range recs {
 		if len(wantAssets) > 0 && !wantAssets[rec.AssetName] {
 			continue
 		}
-		cves := cveMap[rec.AssetName]
-		if len(wantCVEs) > 0 {
-			var filtered []string
-			for _, c := range cves {
-				if wantCVEs[c] {
-					filtered = append(filtered, c)
+		if rec.FixType == "kb" {
+			candidates, skippedKBs := buildKBCandidates(s.cfg.Patch, rec, kbMeta, kbDownloads, *agent, wantCVEs)
+			for _, cand := range candidates {
+				mainItem := patch.FixSetItem{
+					AssetName: rec.AssetName, FixType: cand.FixType, FixValue: cand.FixValue,
+					Action: cand.Action, PatchURL: cand.PatchURL, PatchSHA256: cand.PatchSHA256,
+					CVEIDs: cand.CVEIDs,
 				}
+				fixSet, err := patch.ExpandFixSet(mainItem, rules, installed)
+				if err != nil {
+					writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
+					return
+				}
+				cmd, err := patch.BuildCommandsForFixSet(s.cfg.Patch, fixSet, agent.OSType, agent.OSVersion)
+				if err != nil {
+					writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
+					return
+				}
+				if !cmd.Deployable {
+					skipped = append(skipped, campaignSkipped{
+						AgentID: agentID, Hostname: agent.Hostname, AssetName: rec.AssetName,
+						FixType: cand.FixType, FixValue: cand.FixValue,
+						Reason: "non_deployable", Detail: cmd.Display,
+					})
+					continue
+				}
+				task, err := s.store.CreatePatchTask(r.Context(), store.PatchTaskInput{
+					AgentID:          agentID,
+					AssetName:        rec.AssetName,
+					FixType:          cand.FixType,
+					FixValue:         cand.FixValue,
+					Action:           cand.Action,
+					CVEIDs:           cand.CVEIDs,
+					Command:          cmd.Display,
+					Commands:         cmd.ArgvLists,
+					ApprovalRequired: approvalRequired,
+					WindowStart:      windowStart,
+					WindowEnd:        windowEnd,
+					CreatedBy:        "api",
+					FixSet:           fixSet,
+					FixSetHash:       patch.HashFixSet(fixSet),
+				})
+				if err != nil {
+					writeError(w, 500, err.Error())
+					return
+				}
+				created++
+				tasks = append(tasks, task)
 			}
-			cves = filtered
+			for _, reason := range skippedKBs {
+				skipped = append(skipped, campaignSkipped{
+					AgentID: agentID, Hostname: agent.Hostname, AssetName: rec.AssetName,
+					FixType: "kb", Reason: "non_deployable", Detail: reason,
+				})
+			}
+			continue
 		}
+		if rec.FixType == "rebuild" {
+			cves := filterCVEIDs(cveMap[rec.AssetName], wantCVEs)
+			if len(cves) == 0 {
+				continue
+			}
+			cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,
+				rec.FixedVersion, rec.AssetName, rec.PatchURL, rec.PatchSHA256,
+				agent.OSType, agent.OSVersion)
+			if err != nil {
+				writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
+				return
+			}
+			if !cmd.Deployable {
+				skipped = append(skipped, campaignSkipped{
+					AgentID: agentID, Hostname: agent.Hostname, AssetName: rec.AssetName,
+					FixType: rec.FixType, FixValue: rec.FixValue, Reason: "non_deployable", Detail: cmd.Display,
+				})
+				continue
+			}
+			task, err := s.store.CreatePatchTask(r.Context(), store.PatchTaskInput{
+				AgentID:          agentID,
+				AssetName:        rec.AssetName,
+				FixType:          rec.FixType,
+				FixValue:         rec.FixValue,
+				Action:           rec.Action,
+				CVEIDs:           cves,
+				Command:          cmd.Display,
+				Commands:         cmd.ArgvLists,
+				ApprovalRequired: approvalRequired,
+				WindowStart:      windowStart,
+				WindowEnd:        windowEnd,
+				CreatedBy:        "api",
+			})
+			if err != nil {
+				writeError(w, 500, err.Error())
+				return
+			}
+			created++
+			tasks = append(tasks, task)
+			continue
+		}
+		groups := fixGroupsMap[rec.AssetName]
+		if rec.FixType == "none" || len(groups) == 0 {
+			if rec.FixType == "none" {
+				skipped = append(skipped, campaignSkipped{
+					AgentID: agentID, Hostname: agent.Hostname, AssetName: rec.AssetName,
+					FixType: rec.FixType, Reason: "no_fix",
+					Detail: "no fixed version available for active CVEs",
+				})
+			}
+			continue
+		}
+		for _, g := range groups {
+			cves := filterCVEIDs(g.CVEIDs, wantCVEs)
+			if len(cves) == 0 {
+				continue
+			}
+			fixValue := ">= " + g.FixedVersion
+			mainItem := patch.FixSetItem{
+				AssetName: rec.AssetName, FixType: "version", FixValue: g.FixedVersion,
+				Action: rec.Action, PatchURL: rec.PatchURL, PatchSHA256: rec.PatchSHA256,
+				CVEIDs: cves,
+			}
+			fixSet, err := patch.ExpandFixSet(mainItem, rules, installed)
+			if err != nil {
+				writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
+				return
+			}
+			cmd, err := patch.BuildCommandsForFixSet(s.cfg.Patch, fixSet, agent.OSType, agent.OSVersion)
+			if err != nil {
+				writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
+				return
+			}
+			if !cmd.Deployable {
+				skipped = append(skipped, campaignSkipped{
+					AgentID: agentID, Hostname: agent.Hostname, AssetName: rec.AssetName,
+					FixType: "version", FixValue: fixValue, Reason: "non_deployable", Detail: cmd.Display,
+				})
+				continue
+			}
+			task, err := s.store.CreatePatchTask(r.Context(), store.PatchTaskInput{
+				AgentID:          agentID,
+				AssetName:        rec.AssetName,
+				FixType:          "version",
+				FixValue:         fixValue,
+				Action:           rec.Action,
+				CVEIDs:           cves,
+				Command:          cmd.Display,
+				Commands:         cmd.ArgvLists,
+				ApprovalRequired: approvalRequired,
+				WindowStart:      windowStart,
+				WindowEnd:        windowEnd,
+				CreatedBy:        "api",
+				FixSet:           fixSet,
+				FixSetHash:       patch.HashFixSet(fixSet),
+			})
+			if err != nil {
+				writeError(w, 500, err.Error())
+				return
+			}
+			created++
+			tasks = append(tasks, task)
+		}
+	}
+	writeJSON(w, 201, map[string]interface{}{
+		"created": created, "tasks": tasks, "skipped": skipped,
+	})
+}
+
+type apiTaskCandidate struct {
+	FixType     string
+	FixValue    string
+	Action      string
+	CVEIDs      []string
+	Command     string
+	Commands    [][]string
+	PatchURL    string
+	PatchSHA256 string
+}
+
+// buildKBCandidates converts one KB recommendation into one candidate per KB
+// group. Each candidate carries only the CVEs that KB actually fixes, so a
+// task never mixes two KBs under one fix value. Non-deployable groups are
+// skipped and counted.
+func buildKBCandidates(cfg *patch.Config, rec store.FixRecommendation,
+	kbMeta map[string]store.KBMetadata, downloads map[string][]store.KBDownload,
+	agent store.Agent, wantCVEs map[string]bool) ([]apiTaskCandidate, []string) {
+	enrichKBLinks(rec.KBs, kbMeta, downloads, agent.OSType, agent.Arch)
+	var out []apiTaskCandidate
+	var skipped []string
+	for _, kb := range rec.KBs {
+		cves := filterCVEIDs(kb.CVEIDs, wantCVEs)
 		if len(cves) == 0 {
 			continue
 		}
-		if rec.FixType == "kb" {
-			enrichKBLinks(rec.KBs, kbMeta)
-			if len(rec.KBs) > 0 {
-				if m, ok := kbMeta[rec.KBs[0].Kb]; ok {
-					rec.PatchURL = bestPatchURL(m)
-					rec.PatchSHA256 = m.DownloadSHA256
-				}
-				if rec.PatchURL == "" {
-					rec.PatchURL = rec.KBs[0].PatchURL
-				}
+		cmd, err := patch.BuildCommandForAgent(cfg, "kb", kb.Kb,
+			rec.AssetName, kb.PatchURL, kb.PatchSHA256, agent.OSType, agent.OSVersion)
+		if err != nil || !cmd.Deployable {
+			detail := "non-deployable KB"
+			if err == nil {
+				detail = cmd.Display
+			} else {
+				detail = err.Error()
 			}
+			skipped = append(skipped, detail)
+			continue
 		}
-		cmd, err := patch.BuildCommandForAgent(s.cfg.Patch, rec.FixType,
-			rec.FixedVersion, rec.AssetName, rec.PatchURL, rec.PatchSHA256,
-			agent.OSType, agent.OSVersion)
-		if err != nil {
-			writeError(w, 500, "asset "+rec.AssetName+": "+err.Error())
-			return
-		}
-		task, err := s.store.CreatePatchTask(r.Context(), store.PatchTaskInput{
-			AgentID:          agentID,
-			AssetName:        rec.AssetName,
-			FixType:          rec.FixType,
-			FixValue:         rec.FixValue,
-			Action:           rec.Action,
-			CVEIDs:           cves,
-			Command:          cmd.Display,
-			Commands:         cmd.ArgvLists,
-			ApprovalRequired: approvalRequired,
-			WindowStart:      windowStart,
-			WindowEnd:        windowEnd,
-			CreatedBy:        "api",
+		out = append(out, apiTaskCandidate{
+			FixType: "kb", FixValue: kb.Kb, Action: rec.Action,
+			CVEIDs: cves, Command: cmd.Display, Commands: cmd.ArgvLists,
+			PatchURL: kb.PatchURL, PatchSHA256: kb.PatchSHA256,
 		})
-		if err != nil {
-			writeError(w, 500, err.Error())
-			return
-		}
-		created++
-		tasks = append(tasks, task)
 	}
-	writeJSON(w, 201, map[string]interface{}{"created": created, "tasks": tasks})
+	return out, skipped
+}
+
+func filterCVEIDs(all []string, want map[string]bool) []string {
+	if len(want) == 0 {
+		return all
+	}
+	var out []string
+	for _, c := range all {
+		if want[c] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (s *RESTServer) listPatchTasks(w http.ResponseWriter, r *http.Request) {

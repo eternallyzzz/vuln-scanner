@@ -85,8 +85,8 @@ func TestMatchFeedEntryCustomSource(t *testing.T) {
 	e2.CVEID = "CUSTOM-X"
 	e2.Affected = affected(AffectedProduct{Name: "nginx", MinVer: "1.0.0", MaxVer: "1.22.0", FixedIn: "1.20.0"})
 	res = run(e2, "1.21.5")
-	if len(res) != 1 || res[0].MatchStatus != "fixed" || res[0].FixedVersion != "1.20.0" {
-		t.Fatalf("fixed_in reached must mark fixed: %+v", res)
+	if len(res) != 0 {
+		t.Fatalf("fixed_in below the affected max must be rejected as inconsistent, got %+v", res)
 	}
 
 	e3 := base

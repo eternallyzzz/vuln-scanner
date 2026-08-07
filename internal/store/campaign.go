@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"vuln-scanner/internal/patch"
 )
 
 type PatchCampaign struct {
@@ -47,6 +49,8 @@ type CampaignTaskInput struct {
 	WindowStart      *time.Time
 	WindowEnd        *time.Time
 	CreatedBy        string
+	FixSet           []patch.FixSetItem
+	FixSetHash       string
 }
 
 func scanPatchCampaign(row pgx.Row) (PatchCampaign, error) {
@@ -84,20 +88,25 @@ func (s *Store) CreatePatchCampaignWithTasks(ctx context.Context, name string, f
 	created := make([]PatchTask, 0, len(tasks))
 	for _, in := range tasks {
 		commands, _ := json.Marshal(in.Commands)
+		fixSet, _ := json.Marshal(in.FixSet)
+		if len(in.FixSet) == 0 {
+			fixSet = []byte("[]")
+		}
 		if len(in.CVEIDs) == 0 {
 			in.CVEIDs = []string{}
 		}
 		task, err := scanPatchTask(tx.QueryRow(ctx, `
 			INSERT INTO patch_tasks (agent_id, asset_name, fix_type, fix_value, action,
 				cve_ids, command, commands, status, approval_required, window_start, window_end,
-				created_by, campaign_id)
+				created_by, campaign_id, fix_set, fix_set_hash)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
 				CASE WHEN $9 THEN 'pending' ELSE 'approved' END,
-				$9,$10,$11,$12,$13)
+				$9,$10,$11,$12,$13,$14,$15)
 			RETURNING `+patchTaskColumns,
 			in.AgentID, in.AssetName, in.FixType, in.FixValue, in.Action,
 			in.CVEIDs, in.Command, commands, in.ApprovalRequired,
-			in.WindowStart, in.WindowEnd, in.CreatedBy, campaign.ID))
+			in.WindowStart, in.WindowEnd, in.CreatedBy, campaign.ID,
+			fixSet, in.FixSetHash))
 		if err != nil {
 			return PatchCampaign{}, nil, err
 		}
@@ -333,15 +342,37 @@ func (s *Store) ListPatchTasksFiltered(ctx context.Context, agentID string, camp
 }
 
 // HasOpenPatchTask reports whether an open (pending/approved/running) task
-// already exists for the same agent and asset, used to dedupe campaigns.
-func (s *Store) HasOpenPatchTask(ctx context.Context, agentID, assetName string) (bool, error) {
+// already exists for the same agent, asset and fix value, used to dedupe
+// campaigns. An empty fixValue matches any fix so a version task still blocks
+// duplicate campaigns for the same asset.
+func (s *Store) HasOpenPatchTask(ctx context.Context, agentID, assetName, fixValue string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM patch_tasks
 			WHERE agent_id=$1 AND asset_name=$2 AND status IN ('pending','approved','running')
+			  AND ($3='' OR fix_value=$3)
 		)
-	`, agentID, assetName).Scan(&exists)
+	`, agentID, assetName, fixValue).Scan(&exists)
+	return exists, err
+}
+
+// HasOpenPatchTaskForFixSet reports whether an open task with the same
+// canonical fix set already exists for an agent. It is the dependency-aware
+// replacement for HasOpenPatchTask; tasks without a fix_set_hash fall back
+// to the legacy asset/fix dedupe.
+func (s *Store) HasOpenPatchTaskForFixSet(ctx context.Context, agentID, fixSetHash string) (bool, error) {
+	if fixSetHash == "" {
+		return false, nil
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM patch_tasks
+			WHERE agent_id=$1 AND fix_set_hash=$2 AND fix_set_hash <> ''
+			  AND status IN ('pending','approved','running')
+		)
+	`, agentID, fixSetHash).Scan(&exists)
 	return exists, err
 }
 

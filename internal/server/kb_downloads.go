@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"log/slog"
+	"strings"
+	"time"
 
 	"vuln-scanner/internal/patch"
 	"vuln-scanner/internal/store"
@@ -15,32 +17,42 @@ func resolveActiveKBDownloads(ctx context.Context, st *store.Store, resolver *pa
 	if resolver == nil {
 		return
 	}
-	kbs, err := st.ActiveKBArticles(ctx)
+	targets, err := st.ActiveKBDownloadTargets(ctx)
 	if err != nil {
-		slog.Warn("kb download resolve: list active kbs failed", "error", err)
+		slog.Warn("kb download resolve: list active targets failed", "error", err)
 		return
 	}
-	if len(kbs) == 0 {
-		return
-	}
-	meta, err := st.GetKBMetadataMap(ctx, kbs)
-	if err != nil {
-		slog.Warn("kb download resolve: metadata failed", "error", err)
+	if len(targets) == 0 {
 		return
 	}
 	resolved := 0
-	for _, kb := range kbs {
-		m := meta[kb]
-		if m.ProductFamily != "windows" || m.DownloadURL != "" {
+	seen := make(map[string]bool)
+	for _, target := range targets {
+		key := target.KB + "|" + kbOSFamily(target.OSType) + "|" + target.Arch
+		if seen[key] {
 			continue
 		}
-		info, err := resolver.Resolve(ctx, kb, "", "x64")
+		seen[key] = true
+		family := kbOSFamily(target.OSType)
+		existing, err := st.GetKBDownloads(ctx, []string{target.KB})
 		if err != nil {
-			slog.Debug("kb download resolve failed", "kb", kb, "error", err)
+			slog.Warn("kb download resolve: metadata failed", "kb", target.KB, "error", err)
 			continue
 		}
-		if err := st.SetKBDownloadInfo(ctx, kb, info.URL, info.SHA256); err != nil {
-			slog.Warn("kb download resolve: persist failed", "kb", kb, "error", err)
+		if dl := selectKBDownload(existing[target.KB], family, target.Arch); dl != nil &&
+			dl.VerifiedAt != nil && time.Since(*dl.VerifiedAt) < 24*time.Hour {
+			continue
+		}
+		info, err := resolver.Resolve(ctx, target.KB, target.OSType, target.Arch)
+		if err != nil {
+			slog.Debug("kb download resolve failed", "kb", target.KB, "error", err)
+			continue
+		}
+		if err := st.SetKBDownload(ctx, store.KBDownload{
+			KB: target.KB, OSFamily: family, Arch: normalizeDownloadArch(target.Arch),
+			Title: info.Title, URL: info.URL, SHA256: info.SHA256,
+		}); err != nil {
+			slog.Warn("kb download resolve: persist failed", "kb", target.KB, "error", err)
 			continue
 		}
 		resolved++
@@ -48,4 +60,15 @@ func resolveActiveKBDownloads(ctx context.Context, st *store.Store, resolver *pa
 	if resolved > 0 {
 		slog.Info("kb download resolve completed", "resolved", resolved)
 	}
+}
+
+func normalizeDownloadArch(arch string) string {
+	if arch == "" {
+		return "x64"
+	}
+	lower := strings.ToLower(arch)
+	if strings.HasPrefix(lower, "arm") || strings.HasPrefix(lower, "aarch64") {
+		return "arm64"
+	}
+	return "x64"
 }

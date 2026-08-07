@@ -234,6 +234,7 @@ type FixRecommendation struct {
 	PatchURL           string                  `json:"patch_url,omitempty"`
 	PatchSHA256        string                  `json:"patch_sha256,omitempty"`
 	KBs                []KBPatchRecommendation `json:"kbs,omitempty"`
+	FixGroups          []VersionFixGroup       `json:"fix_groups,omitempty"`
 }
 
 // PatchLink is one typed link (advisory/support/catalog/download) shown for
@@ -254,7 +255,20 @@ type KBPatchRecommendation struct {
 	MaxSeverity  string      `json:"max_severity"`
 	ReferenceURL string      `json:"reference_url,omitempty"`
 	PatchURL     string      `json:"patch_url,omitempty"`
+	PatchSHA256  string      `json:"patch_sha256,omitempty"`
 	Links        []PatchLink `json:"links,omitempty"`
+}
+
+// VersionFixGroup is one (asset, fixed_version) remediation group: the CVEs
+// that specific fixed version actually covers, together with the strongest
+// CVSS score and the feed source that supplied the version. It replaces the
+// old asset-level MAX(fixed_version) binding so a patch task never mixes
+// CVEs that require different fixed versions.
+type VersionFixGroup struct {
+	FixedVersion string   `json:"fixed_version"`
+	CVEIDs       []string `json:"cve_ids"`
+	MaxCVSS      float64  `json:"max_cvss_score"`
+	Source       string   `json:"source,omitempty"`
 }
 
 func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]FixRecommendation, error) {
@@ -330,6 +344,15 @@ func (s *Store) GetAgentRecommendations(ctx context.Context, agentID string) ([]
 			if recs[i].FixType == "kb" {
 				recs[i].KBs = byAsset[recs[i].AssetName]
 			}
+		}
+	}
+	groups, err := s.ActiveVersionFixGroups(ctx, agentID, "", 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	for i := range recs {
+		if recs[i].FixType == "version" {
+			recs[i].FixGroups = groups[recs[i].AssetName]
 		}
 	}
 	return recs, nil
@@ -421,6 +444,49 @@ func (s *Store) ActiveCVEsByAssetFiltered(ctx context.Context, agentID, minSever
 			return nil, err
 		}
 		out[asset] = cves
+	}
+	return out, rows.Err()
+}
+
+// ActiveVersionFixGroups returns active version-style remediation groups per
+// asset, filtered by severity/CVSS/CVE allowlist. KB fixes are excluded
+// because they have their own (asset, KB) grouping; rows without a fixed
+// version are excluded because they have nothing to install.
+func (s *Store) ActiveVersionFixGroups(ctx context.Context, agentID, minSeverity string, minCVSS float64, cveIDs []string) (map[string][]VersionFixGroup, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.asset_name,
+			COALESCE(NULLIF(r.fixed_version, ''), '') AS fix_version,
+			array_agg(DISTINCT r.cve_id ORDER BY r.cve_id) AS cve_ids,
+			MAX(r.cvss_score) AS max_cvss,
+			COALESCE(MAX(NULLIF(r.source, '')), '') AS source
+		FROM cve_results r
+		WHERE r.agent_id=$1 AND r.status='active'
+		  AND r.fixed_version <> ''
+		  AND r.fixed_version NOT LIKE 'KB%'
+		  AND COALESCE(r.kb_article, '') NOT LIKE 'KB%'
+		  AND ($2='' OR
+			(CASE r.severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3
+			  WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END)
+			>= (CASE $2 WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3
+			  WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END))
+		  AND r.cvss_score >= $3
+		  AND (cardinality(COALESCE($4::text[],'{}'))=0 OR r.cve_id = ANY(COALESCE($4::text[],'{}')))
+		GROUP BY r.asset_name, fix_version
+		ORDER BY r.asset_name, fix_version
+	`, agentID, minSeverity, minCVSS, cveIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string][]VersionFixGroup)
+	for rows.Next() {
+		var g VersionFixGroup
+		var asset string
+		if err := rows.Scan(&asset, &g.FixedVersion, &g.CVEIDs, &g.MaxCVSS, &g.Source); err != nil {
+			return nil, err
+		}
+		out[asset] = append(out[asset], g)
 	}
 	return out, rows.Err()
 }

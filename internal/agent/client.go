@@ -116,6 +116,17 @@ func (c *Client) SyncCompliance(ctx context.Context, report *pb.ComplianceReport
 	return err
 }
 
+// SyncTelemetry uploads the periodic file-integrity and behavior facts.
+func (c *Client) SyncTelemetry(ctx context.Context, files []*pb.FileFact, sys *pb.SystemInfo) error {
+	_, err := c.rawClient.SyncTelemetry(ctx, &pb.SyncTelemetryRequest{
+		AgentId:    c.cfg.Agent.ID,
+		Token:      c.cfg.Agent.Token,
+		FileFacts:  files,
+		SystemInfo: sys,
+	})
+	return err
+}
+
 func (c *Client) FetchPatchTasks(ctx context.Context) ([]*pb.PatchTaskInfo, error) {
 	resp, err := c.rawClient.FetchPatchTasks(ctx, &pb.FetchPatchTasksRequest{
 		AgentId: c.cfg.Agent.ID,

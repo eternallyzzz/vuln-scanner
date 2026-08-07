@@ -1,0 +1,33 @@
+{
+  "name": "linux-log4j-core-active",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 11 (bullseye)",
+  "agent_version": "11.7",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "log4j-core", "version": "2.14.1", "format": "jar", "vendor": "Apache Software Foundation"}
+  ],
+  "translations": [
+    {
+      "pattern": "^log4j-core$",
+      "product": "log4j",
+      "platform": "any",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2021-44228",
+      "severity": "CRITICAL",
+      "cvss_score": 10.0,
+      "summary": "Apache Log4j2 JNDI features allow remote code execution",
+      "affected": [
+        {"name": "log4j", "min_ver": "2.0-beta9", "max_ver": "2.14.1", "max_inclusive": true, "fixed_in": "2.15.0", "ecosystem": "maven"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2021-44228", "asset": "log4j", "status": "active"}
+  ]
+}

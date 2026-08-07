@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"vuln-scanner/internal/patch"
 )
 
 type PatchTask struct {
@@ -39,6 +42,8 @@ type PatchTask struct {
 	PostPatchStatus       string          `json:"post_patch_status,omitempty"`
 	PostPatchDetail       string          `json:"post_patch_detail,omitempty"`
 	PostPatchAt           *time.Time      `json:"post_patch_at,omitempty"`
+	FixSet                json.RawMessage `json:"fix_set,omitempty"`
+	FixSetHash            string          `json:"fix_set_hash,omitempty"`
 }
 
 type PatchTaskInput struct {
@@ -54,6 +59,8 @@ type PatchTaskInput struct {
 	WindowStart      *time.Time
 	WindowEnd        *time.Time
 	CreatedBy        string
+	FixSet           []patch.FixSetItem
+	FixSetHash       string
 }
 
 func scanPatchTask(row pgx.Row) (PatchTask, error) {
@@ -61,19 +68,22 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 	var commandsRaw []byte
 	var resultRaw []byte
 	var baselineRaw []byte
+	var fixSetRaw []byte
 	err := row.Scan(&t.ID, &t.AgentID, &t.AssetName, &t.FixType, &t.FixValue,
 		&t.Action, &t.CVEIDs, &t.Command, &commandsRaw, &t.Status,
 		&t.ApprovalRequired, &t.WindowStart, &t.WindowEnd, &resultRaw,
 		&t.CreatedBy, &t.ApprovedBy, &t.CreatedAt, &t.UpdatedAt, &t.CampaignID,
 		&t.CancelRequested, &baselineRaw, &t.RuntimeVerifyStatus,
 		&t.RuntimeVerifyDetail, &t.RuntimeVerifyAt,
-		&t.PostPatchStatus, &t.PostPatchDetail, &t.PostPatchAt)
+		&t.PostPatchStatus, &t.PostPatchDetail, &t.PostPatchAt,
+		&fixSetRaw, &t.FixSetHash)
 	if err != nil {
 		return t, err
 	}
 	json.Unmarshal(commandsRaw, &t.Commands)
 	t.Result = resultRaw
 	t.RuntimeVerifyBaseline = baselineRaw
+	t.FixSet = fixSetRaw
 	return t, nil
 }
 
@@ -81,7 +91,8 @@ const patchTaskColumns = `id, agent_id, asset_name, fix_type, fix_value, action,
 	command, commands, status, approval_required, window_start, window_end,
 	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested,
 	runtime_verify_baseline, runtime_verify_status, runtime_verify_detail, runtime_verify_at,
-	post_patch_status, post_patch_detail, post_patch_at`
+	post_patch_status, post_patch_detail, post_patch_at,
+	fix_set, fix_set_hash`
 
 // PatchTaskEvent is one incremental execution event (stdout/stderr chunk or
 // heartbeat). id is the monotonic cursor used by the REST event stream.
@@ -95,16 +106,22 @@ type PatchTaskEvent struct {
 
 func (s *Store) CreatePatchTask(ctx context.Context, in PatchTaskInput) (PatchTask, error) {
 	commands, _ := json.Marshal(in.Commands)
+	fixSet, _ := json.Marshal(in.FixSet)
+	if len(in.FixSet) == 0 {
+		fixSet = []byte("[]")
+	}
 	if len(in.CVEIDs) == 0 {
 		in.CVEIDs = []string{}
 	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO patch_tasks (agent_id, asset_name, fix_type, fix_value, action,
-			cve_ids, command, commands, status, approval_required, window_start, window_end, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,$12)
+			cve_ids, command, commands, status, approval_required, window_start, window_end, created_by,
+			fix_set, fix_set_hash)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9,$10,$11,$12,$13,$14)
 		RETURNING `+patchTaskColumns,
 		in.AgentID, in.AssetName, in.FixType, in.FixValue, in.Action,
-		in.CVEIDs, in.Command, commands, in.ApprovalRequired, in.WindowStart, in.WindowEnd, in.CreatedBy)
+		in.CVEIDs, in.Command, commands, in.ApprovalRequired, in.WindowStart, in.WindowEnd, in.CreatedBy,
+		fixSet, in.FixSetHash)
 	task, err := scanPatchTask(row)
 	if err != nil {
 		return task, err
@@ -317,6 +334,7 @@ const (
 	PostPatchVerifyStaleAfter = 24 * time.Hour
 
 	postPatchRemainingPrefix = "remaining active CVEs: "
+	postPatchMissingPrefix   = " | missing fixes: "
 	postPatchNoRescanDetail  = "no post-patch re-scan observed"
 )
 
@@ -341,6 +359,23 @@ func remainingCVEsFromDetail(detail string) []string {
 		return []string{}
 	}
 	rest := strings.TrimPrefix(detail, postPatchRemainingPrefix)
+	if idx := strings.Index(rest, postPatchMissingPrefix); idx >= 0 {
+		rest = rest[:idx]
+	}
+	if rest == "" {
+		return []string{}
+	}
+	return strings.Split(rest, ", ")
+}
+
+// missingFixesFromDetail extracts the machine-readable missing-fix list from
+// the post-patch detail string (e.g. "libldb2, curl >= 9.0.0").
+func missingFixesFromDetail(detail string) []string {
+	idx := strings.Index(detail, postPatchMissingPrefix)
+	if idx < 0 {
+		return []string{}
+	}
+	rest := detail[idx+len(postPatchMissingPrefix):]
 	if rest == "" {
 		return []string{}
 	}
@@ -410,11 +445,90 @@ func (s *Store) VerifyPendingPostPatchTasks(ctx context.Context, agentID string)
 			return err
 		}
 		status, detail := postPatchVerdict(t.CVEIDs, remaining)
+		if status == "failed" {
+			missing, err := s.missingFixesForTask(ctx, t, remaining)
+			if err != nil {
+				return err
+			}
+			if len(missing) > 0 {
+				detail += postPatchMissingPrefix + strings.Join(missing, ", ")
+			}
+		}
 		if err := s.CompletePostPatchVerification(ctx, t.ID, status, detail); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// missingFixesForTask derives actionable follow-up fixes for a failed
+// post-patch verification: remaining CVEs whose fixed version is newer than
+// the task's fix value, plus installed dependency assets required by the
+// task's static dependency rules.
+func (s *Store) missingFixesForTask(ctx context.Context, t PatchTask, remaining []string) ([]string, error) {
+	if len(remaining) == 0 {
+		return nil, nil
+	}
+	taskFix := strings.TrimPrefix(t.FixValue, ">= ")
+	var out []string
+	seen := map[string]bool{}
+	add := func(v string) {
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT COALESCE(NULLIF(fixed_version, ''), '')
+		FROM cve_results
+		WHERE agent_id=$1 AND asset_name=$2 AND status='active'
+		  AND cve_id = ANY($3::text[])
+		  AND fixed_version <> ''
+	`, t.AgentID, t.AssetName, remaining)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var fixed string
+		if err := rows.Scan(&fixed); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if fixed != taskFix {
+			add(t.AssetName + " >= " + fixed)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	rules, err := s.ListDependencyRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	installed, err := s.AgentInstalledAssets(ctx, t.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rules {
+		if !r.Enabled || !r.Required {
+			continue
+		}
+		if r.AssetName != t.AssetName || r.FixType != t.FixType {
+			continue
+		}
+		if r.FixValue != "" && r.FixValue != taskFix {
+			continue
+		}
+		if !installed[r.DependencyAsset] {
+			continue
+		}
+		add(r.DependencyAsset)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // CompletePostPatchVerification writes the post-patch result and appends a

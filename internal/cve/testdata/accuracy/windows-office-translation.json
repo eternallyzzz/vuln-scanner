@@ -1,0 +1,33 @@
+{
+  "name": "windows-office-translation",
+  "platform": "windows",
+  "agent_os": "Windows 11 Pro 23H2",
+  "agent_version": "10.0.22631.3007",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "Microsoft Office Professional Plus 2021", "version": "16.0.14332.20462", "format": "win", "vendor": "Microsoft Corporation"}
+  ],
+  "translations": [
+    {
+      "pattern": "^Microsoft Office.*",
+      "product": "office",
+      "platform": "windows",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "custom",
+      "cve_id": "CVE-2099-0101",
+      "severity": "HIGH",
+      "cvss_score": 8.8,
+      "summary": "Microsoft Office arbitrary code execution",
+      "affected": [
+        {"name": "office", "max_ver": "99.99.99"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0101", "asset": "office", "status": "active"}
+  ]
+}

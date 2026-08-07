@@ -1,0 +1,25 @@
+{
+  "name": "linux-fixed-version-assert",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "curl", "version": "8.3.0", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0302",
+      "severity": "HIGH",
+      "cvss_score": 8.1,
+      "summary": "Fix version metadata assertion",
+      "affected": [
+        {"name": "curl", "vendor": "haxx", "max_ver": "8.4.0", "fixed_in": "8.4.0"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0302", "asset": "curl", "status": "active", "fixed_version": "8.4.0"}
+  ]
+}

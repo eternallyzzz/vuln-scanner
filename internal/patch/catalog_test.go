@@ -63,14 +63,48 @@ downloadInformation[0] = new Object();
 downloadInformation[0].files[0] = new Object();
 downloadInformation[0].files[0].url = 'https://catalog.s.download.windowsupdate.com/d/msdownload/update/software/secu/2022/10/windows11.0-kb5018427-x64_abc.msu';
 downloadInformation[0].files[0].digest = 'S28F+jYcZfOWxmbJegW2u45MQRo=';
-downloadInformation[0].files[0].sha256 = '';
+downloadInformation[0].files[0].sha256 = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 `
-	u, digest := parseCatalogDownloadInfo(page)
+	u, sha := parseCatalogDownloadInfo(page)
 	if u != "https://catalog.s.download.windowsupdate.com/d/msdownload/update/software/secu/2022/10/windows11.0-kb5018427-x64_abc.msu" {
 		t.Fatalf("download url wrong: %q", u)
 	}
-	if digest != "S28F+jYcZfOWxmbJegW2u45MQRo=" {
-		t.Fatalf("digest wrong: %q", digest)
+	if sha != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("sha256 wrong: %q", sha)
+	}
+
+	noSHA := `
+downloadInformation[0].files[0].url = 'https://catalog.s.download.windowsupdate.com/d/x/kb1-x64.msu';
+downloadInformation[0].files[0].digest = 'S28F+jYcZfOWxmbJegW2u45MQRo=';
+downloadInformation[0].files[0].sha256 = '';
+`
+	_, sha = parseCatalogDownloadInfo(noSHA)
+	if sha != "" {
+		t.Fatalf("non-SHA256 digest must not be returned, got %q", sha)
+	}
+}
+
+func TestCatalogEntryMatchesKB(t *testing.T) {
+	if !catalogEntryMatchesKB("2022-10 Cumulative Update for Windows 11 (KB5018427)", "KB5018427") {
+		t.Fatal("matching catalog title must pass")
+	}
+	if catalogEntryMatchesKB("2022-10 Cumulative Update for Windows 11 (KB5008218)", "KB5018427") {
+		t.Fatal("wrong KB title must fail")
+	}
+	if catalogEntryMatchesKB("no kb here", "KB5018427") {
+		t.Fatal("title without KB must fail")
+	}
+}
+
+func TestCatalogDownloadMatchesKB(t *testing.T) {
+	if !catalogDownloadMatchesKB("https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5018427-x64.msu", "KB5018427") {
+		t.Fatal("matching .msu filename must pass")
+	}
+	if catalogDownloadMatchesKB("https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5008218-x64.msu", "KB5018427") {
+		t.Fatal("wrong KB filename must fail")
+	}
+	if catalogDownloadMatchesKB("https://catalog.s.download.windowsupdate.com/d/x/windows11.0-kb5018427-x64.cab", "KB5018427") {
+		t.Fatal("non-msu must fail")
 	}
 }
 

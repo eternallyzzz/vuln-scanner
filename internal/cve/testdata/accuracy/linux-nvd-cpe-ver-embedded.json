@@ -1,0 +1,25 @@
+{
+  "name": "linux-nvd-cpe-ver-embedded",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "libssl1.1", "version": "1.1.1n", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0111",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "OpenSSL 1.1 advisory",
+      "affected": [
+        {"name": "libssl1.1", "vendor": "openssl", "cpe_ver": "1.1", "max_ver": "99.99.99"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0111", "asset": "libssl1.1", "status": "active"}
+  ]
+}

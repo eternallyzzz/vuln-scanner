@@ -724,6 +724,216 @@ func (x *SyncComplianceResponse) GetOk() bool {
 	return false
 }
 
+// FileFact is one monitored file's integrity state (path + SHA256 + size +
+// mode + mtime), collected periodically by the agent.
+type FileFact struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Path       string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Sha256     string `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	SizeBytes  int64  `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Mode       string `protobuf:"bytes,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	ModifiedAt string `protobuf:"bytes,5,opt,name=modified_at,json=modifiedAt,proto3" json:"modified_at,omitempty"`
+}
+
+func (x *FileFact) Reset() {
+	*x = FileFact{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[10]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *FileFact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileFact) ProtoMessage() {}
+
+func (x *FileFact) ProtoReflect() protoreflect.Message {
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[10]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileFact.ProtoReflect.Descriptor instead.
+func (*FileFact) Descriptor() ([]byte, []int) {
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *FileFact) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *FileFact) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *FileFact) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *FileFact) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *FileFact) GetModifiedAt() string {
+	if x != nil {
+		return x.ModifiedAt
+	}
+	return ""
+}
+
+// SyncTelemetryRequest carries the periodic file-integrity and behavior
+// facts used to build server-side baselines and drift findings. The
+// behavior facts reuse the relevant SystemInfo repeated fields.
+type SyncTelemetryRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	AgentId    string      `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Token      string      `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	FileFacts  []*FileFact `protobuf:"bytes,3,rep,name=file_facts,json=fileFacts,proto3" json:"file_facts,omitempty"`
+	SystemInfo *SystemInfo `protobuf:"bytes,4,opt,name=system_info,json=systemInfo,proto3" json:"system_info,omitempty"`
+}
+
+func (x *SyncTelemetryRequest) Reset() {
+	*x = SyncTelemetryRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[11]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SyncTelemetryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncTelemetryRequest) ProtoMessage() {}
+
+func (x *SyncTelemetryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[11]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncTelemetryRequest.ProtoReflect.Descriptor instead.
+func (*SyncTelemetryRequest) Descriptor() ([]byte, []int) {
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SyncTelemetryRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *SyncTelemetryRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *SyncTelemetryRequest) GetFileFacts() []*FileFact {
+	if x != nil {
+		return x.FileFacts
+	}
+	return nil
+}
+
+func (x *SyncTelemetryRequest) GetSystemInfo() *SystemInfo {
+	if x != nil {
+		return x.SystemInfo
+	}
+	return nil
+}
+
+type SyncTelemetryResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Ok         bool `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Rebaseline bool `protobuf:"varint,2,opt,name=rebaseline,proto3" json:"rebaseline,omitempty"`
+}
+
+func (x *SyncTelemetryResponse) Reset() {
+	*x = SyncTelemetryResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SyncTelemetryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SyncTelemetryResponse) ProtoMessage() {}
+
+func (x *SyncTelemetryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SyncTelemetryResponse.ProtoReflect.Descriptor instead.
+func (*SyncTelemetryResponse) Descriptor() ([]byte, []int) {
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SyncTelemetryResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *SyncTelemetryResponse) GetRebaseline() bool {
+	if x != nil {
+		return x.Rebaseline
+	}
+	return false
+}
+
 type ComplianceReport struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -742,7 +952,7 @@ type ComplianceReport struct {
 func (x *ComplianceReport) Reset() {
 	*x = ComplianceReport{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[10]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -755,7 +965,7 @@ func (x *ComplianceReport) String() string {
 func (*ComplianceReport) ProtoMessage() {}
 
 func (x *ComplianceReport) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[10]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -768,7 +978,7 @@ func (x *ComplianceReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComplianceReport.ProtoReflect.Descriptor instead.
 func (*ComplianceReport) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ComplianceReport) GetBenchmark() string {
@@ -842,7 +1052,7 @@ type ComplianceCheck struct {
 func (x *ComplianceCheck) Reset() {
 	*x = ComplianceCheck{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[11]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -855,7 +1065,7 @@ func (x *ComplianceCheck) String() string {
 func (*ComplianceCheck) ProtoMessage() {}
 
 func (x *ComplianceCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[11]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -868,7 +1078,7 @@ func (x *ComplianceCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComplianceCheck.ProtoReflect.Descriptor instead.
 func (*ComplianceCheck) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ComplianceCheck) GetId() string {
@@ -924,7 +1134,7 @@ type PatchTaskInfo struct {
 func (x *PatchTaskInfo) Reset() {
 	*x = PatchTaskInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[12]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -937,7 +1147,7 @@ func (x *PatchTaskInfo) String() string {
 func (*PatchTaskInfo) ProtoMessage() {}
 
 func (x *PatchTaskInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[12]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -950,7 +1160,7 @@ func (x *PatchTaskInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PatchTaskInfo.ProtoReflect.Descriptor instead.
 func (*PatchTaskInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PatchTaskInfo) GetId() int64 {
@@ -1020,7 +1230,7 @@ type CommandArgv struct {
 func (x *CommandArgv) Reset() {
 	*x = CommandArgv{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[13]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1033,7 +1243,7 @@ func (x *CommandArgv) String() string {
 func (*CommandArgv) ProtoMessage() {}
 
 func (x *CommandArgv) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[13]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1256,7 @@ func (x *CommandArgv) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandArgv.ProtoReflect.Descriptor instead.
 func (*CommandArgv) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CommandArgv) GetArgv() []string {
@@ -1068,7 +1278,7 @@ type FetchPatchTasksRequest struct {
 func (x *FetchPatchTasksRequest) Reset() {
 	*x = FetchPatchTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[14]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1081,7 +1291,7 @@ func (x *FetchPatchTasksRequest) String() string {
 func (*FetchPatchTasksRequest) ProtoMessage() {}
 
 func (x *FetchPatchTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[14]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1094,7 +1304,7 @@ func (x *FetchPatchTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPatchTasksRequest.ProtoReflect.Descriptor instead.
 func (*FetchPatchTasksRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *FetchPatchTasksRequest) GetAgentId() string {
@@ -1122,7 +1332,7 @@ type FetchPatchTasksResponse struct {
 func (x *FetchPatchTasksResponse) Reset() {
 	*x = FetchPatchTasksResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[15]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1135,7 +1345,7 @@ func (x *FetchPatchTasksResponse) String() string {
 func (*FetchPatchTasksResponse) ProtoMessage() {}
 
 func (x *FetchPatchTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[15]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1148,7 +1358,7 @@ func (x *FetchPatchTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchPatchTasksResponse.ProtoReflect.Descriptor instead.
 func (*FetchPatchTasksResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *FetchPatchTasksResponse) GetTasks() []*PatchTaskInfo {
@@ -1174,7 +1384,7 @@ type ReportPatchTaskRequest struct {
 func (x *ReportPatchTaskRequest) Reset() {
 	*x = ReportPatchTaskRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[16]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1187,7 +1397,7 @@ func (x *ReportPatchTaskRequest) String() string {
 func (*ReportPatchTaskRequest) ProtoMessage() {}
 
 func (x *ReportPatchTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[16]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,7 +1410,7 @@ func (x *ReportPatchTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPatchTaskRequest.ProtoReflect.Descriptor instead.
 func (*ReportPatchTaskRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReportPatchTaskRequest) GetTaskId() int64 {
@@ -1256,7 +1466,7 @@ type ReportPatchTaskResponse struct {
 func (x *ReportPatchTaskResponse) Reset() {
 	*x = ReportPatchTaskResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[17]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1269,7 +1479,7 @@ func (x *ReportPatchTaskResponse) String() string {
 func (*ReportPatchTaskResponse) ProtoMessage() {}
 
 func (x *ReportPatchTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[17]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1492,7 @@ func (x *ReportPatchTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPatchTaskResponse.ProtoReflect.Descriptor instead.
 func (*ReportPatchTaskResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ReportPatchTaskResponse) GetOk() bool {
@@ -1307,7 +1517,7 @@ type ReportPatchProgressRequest struct {
 func (x *ReportPatchProgressRequest) Reset() {
 	*x = ReportPatchProgressRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[18]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1320,7 +1530,7 @@ func (x *ReportPatchProgressRequest) String() string {
 func (*ReportPatchProgressRequest) ProtoMessage() {}
 
 func (x *ReportPatchProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[18]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1333,7 +1543,7 @@ func (x *ReportPatchProgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPatchProgressRequest.ProtoReflect.Descriptor instead.
 func (*ReportPatchProgressRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ReportPatchProgressRequest) GetTaskId() int64 {
@@ -1383,7 +1593,7 @@ type ReportPatchProgressResponse struct {
 func (x *ReportPatchProgressResponse) Reset() {
 	*x = ReportPatchProgressResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[19]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1396,7 +1606,7 @@ func (x *ReportPatchProgressResponse) String() string {
 func (*ReportPatchProgressResponse) ProtoMessage() {}
 
 func (x *ReportPatchProgressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[19]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1409,7 +1619,7 @@ func (x *ReportPatchProgressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportPatchProgressResponse.ProtoReflect.Descriptor instead.
 func (*ReportPatchProgressResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ReportPatchProgressResponse) GetOk() bool {
@@ -1439,7 +1649,7 @@ type NetworkScanTaskInfo struct {
 func (x *NetworkScanTaskInfo) Reset() {
 	*x = NetworkScanTaskInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[20]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1452,7 +1662,7 @@ func (x *NetworkScanTaskInfo) String() string {
 func (*NetworkScanTaskInfo) ProtoMessage() {}
 
 func (x *NetworkScanTaskInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[20]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1675,7 @@ func (x *NetworkScanTaskInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkScanTaskInfo.ProtoReflect.Descriptor instead.
 func (*NetworkScanTaskInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *NetworkScanTaskInfo) GetId() int64 {
@@ -1501,7 +1711,7 @@ type FetchNetworkScanTasksRequest struct {
 func (x *FetchNetworkScanTasksRequest) Reset() {
 	*x = FetchNetworkScanTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[21]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1514,7 +1724,7 @@ func (x *FetchNetworkScanTasksRequest) String() string {
 func (*FetchNetworkScanTasksRequest) ProtoMessage() {}
 
 func (x *FetchNetworkScanTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[21]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1527,7 +1737,7 @@ func (x *FetchNetworkScanTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchNetworkScanTasksRequest.ProtoReflect.Descriptor instead.
 func (*FetchNetworkScanTasksRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *FetchNetworkScanTasksRequest) GetAgentId() string {
@@ -1555,7 +1765,7 @@ type FetchNetworkScanTasksResponse struct {
 func (x *FetchNetworkScanTasksResponse) Reset() {
 	*x = FetchNetworkScanTasksResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[22]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1568,7 +1778,7 @@ func (x *FetchNetworkScanTasksResponse) String() string {
 func (*FetchNetworkScanTasksResponse) ProtoMessage() {}
 
 func (x *FetchNetworkScanTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[22]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1581,7 +1791,7 @@ func (x *FetchNetworkScanTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchNetworkScanTasksResponse.ProtoReflect.Descriptor instead.
 func (*FetchNetworkScanTasksResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FetchNetworkScanTasksResponse) GetTasks() []*NetworkScanTaskInfo {
@@ -1606,7 +1816,7 @@ type NetworkService struct {
 func (x *NetworkService) Reset() {
 	*x = NetworkService{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[23]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1619,7 +1829,7 @@ func (x *NetworkService) String() string {
 func (*NetworkService) ProtoMessage() {}
 
 func (x *NetworkService) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[23]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1632,7 +1842,7 @@ func (x *NetworkService) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkService.ProtoReflect.Descriptor instead.
 func (*NetworkService) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *NetworkService) GetPort() int32 {
@@ -1684,7 +1894,7 @@ type NetworkHost struct {
 func (x *NetworkHost) Reset() {
 	*x = NetworkHost{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[24]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1697,7 +1907,7 @@ func (x *NetworkHost) String() string {
 func (*NetworkHost) ProtoMessage() {}
 
 func (x *NetworkHost) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[24]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1710,7 +1920,7 @@ func (x *NetworkHost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetworkHost.ProtoReflect.Descriptor instead.
 func (*NetworkHost) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *NetworkHost) GetIp() string {
@@ -1758,7 +1968,7 @@ type SyncNetworkScanRequest struct {
 func (x *SyncNetworkScanRequest) Reset() {
 	*x = SyncNetworkScanRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[25]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1771,7 +1981,7 @@ func (x *SyncNetworkScanRequest) String() string {
 func (*SyncNetworkScanRequest) ProtoMessage() {}
 
 func (x *SyncNetworkScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[25]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1784,7 +1994,7 @@ func (x *SyncNetworkScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncNetworkScanRequest.ProtoReflect.Descriptor instead.
 func (*SyncNetworkScanRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SyncNetworkScanRequest) GetAgentId() string {
@@ -1848,7 +2058,7 @@ type SyncNetworkScanResponse struct {
 func (x *SyncNetworkScanResponse) Reset() {
 	*x = SyncNetworkScanResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[26]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1861,7 +2071,7 @@ func (x *SyncNetworkScanResponse) String() string {
 func (*SyncNetworkScanResponse) ProtoMessage() {}
 
 func (x *SyncNetworkScanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[26]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1874,7 +2084,7 @@ func (x *SyncNetworkScanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncNetworkScanResponse.ProtoReflect.Descriptor instead.
 func (*SyncNetworkScanResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *SyncNetworkScanResponse) GetOk() bool {
@@ -1910,7 +2120,7 @@ type Asset struct {
 func (x *Asset) Reset() {
 	*x = Asset{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[27]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1923,7 +2133,7 @@ func (x *Asset) String() string {
 func (*Asset) ProtoMessage() {}
 
 func (x *Asset) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[27]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1936,7 +2146,7 @@ func (x *Asset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Asset.ProtoReflect.Descriptor instead.
 func (*Asset) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *Asset) GetName() string {
@@ -2055,7 +2265,7 @@ type SystemInfo struct {
 func (x *SystemInfo) Reset() {
 	*x = SystemInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[28]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2068,7 +2278,7 @@ func (x *SystemInfo) String() string {
 func (*SystemInfo) ProtoMessage() {}
 
 func (x *SystemInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[28]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2081,7 +2291,7 @@ func (x *SystemInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemInfo.ProtoReflect.Descriptor instead.
 func (*SystemInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SystemInfo) GetHostname() string {
@@ -2402,7 +2612,7 @@ type UpdateFact struct {
 func (x *UpdateFact) Reset() {
 	*x = UpdateFact{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[29]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2415,7 +2625,7 @@ func (x *UpdateFact) String() string {
 func (*UpdateFact) ProtoMessage() {}
 
 func (x *UpdateFact) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[29]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2428,7 +2638,7 @@ func (x *UpdateFact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateFact.ProtoReflect.Descriptor instead.
 func (*UpdateFact) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *UpdateFact) GetKb() string {
@@ -2493,7 +2703,7 @@ type UpdateSourceStatus struct {
 func (x *UpdateSourceStatus) Reset() {
 	*x = UpdateSourceStatus{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[30]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2506,7 +2716,7 @@ func (x *UpdateSourceStatus) String() string {
 func (*UpdateSourceStatus) ProtoMessage() {}
 
 func (x *UpdateSourceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[30]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2519,7 +2729,7 @@ func (x *UpdateSourceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateSourceStatus.ProtoReflect.Descriptor instead.
 func (*UpdateSourceStatus) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *UpdateSourceStatus) GetSourceReachable() bool {
@@ -2555,7 +2765,7 @@ type CPUSpec struct {
 func (x *CPUSpec) Reset() {
 	*x = CPUSpec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[31]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2568,7 +2778,7 @@ func (x *CPUSpec) String() string {
 func (*CPUSpec) ProtoMessage() {}
 
 func (x *CPUSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[31]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2581,7 +2791,7 @@ func (x *CPUSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CPUSpec.ProtoReflect.Descriptor instead.
 func (*CPUSpec) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CPUSpec) GetName() string {
@@ -2610,7 +2820,7 @@ type GPUSpec struct {
 func (x *GPUSpec) Reset() {
 	*x = GPUSpec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[32]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2623,7 +2833,7 @@ func (x *GPUSpec) String() string {
 func (*GPUSpec) ProtoMessage() {}
 
 func (x *GPUSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[32]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2636,7 +2846,7 @@ func (x *GPUSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GPUSpec.ProtoReflect.Descriptor instead.
 func (*GPUSpec) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *GPUSpec) GetName() string {
@@ -2665,7 +2875,7 @@ type MotherboardSpec struct {
 func (x *MotherboardSpec) Reset() {
 	*x = MotherboardSpec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[33]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2678,7 +2888,7 @@ func (x *MotherboardSpec) String() string {
 func (*MotherboardSpec) ProtoMessage() {}
 
 func (x *MotherboardSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[33]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2691,7 +2901,7 @@ func (x *MotherboardSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MotherboardSpec.ProtoReflect.Descriptor instead.
 func (*MotherboardSpec) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *MotherboardSpec) GetManufacturer() string {
@@ -2725,7 +2935,7 @@ type NetInterfaceSpec struct {
 func (x *NetInterfaceSpec) Reset() {
 	*x = NetInterfaceSpec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[34]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2738,7 +2948,7 @@ func (x *NetInterfaceSpec) String() string {
 func (*NetInterfaceSpec) ProtoMessage() {}
 
 func (x *NetInterfaceSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[34]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2751,7 +2961,7 @@ func (x *NetInterfaceSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NetInterfaceSpec.ProtoReflect.Descriptor instead.
 func (*NetInterfaceSpec) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *NetInterfaceSpec) GetName() string {
@@ -2817,7 +3027,7 @@ type PortInfo struct {
 func (x *PortInfo) Reset() {
 	*x = PortInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[35]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2830,7 +3040,7 @@ func (x *PortInfo) String() string {
 func (*PortInfo) ProtoMessage() {}
 
 func (x *PortInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[35]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2843,7 +3053,7 @@ func (x *PortInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortInfo.ProtoReflect.Descriptor instead.
 func (*PortInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *PortInfo) GetProtocol() string {
@@ -2888,7 +3098,7 @@ type ProcessInfo struct {
 func (x *ProcessInfo) Reset() {
 	*x = ProcessInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[36]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2901,7 +3111,7 @@ func (x *ProcessInfo) String() string {
 func (*ProcessInfo) ProtoMessage() {}
 
 func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[36]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2914,7 +3124,7 @@ func (x *ProcessInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessInfo.ProtoReflect.Descriptor instead.
 func (*ProcessInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ProcessInfo) GetPid() int32 {
@@ -2962,7 +3172,7 @@ type StorageSpec struct {
 func (x *StorageSpec) Reset() {
 	*x = StorageSpec{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[37]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2975,7 +3185,7 @@ func (x *StorageSpec) String() string {
 func (*StorageSpec) ProtoMessage() {}
 
 func (x *StorageSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[37]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2988,7 +3198,7 @@ func (x *StorageSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StorageSpec.ProtoReflect.Descriptor instead.
 func (*StorageSpec) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *StorageSpec) GetName() string {
@@ -3054,7 +3264,7 @@ type ServiceInfo struct {
 func (x *ServiceInfo) Reset() {
 	*x = ServiceInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[38]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3067,7 +3277,7 @@ func (x *ServiceInfo) String() string {
 func (*ServiceInfo) ProtoMessage() {}
 
 func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[38]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3080,7 +3290,7 @@ func (x *ServiceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceInfo.ProtoReflect.Descriptor instead.
 func (*ServiceInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ServiceInfo) GetName() string {
@@ -3124,7 +3334,7 @@ type StartupItem struct {
 func (x *StartupItem) Reset() {
 	*x = StartupItem{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[39]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3137,7 +3347,7 @@ func (x *StartupItem) String() string {
 func (*StartupItem) ProtoMessage() {}
 
 func (x *StartupItem) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[39]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3150,7 +3360,7 @@ func (x *StartupItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartupItem.ProtoReflect.Descriptor instead.
 func (*StartupItem) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *StartupItem) GetName() string {
@@ -3188,7 +3398,7 @@ type ScheduledTask struct {
 func (x *ScheduledTask) Reset() {
 	*x = ScheduledTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[40]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3201,7 +3411,7 @@ func (x *ScheduledTask) String() string {
 func (*ScheduledTask) ProtoMessage() {}
 
 func (x *ScheduledTask) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[40]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3214,7 +3424,7 @@ func (x *ScheduledTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledTask.ProtoReflect.Descriptor instead.
 func (*ScheduledTask) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ScheduledTask) GetName() string {
@@ -3259,7 +3469,7 @@ type RouteInfo struct {
 func (x *RouteInfo) Reset() {
 	*x = RouteInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[41]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3272,7 +3482,7 @@ func (x *RouteInfo) String() string {
 func (*RouteInfo) ProtoMessage() {}
 
 func (x *RouteInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[41]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3285,7 +3495,7 @@ func (x *RouteInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RouteInfo.ProtoReflect.Descriptor instead.
 func (*RouteInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *RouteInfo) GetDestination() string {
@@ -3333,7 +3543,7 @@ type FirewallRule struct {
 func (x *FirewallRule) Reset() {
 	*x = FirewallRule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[42]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3346,7 +3556,7 @@ func (x *FirewallRule) String() string {
 func (*FirewallRule) ProtoMessage() {}
 
 func (x *FirewallRule) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[42]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3359,7 +3569,7 @@ func (x *FirewallRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirewallRule.ProtoReflect.Descriptor instead.
 func (*FirewallRule) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *FirewallRule) GetName() string {
@@ -3425,7 +3635,7 @@ type NeighborInfo struct {
 func (x *NeighborInfo) Reset() {
 	*x = NeighborInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[43]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3438,7 +3648,7 @@ func (x *NeighborInfo) String() string {
 func (*NeighborInfo) ProtoMessage() {}
 
 func (x *NeighborInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[43]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3451,7 +3661,7 @@ func (x *NeighborInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NeighborInfo.ProtoReflect.Descriptor instead.
 func (*NeighborInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *NeighborInfo) GetInterface() string {
@@ -3498,7 +3708,7 @@ type CertificateInfo struct {
 func (x *CertificateInfo) Reset() {
 	*x = CertificateInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[44]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3511,7 +3721,7 @@ func (x *CertificateInfo) String() string {
 func (*CertificateInfo) ProtoMessage() {}
 
 func (x *CertificateInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[44]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3524,7 +3734,7 @@ func (x *CertificateInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CertificateInfo.ProtoReflect.Descriptor instead.
 func (*CertificateInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *CertificateInfo) GetSubject() string {
@@ -3584,7 +3794,7 @@ type AccountInfo struct {
 func (x *AccountInfo) Reset() {
 	*x = AccountInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[45]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3597,7 +3807,7 @@ func (x *AccountInfo) String() string {
 func (*AccountInfo) ProtoMessage() {}
 
 func (x *AccountInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[45]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3610,7 +3820,7 @@ func (x *AccountInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountInfo.ProtoReflect.Descriptor instead.
 func (*AccountInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *AccountInfo) GetName() string {
@@ -3662,7 +3872,7 @@ type SSHKeyInfo struct {
 func (x *SSHKeyInfo) Reset() {
 	*x = SSHKeyInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[46]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3675,7 +3885,7 @@ func (x *SSHKeyInfo) String() string {
 func (*SSHKeyInfo) ProtoMessage() {}
 
 func (x *SSHKeyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[46]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3688,7 +3898,7 @@ func (x *SSHKeyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SSHKeyInfo.ProtoReflect.Descriptor instead.
 func (*SSHKeyInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{46}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *SSHKeyInfo) GetUser() string {
@@ -3734,7 +3944,7 @@ type MemoryModule struct {
 func (x *MemoryModule) Reset() {
 	*x = MemoryModule{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[47]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3747,7 +3957,7 @@ func (x *MemoryModule) String() string {
 func (*MemoryModule) ProtoMessage() {}
 
 func (x *MemoryModule) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[47]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3760,7 +3970,7 @@ func (x *MemoryModule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MemoryModule.ProtoReflect.Descriptor instead.
 func (*MemoryModule) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *MemoryModule) GetSlot() string {
@@ -3811,7 +4021,7 @@ type RuntimeInfo struct {
 func (x *RuntimeInfo) Reset() {
 	*x = RuntimeInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[48]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[51]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3824,7 +4034,7 @@ func (x *RuntimeInfo) String() string {
 func (*RuntimeInfo) ProtoMessage() {}
 
 func (x *RuntimeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[48]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[51]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3837,7 +4047,7 @@ func (x *RuntimeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeInfo.ProtoReflect.Descriptor instead.
 func (*RuntimeInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *RuntimeInfo) GetName() string {
@@ -3880,7 +4090,7 @@ type EDRFinding struct {
 func (x *EDRFinding) Reset() {
 	*x = EDRFinding{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[49]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[52]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3893,7 +4103,7 @@ func (x *EDRFinding) String() string {
 func (*EDRFinding) ProtoMessage() {}
 
 func (x *EDRFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[49]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[52]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3906,7 +4116,7 @@ func (x *EDRFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EDRFinding.ProtoReflect.Descriptor instead.
 func (*EDRFinding) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *EDRFinding) GetSource() string {
@@ -3970,7 +4180,7 @@ type RuntimeVerifyTaskInfo struct {
 func (x *RuntimeVerifyTaskInfo) Reset() {
 	*x = RuntimeVerifyTaskInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[50]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[53]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3983,7 +4193,7 @@ func (x *RuntimeVerifyTaskInfo) String() string {
 func (*RuntimeVerifyTaskInfo) ProtoMessage() {}
 
 func (x *RuntimeVerifyTaskInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[50]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[53]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3996,7 +4206,7 @@ func (x *RuntimeVerifyTaskInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeVerifyTaskInfo.ProtoReflect.Descriptor instead.
 func (*RuntimeVerifyTaskInfo) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *RuntimeVerifyTaskInfo) GetTaskId() int64 {
@@ -4025,7 +4235,7 @@ type FetchRuntimeVerifyTasksRequest struct {
 func (x *FetchRuntimeVerifyTasksRequest) Reset() {
 	*x = FetchRuntimeVerifyTasksRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[51]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[54]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4038,7 +4248,7 @@ func (x *FetchRuntimeVerifyTasksRequest) String() string {
 func (*FetchRuntimeVerifyTasksRequest) ProtoMessage() {}
 
 func (x *FetchRuntimeVerifyTasksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[51]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[54]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4051,7 +4261,7 @@ func (x *FetchRuntimeVerifyTasksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchRuntimeVerifyTasksRequest.ProtoReflect.Descriptor instead.
 func (*FetchRuntimeVerifyTasksRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{51}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *FetchRuntimeVerifyTasksRequest) GetAgentId() string {
@@ -4079,7 +4289,7 @@ type FetchRuntimeVerifyTasksResponse struct {
 func (x *FetchRuntimeVerifyTasksResponse) Reset() {
 	*x = FetchRuntimeVerifyTasksResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[52]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[55]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4092,7 +4302,7 @@ func (x *FetchRuntimeVerifyTasksResponse) String() string {
 func (*FetchRuntimeVerifyTasksResponse) ProtoMessage() {}
 
 func (x *FetchRuntimeVerifyTasksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[52]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[55]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4105,7 +4315,7 @@ func (x *FetchRuntimeVerifyTasksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchRuntimeVerifyTasksResponse.ProtoReflect.Descriptor instead.
 func (*FetchRuntimeVerifyTasksResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{52}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *FetchRuntimeVerifyTasksResponse) GetTasks() []*RuntimeVerifyTaskInfo {
@@ -4129,7 +4339,7 @@ type ReportRuntimeVerifyRequest struct {
 func (x *ReportRuntimeVerifyRequest) Reset() {
 	*x = ReportRuntimeVerifyRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[53]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[56]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4142,7 +4352,7 @@ func (x *ReportRuntimeVerifyRequest) String() string {
 func (*ReportRuntimeVerifyRequest) ProtoMessage() {}
 
 func (x *ReportRuntimeVerifyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[53]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[56]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4155,7 +4365,7 @@ func (x *ReportRuntimeVerifyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportRuntimeVerifyRequest.ProtoReflect.Descriptor instead.
 func (*ReportRuntimeVerifyRequest) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{53}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *ReportRuntimeVerifyRequest) GetTaskId() int64 {
@@ -4199,7 +4409,7 @@ type ReportRuntimeVerifyResponse struct {
 func (x *ReportRuntimeVerifyResponse) Reset() {
 	*x = ReportRuntimeVerifyResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_vulnscan_v1_agent_proto_msgTypes[54]
+		mi := &file_vulnscan_v1_agent_proto_msgTypes[57]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4212,7 +4422,7 @@ func (x *ReportRuntimeVerifyResponse) String() string {
 func (*ReportRuntimeVerifyResponse) ProtoMessage() {}
 
 func (x *ReportRuntimeVerifyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vulnscan_v1_agent_proto_msgTypes[54]
+	mi := &file_vulnscan_v1_agent_proto_msgTypes[57]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4225,7 +4435,7 @@ func (x *ReportRuntimeVerifyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportRuntimeVerifyResponse.ProtoReflect.Descriptor instead.
 func (*ReportRuntimeVerifyResponse) Descriptor() ([]byte, []int) {
-	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{54}
+	return file_vulnscan_v1_agent_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *ReportRuntimeVerifyResponse) GetOk() bool {
@@ -4319,7 +4529,32 @@ var file_vulnscan_v1_agent_proto_rawDesc = []byte{
 	0x6d, 0x70, 0x6c, 0x69, 0x61, 0x6e, 0x63, 0x65, 0x22, 0x28, 0x0a, 0x16, 0x53, 0x79, 0x6e, 0x63,
 	0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x69, 0x61, 0x6e, 0x63, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
 	0x73, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x6f, 0x6b, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x02,
-	0x6f, 0x6b, 0x22, 0xf1, 0x01, 0x0a, 0x10, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x69, 0x61, 0x6e, 0x63,
+	0x6f, 0x6b, 0x22, 0x8a, 0x01, 0x0a, 0x08, 0x46, 0x69, 0x6c, 0x65, 0x46, 0x61, 0x63, 0x74, 0x12,
+	0x12, 0x0a, 0x04, 0x70, 0x61, 0x74, 0x68, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x70,
+	0x61, 0x74, 0x68, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x68, 0x61, 0x32, 0x35, 0x36, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x06, 0x73, 0x68, 0x61, 0x32, 0x35, 0x36, 0x12, 0x1d, 0x0a, 0x0a, 0x73,
+	0x69, 0x7a, 0x65, 0x5f, 0x62, 0x79, 0x74, 0x65, 0x73, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x52,
+	0x09, 0x73, 0x69, 0x7a, 0x65, 0x42, 0x79, 0x74, 0x65, 0x73, 0x12, 0x12, 0x0a, 0x04, 0x6d, 0x6f,
+	0x64, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6d, 0x6f, 0x64, 0x65, 0x12, 0x1f,
+	0x0a, 0x0b, 0x6d, 0x6f, 0x64, 0x69, 0x66, 0x69, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x05, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x0a, 0x6d, 0x6f, 0x64, 0x69, 0x66, 0x69, 0x65, 0x64, 0x41, 0x74, 0x22,
+	0xb7, 0x01, 0x0a, 0x14, 0x53, 0x79, 0x6e, 0x63, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x74, 0x72,
+	0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x19, 0x0a, 0x08, 0x61, 0x67, 0x65, 0x6e,
+	0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x61, 0x67, 0x65, 0x6e,
+	0x74, 0x49, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x05, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x12, 0x34, 0x0a, 0x0a, 0x66, 0x69, 0x6c,
+	0x65, 0x5f, 0x66, 0x61, 0x63, 0x74, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x15, 0x2e,
+	0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x69, 0x6c, 0x65,
+	0x46, 0x61, 0x63, 0x74, 0x52, 0x09, 0x66, 0x69, 0x6c, 0x65, 0x46, 0x61, 0x63, 0x74, 0x73, 0x12,
+	0x38, 0x0a, 0x0b, 0x73, 0x79, 0x73, 0x74, 0x65, 0x6d, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x18, 0x04,
+	0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e,
+	0x76, 0x31, 0x2e, 0x53, 0x79, 0x73, 0x74, 0x65, 0x6d, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x0a, 0x73,
+	0x79, 0x73, 0x74, 0x65, 0x6d, 0x49, 0x6e, 0x66, 0x6f, 0x22, 0x47, 0x0a, 0x15, 0x53, 0x79, 0x6e,
+	0x63, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x0e, 0x0a, 0x02, 0x6f, 0x6b, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x02,
+	0x6f, 0x6b, 0x12, 0x1e, 0x0a, 0x0a, 0x72, 0x65, 0x62, 0x61, 0x73, 0x65, 0x6c, 0x69, 0x6e, 0x65,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x72, 0x65, 0x62, 0x61, 0x73, 0x65, 0x6c, 0x69,
+	0x6e, 0x65, 0x22, 0xf1, 0x01, 0x0a, 0x10, 0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x69, 0x61, 0x6e, 0x63,
 	0x65, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x1c, 0x0a, 0x09, 0x62, 0x65, 0x6e, 0x63, 0x68,
 	0x6d, 0x61, 0x72, 0x6b, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x62, 0x65, 0x6e, 0x63,
 	0x68, 0x6d, 0x61, 0x72, 0x6b, 0x12, 0x14, 0x0a, 0x05, 0x73, 0x63, 0x6f, 0x72, 0x65, 0x18, 0x02,
@@ -4796,7 +5031,7 @@ var file_vulnscan_v1_agent_proto_rawDesc = []byte{
 	0x65, 0x12, 0x0b, 0x0a, 0x07, 0x50, 0x41, 0x43, 0x4b, 0x41, 0x47, 0x45, 0x10, 0x00, 0x12, 0x0a,
 	0x0a, 0x06, 0x48, 0x4f, 0x54, 0x46, 0x49, 0x58, 0x10, 0x01, 0x12, 0x0c, 0x0a, 0x08, 0x4c, 0x41,
 	0x4e, 0x47, 0x55, 0x41, 0x47, 0x45, 0x10, 0x02, 0x12, 0x06, 0x0a, 0x02, 0x4f, 0x53, 0x10, 0x03,
-	0x32, 0xf3, 0x08, 0x0a, 0x0c, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63,
+	0x32, 0xcb, 0x09, 0x0a, 0x0c, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63,
 	0x65, 0x12, 0x3b, 0x0a, 0x04, 0x41, 0x75, 0x74, 0x68, 0x12, 0x18, 0x2e, 0x76, 0x75, 0x6c, 0x6e,
 	0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x75, 0x74, 0x68, 0x52, 0x65, 0x71, 0x75,
 	0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76,
@@ -4822,55 +5057,61 @@ var file_vulnscan_v1_agent_proto_rawDesc = []byte{
 	0x6c, 0x69, 0x61, 0x6e, 0x63, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x23, 0x2e,
 	0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63,
 	0x43, 0x6f, 0x6d, 0x70, 0x6c, 0x69, 0x61, 0x6e, 0x63, 0x65, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x5c, 0x0a, 0x0f, 0x46, 0x65, 0x74, 0x63, 0x68, 0x50, 0x61, 0x74, 0x63, 0x68,
-	0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x23, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e,
-	0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61,
-	0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c,
-	0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x50, 0x61,
-	0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x12, 0x5c, 0x0a, 0x0f, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54,
-	0x61, 0x73, 0x6b, 0x12, 0x23, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76,
-	0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73,
-	0x6b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73,
-	0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74,
-	0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x68,
-	0x0a, 0x13, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x50, 0x72, 0x6f,
-	0x67, 0x72, 0x65, 0x73, 0x73, 0x12, 0x27, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e,
-	0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x50,
-	0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28,
-	0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70,
-	0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x74, 0x0a, 0x17, 0x46, 0x65, 0x74, 0x63,
-	0x68, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x54, 0x61,
-	0x73, 0x6b, 0x73, 0x12, 0x2b, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76,
-	0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65,
-	0x72, 0x69, 0x66, 0x79, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x2c, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46,
-	0x65, 0x74, 0x63, 0x68, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66,
-	0x79, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x68,
-	0x0a, 0x13, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56,
-	0x65, 0x72, 0x69, 0x66, 0x79, 0x12, 0x27, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e,
-	0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d,
-	0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28,
-	0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70,
-	0x6f, 0x72, 0x74, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x6e, 0x0a, 0x15, 0x46, 0x65, 0x74, 0x63,
-	0x68, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x54, 0x61, 0x73, 0x6b,
-	0x73, 0x12, 0x29, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e,
-	0x46, 0x65, 0x74, 0x63, 0x68, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e,
-	0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2a, 0x2e, 0x76,
-	0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68,
-	0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x54, 0x61, 0x73, 0x6b, 0x73,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x5c, 0x0a, 0x0f, 0x53, 0x79, 0x6e, 0x63,
-	0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x12, 0x23, 0x2e, 0x76, 0x75,
-	0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x4e, 0x65,
-	0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x53,
-	0x79, 0x6e, 0x63, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x2d, 0x5a, 0x2b, 0x76, 0x75, 0x6c, 0x6e, 0x2d, 0x73,
-	0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x2f, 0x61, 0x70, 0x69, 0x2f, 0x67, 0x65, 0x6e, 0x2f, 0x76,
-	0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2f, 0x76, 0x31, 0x3b, 0x76, 0x75, 0x6c, 0x6e, 0x73,
-	0x63, 0x61, 0x6e, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x73, 0x65, 0x12, 0x56, 0x0a, 0x0d, 0x53, 0x79, 0x6e, 0x63, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65,
+	0x74, 0x72, 0x79, 0x12, 0x21, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76,
+	0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x74, 0x72, 0x79, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x22, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61,
+	0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x74,
+	0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x5c, 0x0a, 0x0f, 0x46, 0x65,
+	0x74, 0x63, 0x68, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x23, 0x2e,
+	0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63,
+	0x68, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31,
+	0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x73,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x5c, 0x0a, 0x0f, 0x52, 0x65, 0x70, 0x6f,
+	0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x23, 0x2e, 0x76, 0x75,
+	0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74,
+	0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52,
+	0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x68, 0x0a, 0x13, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74,
+	0x50, 0x61, 0x74, 0x63, 0x68, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x12, 0x27, 0x2e,
+	0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f,
+	0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61,
+	0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x50, 0x61, 0x74, 0x63, 0x68,
+	0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x74, 0x0a, 0x17, 0x46, 0x65, 0x74, 0x63, 0x68, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65,
+	0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x2b, 0x2e, 0x76, 0x75,
+	0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x52,
+	0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x54, 0x61, 0x73, 0x6b,
+	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2c, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73,
+	0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x52, 0x75, 0x6e, 0x74,
+	0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x68, 0x0a, 0x13, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74,
+	0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x12, 0x27, 0x2e,
+	0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f,
+	0x72, 0x74, 0x52, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61,
+	0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x52, 0x75, 0x6e, 0x74, 0x69,
+	0x6d, 0x65, 0x56, 0x65, 0x72, 0x69, 0x66, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x6e, 0x0a, 0x15, 0x46, 0x65, 0x74, 0x63, 0x68, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b,
+	0x53, 0x63, 0x61, 0x6e, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x12, 0x29, 0x2e, 0x76, 0x75, 0x6c, 0x6e,
+	0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x4e, 0x65, 0x74,
+	0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x2a, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e,
+	0x76, 0x31, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53,
+	0x63, 0x61, 0x6e, 0x54, 0x61, 0x73, 0x6b, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x5c, 0x0a, 0x0f, 0x53, 0x79, 0x6e, 0x63, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53,
+	0x63, 0x61, 0x6e, 0x12, 0x23, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2e, 0x76,
+	0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x53, 0x63, 0x61,
+	0x6e, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x24, 0x2e, 0x76, 0x75, 0x6c, 0x6e, 0x73,
+	0x63, 0x61, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x4e, 0x65, 0x74, 0x77, 0x6f,
+	0x72, 0x6b, 0x53, 0x63, 0x61, 0x6e, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x2d,
+	0x5a, 0x2b, 0x76, 0x75, 0x6c, 0x6e, 0x2d, 0x73, 0x63, 0x61, 0x6e, 0x6e, 0x65, 0x72, 0x2f, 0x61,
+	0x70, 0x69, 0x2f, 0x67, 0x65, 0x6e, 0x2f, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x2f,
+	0x76, 0x31, 0x3b, 0x76, 0x75, 0x6c, 0x6e, 0x73, 0x63, 0x61, 0x6e, 0x76, 0x31, 0x62, 0x06, 0x70,
+	0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -4886,7 +5127,7 @@ func file_vulnscan_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_vulnscan_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_vulnscan_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_vulnscan_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_vulnscan_v1_agent_proto_goTypes = []interface{}{
 	(SyncMode)(0),                           // 0: vulnscan.v1.SyncMode
 	(AssetType)(0),                          // 1: vulnscan.v1.AssetType
@@ -4900,116 +5141,123 @@ var file_vulnscan_v1_agent_proto_goTypes = []interface{}{
 	(*SyncInventoryResponse)(nil),           // 9: vulnscan.v1.SyncInventoryResponse
 	(*SyncComplianceRequest)(nil),           // 10: vulnscan.v1.SyncComplianceRequest
 	(*SyncComplianceResponse)(nil),          // 11: vulnscan.v1.SyncComplianceResponse
-	(*ComplianceReport)(nil),                // 12: vulnscan.v1.ComplianceReport
-	(*ComplianceCheck)(nil),                 // 13: vulnscan.v1.ComplianceCheck
-	(*PatchTaskInfo)(nil),                   // 14: vulnscan.v1.PatchTaskInfo
-	(*CommandArgv)(nil),                     // 15: vulnscan.v1.CommandArgv
-	(*FetchPatchTasksRequest)(nil),          // 16: vulnscan.v1.FetchPatchTasksRequest
-	(*FetchPatchTasksResponse)(nil),         // 17: vulnscan.v1.FetchPatchTasksResponse
-	(*ReportPatchTaskRequest)(nil),          // 18: vulnscan.v1.ReportPatchTaskRequest
-	(*ReportPatchTaskResponse)(nil),         // 19: vulnscan.v1.ReportPatchTaskResponse
-	(*ReportPatchProgressRequest)(nil),      // 20: vulnscan.v1.ReportPatchProgressRequest
-	(*ReportPatchProgressResponse)(nil),     // 21: vulnscan.v1.ReportPatchProgressResponse
-	(*NetworkScanTaskInfo)(nil),             // 22: vulnscan.v1.NetworkScanTaskInfo
-	(*FetchNetworkScanTasksRequest)(nil),    // 23: vulnscan.v1.FetchNetworkScanTasksRequest
-	(*FetchNetworkScanTasksResponse)(nil),   // 24: vulnscan.v1.FetchNetworkScanTasksResponse
-	(*NetworkService)(nil),                  // 25: vulnscan.v1.NetworkService
-	(*NetworkHost)(nil),                     // 26: vulnscan.v1.NetworkHost
-	(*SyncNetworkScanRequest)(nil),          // 27: vulnscan.v1.SyncNetworkScanRequest
-	(*SyncNetworkScanResponse)(nil),         // 28: vulnscan.v1.SyncNetworkScanResponse
-	(*Asset)(nil),                           // 29: vulnscan.v1.Asset
-	(*SystemInfo)(nil),                      // 30: vulnscan.v1.SystemInfo
-	(*UpdateFact)(nil),                      // 31: vulnscan.v1.UpdateFact
-	(*UpdateSourceStatus)(nil),              // 32: vulnscan.v1.UpdateSourceStatus
-	(*CPUSpec)(nil),                         // 33: vulnscan.v1.CPUSpec
-	(*GPUSpec)(nil),                         // 34: vulnscan.v1.GPUSpec
-	(*MotherboardSpec)(nil),                 // 35: vulnscan.v1.MotherboardSpec
-	(*NetInterfaceSpec)(nil),                // 36: vulnscan.v1.NetInterfaceSpec
-	(*PortInfo)(nil),                        // 37: vulnscan.v1.PortInfo
-	(*ProcessInfo)(nil),                     // 38: vulnscan.v1.ProcessInfo
-	(*StorageSpec)(nil),                     // 39: vulnscan.v1.StorageSpec
-	(*ServiceInfo)(nil),                     // 40: vulnscan.v1.ServiceInfo
-	(*StartupItem)(nil),                     // 41: vulnscan.v1.StartupItem
-	(*ScheduledTask)(nil),                   // 42: vulnscan.v1.ScheduledTask
-	(*RouteInfo)(nil),                       // 43: vulnscan.v1.RouteInfo
-	(*FirewallRule)(nil),                    // 44: vulnscan.v1.FirewallRule
-	(*NeighborInfo)(nil),                    // 45: vulnscan.v1.NeighborInfo
-	(*CertificateInfo)(nil),                 // 46: vulnscan.v1.CertificateInfo
-	(*AccountInfo)(nil),                     // 47: vulnscan.v1.AccountInfo
-	(*SSHKeyInfo)(nil),                      // 48: vulnscan.v1.SSHKeyInfo
-	(*MemoryModule)(nil),                    // 49: vulnscan.v1.MemoryModule
-	(*RuntimeInfo)(nil),                     // 50: vulnscan.v1.RuntimeInfo
-	(*EDRFinding)(nil),                      // 51: vulnscan.v1.EDRFinding
-	(*RuntimeVerifyTaskInfo)(nil),           // 52: vulnscan.v1.RuntimeVerifyTaskInfo
-	(*FetchRuntimeVerifyTasksRequest)(nil),  // 53: vulnscan.v1.FetchRuntimeVerifyTasksRequest
-	(*FetchRuntimeVerifyTasksResponse)(nil), // 54: vulnscan.v1.FetchRuntimeVerifyTasksResponse
-	(*ReportRuntimeVerifyRequest)(nil),      // 55: vulnscan.v1.ReportRuntimeVerifyRequest
-	(*ReportRuntimeVerifyResponse)(nil),     // 56: vulnscan.v1.ReportRuntimeVerifyResponse
+	(*FileFact)(nil),                        // 12: vulnscan.v1.FileFact
+	(*SyncTelemetryRequest)(nil),            // 13: vulnscan.v1.SyncTelemetryRequest
+	(*SyncTelemetryResponse)(nil),           // 14: vulnscan.v1.SyncTelemetryResponse
+	(*ComplianceReport)(nil),                // 15: vulnscan.v1.ComplianceReport
+	(*ComplianceCheck)(nil),                 // 16: vulnscan.v1.ComplianceCheck
+	(*PatchTaskInfo)(nil),                   // 17: vulnscan.v1.PatchTaskInfo
+	(*CommandArgv)(nil),                     // 18: vulnscan.v1.CommandArgv
+	(*FetchPatchTasksRequest)(nil),          // 19: vulnscan.v1.FetchPatchTasksRequest
+	(*FetchPatchTasksResponse)(nil),         // 20: vulnscan.v1.FetchPatchTasksResponse
+	(*ReportPatchTaskRequest)(nil),          // 21: vulnscan.v1.ReportPatchTaskRequest
+	(*ReportPatchTaskResponse)(nil),         // 22: vulnscan.v1.ReportPatchTaskResponse
+	(*ReportPatchProgressRequest)(nil),      // 23: vulnscan.v1.ReportPatchProgressRequest
+	(*ReportPatchProgressResponse)(nil),     // 24: vulnscan.v1.ReportPatchProgressResponse
+	(*NetworkScanTaskInfo)(nil),             // 25: vulnscan.v1.NetworkScanTaskInfo
+	(*FetchNetworkScanTasksRequest)(nil),    // 26: vulnscan.v1.FetchNetworkScanTasksRequest
+	(*FetchNetworkScanTasksResponse)(nil),   // 27: vulnscan.v1.FetchNetworkScanTasksResponse
+	(*NetworkService)(nil),                  // 28: vulnscan.v1.NetworkService
+	(*NetworkHost)(nil),                     // 29: vulnscan.v1.NetworkHost
+	(*SyncNetworkScanRequest)(nil),          // 30: vulnscan.v1.SyncNetworkScanRequest
+	(*SyncNetworkScanResponse)(nil),         // 31: vulnscan.v1.SyncNetworkScanResponse
+	(*Asset)(nil),                           // 32: vulnscan.v1.Asset
+	(*SystemInfo)(nil),                      // 33: vulnscan.v1.SystemInfo
+	(*UpdateFact)(nil),                      // 34: vulnscan.v1.UpdateFact
+	(*UpdateSourceStatus)(nil),              // 35: vulnscan.v1.UpdateSourceStatus
+	(*CPUSpec)(nil),                         // 36: vulnscan.v1.CPUSpec
+	(*GPUSpec)(nil),                         // 37: vulnscan.v1.GPUSpec
+	(*MotherboardSpec)(nil),                 // 38: vulnscan.v1.MotherboardSpec
+	(*NetInterfaceSpec)(nil),                // 39: vulnscan.v1.NetInterfaceSpec
+	(*PortInfo)(nil),                        // 40: vulnscan.v1.PortInfo
+	(*ProcessInfo)(nil),                     // 41: vulnscan.v1.ProcessInfo
+	(*StorageSpec)(nil),                     // 42: vulnscan.v1.StorageSpec
+	(*ServiceInfo)(nil),                     // 43: vulnscan.v1.ServiceInfo
+	(*StartupItem)(nil),                     // 44: vulnscan.v1.StartupItem
+	(*ScheduledTask)(nil),                   // 45: vulnscan.v1.ScheduledTask
+	(*RouteInfo)(nil),                       // 46: vulnscan.v1.RouteInfo
+	(*FirewallRule)(nil),                    // 47: vulnscan.v1.FirewallRule
+	(*NeighborInfo)(nil),                    // 48: vulnscan.v1.NeighborInfo
+	(*CertificateInfo)(nil),                 // 49: vulnscan.v1.CertificateInfo
+	(*AccountInfo)(nil),                     // 50: vulnscan.v1.AccountInfo
+	(*SSHKeyInfo)(nil),                      // 51: vulnscan.v1.SSHKeyInfo
+	(*MemoryModule)(nil),                    // 52: vulnscan.v1.MemoryModule
+	(*RuntimeInfo)(nil),                     // 53: vulnscan.v1.RuntimeInfo
+	(*EDRFinding)(nil),                      // 54: vulnscan.v1.EDRFinding
+	(*RuntimeVerifyTaskInfo)(nil),           // 55: vulnscan.v1.RuntimeVerifyTaskInfo
+	(*FetchRuntimeVerifyTasksRequest)(nil),  // 56: vulnscan.v1.FetchRuntimeVerifyTasksRequest
+	(*FetchRuntimeVerifyTasksResponse)(nil), // 57: vulnscan.v1.FetchRuntimeVerifyTasksResponse
+	(*ReportRuntimeVerifyRequest)(nil),      // 58: vulnscan.v1.ReportRuntimeVerifyRequest
+	(*ReportRuntimeVerifyResponse)(nil),     // 59: vulnscan.v1.ReportRuntimeVerifyResponse
 }
 var file_vulnscan_v1_agent_proto_depIdxs = []int32{
 	0,  // 0: vulnscan.v1.SyncInventoryRequest.mode:type_name -> vulnscan.v1.SyncMode
-	29, // 1: vulnscan.v1.SyncInventoryRequest.assets:type_name -> vulnscan.v1.Asset
-	30, // 2: vulnscan.v1.SyncInventoryRequest.system_info:type_name -> vulnscan.v1.SystemInfo
-	12, // 3: vulnscan.v1.SyncComplianceRequest.compliance:type_name -> vulnscan.v1.ComplianceReport
-	13, // 4: vulnscan.v1.ComplianceReport.checks:type_name -> vulnscan.v1.ComplianceCheck
-	15, // 5: vulnscan.v1.PatchTaskInfo.commands:type_name -> vulnscan.v1.CommandArgv
-	14, // 6: vulnscan.v1.FetchPatchTasksResponse.tasks:type_name -> vulnscan.v1.PatchTaskInfo
-	22, // 7: vulnscan.v1.FetchNetworkScanTasksResponse.tasks:type_name -> vulnscan.v1.NetworkScanTaskInfo
-	25, // 8: vulnscan.v1.NetworkHost.services:type_name -> vulnscan.v1.NetworkService
-	26, // 9: vulnscan.v1.SyncNetworkScanRequest.hosts:type_name -> vulnscan.v1.NetworkHost
-	1,  // 10: vulnscan.v1.Asset.type:type_name -> vulnscan.v1.AssetType
-	33, // 11: vulnscan.v1.SystemInfo.cpu:type_name -> vulnscan.v1.CPUSpec
-	34, // 12: vulnscan.v1.SystemInfo.gpu:type_name -> vulnscan.v1.GPUSpec
-	35, // 13: vulnscan.v1.SystemInfo.motherboard:type_name -> vulnscan.v1.MotherboardSpec
-	36, // 14: vulnscan.v1.SystemInfo.net_interfaces:type_name -> vulnscan.v1.NetInterfaceSpec
-	37, // 15: vulnscan.v1.SystemInfo.open_ports:type_name -> vulnscan.v1.PortInfo
-	38, // 16: vulnscan.v1.SystemInfo.processes:type_name -> vulnscan.v1.ProcessInfo
-	39, // 17: vulnscan.v1.SystemInfo.storage:type_name -> vulnscan.v1.StorageSpec
-	49, // 18: vulnscan.v1.SystemInfo.memory_modules:type_name -> vulnscan.v1.MemoryModule
-	40, // 19: vulnscan.v1.SystemInfo.services:type_name -> vulnscan.v1.ServiceInfo
-	41, // 20: vulnscan.v1.SystemInfo.startup_items:type_name -> vulnscan.v1.StartupItem
-	42, // 21: vulnscan.v1.SystemInfo.scheduled_tasks:type_name -> vulnscan.v1.ScheduledTask
-	43, // 22: vulnscan.v1.SystemInfo.routes:type_name -> vulnscan.v1.RouteInfo
-	44, // 23: vulnscan.v1.SystemInfo.firewall_rules:type_name -> vulnscan.v1.FirewallRule
-	45, // 24: vulnscan.v1.SystemInfo.neighbors:type_name -> vulnscan.v1.NeighborInfo
-	46, // 25: vulnscan.v1.SystemInfo.certificates:type_name -> vulnscan.v1.CertificateInfo
-	47, // 26: vulnscan.v1.SystemInfo.accounts:type_name -> vulnscan.v1.AccountInfo
-	48, // 27: vulnscan.v1.SystemInfo.ssh_keys:type_name -> vulnscan.v1.SSHKeyInfo
-	50, // 28: vulnscan.v1.SystemInfo.runtimes:type_name -> vulnscan.v1.RuntimeInfo
-	31, // 29: vulnscan.v1.SystemInfo.update_facts:type_name -> vulnscan.v1.UpdateFact
-	32, // 30: vulnscan.v1.SystemInfo.update_source_status:type_name -> vulnscan.v1.UpdateSourceStatus
-	51, // 31: vulnscan.v1.SystemInfo.edr_findings:type_name -> vulnscan.v1.EDRFinding
-	52, // 32: vulnscan.v1.FetchRuntimeVerifyTasksResponse.tasks:type_name -> vulnscan.v1.RuntimeVerifyTaskInfo
-	30, // 33: vulnscan.v1.ReportRuntimeVerifyRequest.system_info:type_name -> vulnscan.v1.SystemInfo
-	2,  // 34: vulnscan.v1.AgentService.Auth:input_type -> vulnscan.v1.AuthRequest
-	4,  // 35: vulnscan.v1.AgentService.RefreshToken:input_type -> vulnscan.v1.RefreshTokenRequest
-	6,  // 36: vulnscan.v1.AgentService.Heartbeat:input_type -> vulnscan.v1.HeartbeatRequest
-	8,  // 37: vulnscan.v1.AgentService.SyncInventory:input_type -> vulnscan.v1.SyncInventoryRequest
-	10, // 38: vulnscan.v1.AgentService.SyncCompliance:input_type -> vulnscan.v1.SyncComplianceRequest
-	16, // 39: vulnscan.v1.AgentService.FetchPatchTasks:input_type -> vulnscan.v1.FetchPatchTasksRequest
-	18, // 40: vulnscan.v1.AgentService.ReportPatchTask:input_type -> vulnscan.v1.ReportPatchTaskRequest
-	20, // 41: vulnscan.v1.AgentService.ReportPatchProgress:input_type -> vulnscan.v1.ReportPatchProgressRequest
-	53, // 42: vulnscan.v1.AgentService.FetchRuntimeVerifyTasks:input_type -> vulnscan.v1.FetchRuntimeVerifyTasksRequest
-	55, // 43: vulnscan.v1.AgentService.ReportRuntimeVerify:input_type -> vulnscan.v1.ReportRuntimeVerifyRequest
-	23, // 44: vulnscan.v1.AgentService.FetchNetworkScanTasks:input_type -> vulnscan.v1.FetchNetworkScanTasksRequest
-	27, // 45: vulnscan.v1.AgentService.SyncNetworkScan:input_type -> vulnscan.v1.SyncNetworkScanRequest
-	3,  // 46: vulnscan.v1.AgentService.Auth:output_type -> vulnscan.v1.AuthResponse
-	5,  // 47: vulnscan.v1.AgentService.RefreshToken:output_type -> vulnscan.v1.RefreshTokenResponse
-	7,  // 48: vulnscan.v1.AgentService.Heartbeat:output_type -> vulnscan.v1.HeartbeatResponse
-	9,  // 49: vulnscan.v1.AgentService.SyncInventory:output_type -> vulnscan.v1.SyncInventoryResponse
-	11, // 50: vulnscan.v1.AgentService.SyncCompliance:output_type -> vulnscan.v1.SyncComplianceResponse
-	17, // 51: vulnscan.v1.AgentService.FetchPatchTasks:output_type -> vulnscan.v1.FetchPatchTasksResponse
-	19, // 52: vulnscan.v1.AgentService.ReportPatchTask:output_type -> vulnscan.v1.ReportPatchTaskResponse
-	21, // 53: vulnscan.v1.AgentService.ReportPatchProgress:output_type -> vulnscan.v1.ReportPatchProgressResponse
-	54, // 54: vulnscan.v1.AgentService.FetchRuntimeVerifyTasks:output_type -> vulnscan.v1.FetchRuntimeVerifyTasksResponse
-	56, // 55: vulnscan.v1.AgentService.ReportRuntimeVerify:output_type -> vulnscan.v1.ReportRuntimeVerifyResponse
-	24, // 56: vulnscan.v1.AgentService.FetchNetworkScanTasks:output_type -> vulnscan.v1.FetchNetworkScanTasksResponse
-	28, // 57: vulnscan.v1.AgentService.SyncNetworkScan:output_type -> vulnscan.v1.SyncNetworkScanResponse
-	46, // [46:58] is the sub-list for method output_type
-	34, // [34:46] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	32, // 1: vulnscan.v1.SyncInventoryRequest.assets:type_name -> vulnscan.v1.Asset
+	33, // 2: vulnscan.v1.SyncInventoryRequest.system_info:type_name -> vulnscan.v1.SystemInfo
+	15, // 3: vulnscan.v1.SyncComplianceRequest.compliance:type_name -> vulnscan.v1.ComplianceReport
+	12, // 4: vulnscan.v1.SyncTelemetryRequest.file_facts:type_name -> vulnscan.v1.FileFact
+	33, // 5: vulnscan.v1.SyncTelemetryRequest.system_info:type_name -> vulnscan.v1.SystemInfo
+	16, // 6: vulnscan.v1.ComplianceReport.checks:type_name -> vulnscan.v1.ComplianceCheck
+	18, // 7: vulnscan.v1.PatchTaskInfo.commands:type_name -> vulnscan.v1.CommandArgv
+	17, // 8: vulnscan.v1.FetchPatchTasksResponse.tasks:type_name -> vulnscan.v1.PatchTaskInfo
+	25, // 9: vulnscan.v1.FetchNetworkScanTasksResponse.tasks:type_name -> vulnscan.v1.NetworkScanTaskInfo
+	28, // 10: vulnscan.v1.NetworkHost.services:type_name -> vulnscan.v1.NetworkService
+	29, // 11: vulnscan.v1.SyncNetworkScanRequest.hosts:type_name -> vulnscan.v1.NetworkHost
+	1,  // 12: vulnscan.v1.Asset.type:type_name -> vulnscan.v1.AssetType
+	36, // 13: vulnscan.v1.SystemInfo.cpu:type_name -> vulnscan.v1.CPUSpec
+	37, // 14: vulnscan.v1.SystemInfo.gpu:type_name -> vulnscan.v1.GPUSpec
+	38, // 15: vulnscan.v1.SystemInfo.motherboard:type_name -> vulnscan.v1.MotherboardSpec
+	39, // 16: vulnscan.v1.SystemInfo.net_interfaces:type_name -> vulnscan.v1.NetInterfaceSpec
+	40, // 17: vulnscan.v1.SystemInfo.open_ports:type_name -> vulnscan.v1.PortInfo
+	41, // 18: vulnscan.v1.SystemInfo.processes:type_name -> vulnscan.v1.ProcessInfo
+	42, // 19: vulnscan.v1.SystemInfo.storage:type_name -> vulnscan.v1.StorageSpec
+	52, // 20: vulnscan.v1.SystemInfo.memory_modules:type_name -> vulnscan.v1.MemoryModule
+	43, // 21: vulnscan.v1.SystemInfo.services:type_name -> vulnscan.v1.ServiceInfo
+	44, // 22: vulnscan.v1.SystemInfo.startup_items:type_name -> vulnscan.v1.StartupItem
+	45, // 23: vulnscan.v1.SystemInfo.scheduled_tasks:type_name -> vulnscan.v1.ScheduledTask
+	46, // 24: vulnscan.v1.SystemInfo.routes:type_name -> vulnscan.v1.RouteInfo
+	47, // 25: vulnscan.v1.SystemInfo.firewall_rules:type_name -> vulnscan.v1.FirewallRule
+	48, // 26: vulnscan.v1.SystemInfo.neighbors:type_name -> vulnscan.v1.NeighborInfo
+	49, // 27: vulnscan.v1.SystemInfo.certificates:type_name -> vulnscan.v1.CertificateInfo
+	50, // 28: vulnscan.v1.SystemInfo.accounts:type_name -> vulnscan.v1.AccountInfo
+	51, // 29: vulnscan.v1.SystemInfo.ssh_keys:type_name -> vulnscan.v1.SSHKeyInfo
+	53, // 30: vulnscan.v1.SystemInfo.runtimes:type_name -> vulnscan.v1.RuntimeInfo
+	34, // 31: vulnscan.v1.SystemInfo.update_facts:type_name -> vulnscan.v1.UpdateFact
+	35, // 32: vulnscan.v1.SystemInfo.update_source_status:type_name -> vulnscan.v1.UpdateSourceStatus
+	54, // 33: vulnscan.v1.SystemInfo.edr_findings:type_name -> vulnscan.v1.EDRFinding
+	55, // 34: vulnscan.v1.FetchRuntimeVerifyTasksResponse.tasks:type_name -> vulnscan.v1.RuntimeVerifyTaskInfo
+	33, // 35: vulnscan.v1.ReportRuntimeVerifyRequest.system_info:type_name -> vulnscan.v1.SystemInfo
+	2,  // 36: vulnscan.v1.AgentService.Auth:input_type -> vulnscan.v1.AuthRequest
+	4,  // 37: vulnscan.v1.AgentService.RefreshToken:input_type -> vulnscan.v1.RefreshTokenRequest
+	6,  // 38: vulnscan.v1.AgentService.Heartbeat:input_type -> vulnscan.v1.HeartbeatRequest
+	8,  // 39: vulnscan.v1.AgentService.SyncInventory:input_type -> vulnscan.v1.SyncInventoryRequest
+	10, // 40: vulnscan.v1.AgentService.SyncCompliance:input_type -> vulnscan.v1.SyncComplianceRequest
+	13, // 41: vulnscan.v1.AgentService.SyncTelemetry:input_type -> vulnscan.v1.SyncTelemetryRequest
+	19, // 42: vulnscan.v1.AgentService.FetchPatchTasks:input_type -> vulnscan.v1.FetchPatchTasksRequest
+	21, // 43: vulnscan.v1.AgentService.ReportPatchTask:input_type -> vulnscan.v1.ReportPatchTaskRequest
+	23, // 44: vulnscan.v1.AgentService.ReportPatchProgress:input_type -> vulnscan.v1.ReportPatchProgressRequest
+	56, // 45: vulnscan.v1.AgentService.FetchRuntimeVerifyTasks:input_type -> vulnscan.v1.FetchRuntimeVerifyTasksRequest
+	58, // 46: vulnscan.v1.AgentService.ReportRuntimeVerify:input_type -> vulnscan.v1.ReportRuntimeVerifyRequest
+	26, // 47: vulnscan.v1.AgentService.FetchNetworkScanTasks:input_type -> vulnscan.v1.FetchNetworkScanTasksRequest
+	30, // 48: vulnscan.v1.AgentService.SyncNetworkScan:input_type -> vulnscan.v1.SyncNetworkScanRequest
+	3,  // 49: vulnscan.v1.AgentService.Auth:output_type -> vulnscan.v1.AuthResponse
+	5,  // 50: vulnscan.v1.AgentService.RefreshToken:output_type -> vulnscan.v1.RefreshTokenResponse
+	7,  // 51: vulnscan.v1.AgentService.Heartbeat:output_type -> vulnscan.v1.HeartbeatResponse
+	9,  // 52: vulnscan.v1.AgentService.SyncInventory:output_type -> vulnscan.v1.SyncInventoryResponse
+	11, // 53: vulnscan.v1.AgentService.SyncCompliance:output_type -> vulnscan.v1.SyncComplianceResponse
+	14, // 54: vulnscan.v1.AgentService.SyncTelemetry:output_type -> vulnscan.v1.SyncTelemetryResponse
+	20, // 55: vulnscan.v1.AgentService.FetchPatchTasks:output_type -> vulnscan.v1.FetchPatchTasksResponse
+	22, // 56: vulnscan.v1.AgentService.ReportPatchTask:output_type -> vulnscan.v1.ReportPatchTaskResponse
+	24, // 57: vulnscan.v1.AgentService.ReportPatchProgress:output_type -> vulnscan.v1.ReportPatchProgressResponse
+	57, // 58: vulnscan.v1.AgentService.FetchRuntimeVerifyTasks:output_type -> vulnscan.v1.FetchRuntimeVerifyTasksResponse
+	59, // 59: vulnscan.v1.AgentService.ReportRuntimeVerify:output_type -> vulnscan.v1.ReportRuntimeVerifyResponse
+	27, // 60: vulnscan.v1.AgentService.FetchNetworkScanTasks:output_type -> vulnscan.v1.FetchNetworkScanTasksResponse
+	31, // 61: vulnscan.v1.AgentService.SyncNetworkScan:output_type -> vulnscan.v1.SyncNetworkScanResponse
+	49, // [49:62] is the sub-list for method output_type
+	36, // [36:49] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_vulnscan_v1_agent_proto_init() }
@@ -5139,7 +5387,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ComplianceReport); i {
+			switch v := v.(*FileFact); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5151,7 +5399,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ComplianceCheck); i {
+			switch v := v.(*SyncTelemetryRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5163,7 +5411,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PatchTaskInfo); i {
+			switch v := v.(*SyncTelemetryResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5175,7 +5423,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CommandArgv); i {
+			switch v := v.(*ComplianceReport); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5187,7 +5435,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchPatchTasksRequest); i {
+			switch v := v.(*ComplianceCheck); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5199,7 +5447,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchPatchTasksResponse); i {
+			switch v := v.(*PatchTaskInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5211,7 +5459,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportPatchTaskRequest); i {
+			switch v := v.(*CommandArgv); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5223,7 +5471,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportPatchTaskResponse); i {
+			switch v := v.(*FetchPatchTasksRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5235,7 +5483,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportPatchProgressRequest); i {
+			switch v := v.(*FetchPatchTasksResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5247,7 +5495,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportPatchProgressResponse); i {
+			switch v := v.(*ReportPatchTaskRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5259,7 +5507,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkScanTaskInfo); i {
+			switch v := v.(*ReportPatchTaskResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5271,7 +5519,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchNetworkScanTasksRequest); i {
+			switch v := v.(*ReportPatchProgressRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5283,7 +5531,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchNetworkScanTasksResponse); i {
+			switch v := v.(*ReportPatchProgressResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5295,7 +5543,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkService); i {
+			switch v := v.(*NetworkScanTaskInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5307,7 +5555,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetworkHost); i {
+			switch v := v.(*FetchNetworkScanTasksRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5319,7 +5567,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncNetworkScanRequest); i {
+			switch v := v.(*FetchNetworkScanTasksResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5331,7 +5579,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncNetworkScanResponse); i {
+			switch v := v.(*NetworkService); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5343,7 +5591,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Asset); i {
+			switch v := v.(*NetworkHost); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5355,7 +5603,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SystemInfo); i {
+			switch v := v.(*SyncNetworkScanRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5367,7 +5615,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UpdateFact); i {
+			switch v := v.(*SyncNetworkScanResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5379,7 +5627,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UpdateSourceStatus); i {
+			switch v := v.(*Asset); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5391,7 +5639,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CPUSpec); i {
+			switch v := v.(*SystemInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5403,7 +5651,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GPUSpec); i {
+			switch v := v.(*UpdateFact); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5415,7 +5663,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MotherboardSpec); i {
+			switch v := v.(*UpdateSourceStatus); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5427,7 +5675,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NetInterfaceSpec); i {
+			switch v := v.(*CPUSpec); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5439,7 +5687,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PortInfo); i {
+			switch v := v.(*GPUSpec); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5451,7 +5699,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ProcessInfo); i {
+			switch v := v.(*MotherboardSpec); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5463,7 +5711,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StorageSpec); i {
+			switch v := v.(*NetInterfaceSpec); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5475,7 +5723,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ServiceInfo); i {
+			switch v := v.(*PortInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5487,7 +5735,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StartupItem); i {
+			switch v := v.(*ProcessInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5499,7 +5747,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ScheduledTask); i {
+			switch v := v.(*StorageSpec); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5511,7 +5759,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RouteInfo); i {
+			switch v := v.(*ServiceInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5523,7 +5771,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FirewallRule); i {
+			switch v := v.(*StartupItem); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5535,7 +5783,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*NeighborInfo); i {
+			switch v := v.(*ScheduledTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5547,7 +5795,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*CertificateInfo); i {
+			switch v := v.(*RouteInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5559,7 +5807,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AccountInfo); i {
+			switch v := v.(*FirewallRule); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5571,7 +5819,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SSHKeyInfo); i {
+			switch v := v.(*NeighborInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5583,7 +5831,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*MemoryModule); i {
+			switch v := v.(*CertificateInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5595,7 +5843,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RuntimeInfo); i {
+			switch v := v.(*AccountInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5607,7 +5855,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*EDRFinding); i {
+			switch v := v.(*SSHKeyInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5619,7 +5867,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*RuntimeVerifyTaskInfo); i {
+			switch v := v.(*MemoryModule); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5631,7 +5879,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchRuntimeVerifyTasksRequest); i {
+			switch v := v.(*RuntimeInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5643,7 +5891,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchRuntimeVerifyTasksResponse); i {
+			switch v := v.(*EDRFinding); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5655,7 +5903,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[53].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReportRuntimeVerifyRequest); i {
+			switch v := v.(*RuntimeVerifyTaskInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -5667,6 +5915,42 @@ func file_vulnscan_v1_agent_proto_init() {
 			}
 		}
 		file_vulnscan_v1_agent_proto_msgTypes[54].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*FetchRuntimeVerifyTasksRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_vulnscan_v1_agent_proto_msgTypes[55].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*FetchRuntimeVerifyTasksResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_vulnscan_v1_agent_proto_msgTypes[56].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ReportRuntimeVerifyRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_vulnscan_v1_agent_proto_msgTypes[57].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ReportRuntimeVerifyResponse); i {
 			case 0:
 				return &v.state
@@ -5685,7 +5969,7 @@ func file_vulnscan_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_vulnscan_v1_agent_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   55,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

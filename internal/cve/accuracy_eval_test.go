@@ -62,9 +62,12 @@ type accuracyFeedEntry struct {
 }
 
 type accuracyVerdict struct {
-	CVEID  string `json:"cve_id"`
-	Asset  string `json:"asset"`
-	Status string `json:"status"`
+	CVEID        string `json:"cve_id"`
+	Asset        string `json:"asset"`
+	Status       string `json:"status"`
+	FixedVersion string `json:"fixed_version,omitempty"`
+	KBArticle    string `json:"kb_article,omitempty"`
+	KBURL        string `json:"kb_url,omitempty"`
 }
 
 type accuracyMetrics struct {
@@ -200,9 +203,12 @@ func verdictsFromResults(results []MatchedCVE) []accuracyVerdict {
 	out := make([]accuracyVerdict, 0, len(results))
 	for _, r := range results {
 		out = append(out, accuracyVerdict{
-			CVEID:  r.CVEID,
-			Asset:  r.AssetName,
-			Status: strings.ToLower(r.MatchStatus),
+			CVEID:        r.CVEID,
+			Asset:        r.AssetName,
+			Status:       strings.ToLower(r.MatchStatus),
+			FixedVersion: r.FixedVersion,
+			KBArticle:    r.KBArticle,
+			KBURL:        r.KBURL,
 		})
 	}
 	return normalizedVerdicts(out)
@@ -217,12 +223,22 @@ func normalizedVerdicts(vs []accuracyVerdict) []accuracyVerdict {
 		if out[i].Asset != out[j].Asset {
 			return out[i].Asset < out[j].Asset
 		}
-		return out[i].Status < out[j].Status
+		if out[i].Status != out[j].Status {
+			return out[i].Status < out[j].Status
+		}
+		if out[i].FixedVersion != out[j].FixedVersion {
+			return out[i].FixedVersion < out[j].FixedVersion
+		}
+		if out[i].KBArticle != out[j].KBArticle {
+			return out[i].KBArticle < out[j].KBArticle
+		}
+		return out[i].KBURL < out[j].KBURL
 	})
 	return out
 }
 
 func compareVerdicts(produced, expected []accuracyVerdict) accuracyMetrics {
+	produced = alignVerdictMetadata(produced, expected)
 	prod := verdictCounts(produced)
 	exp := verdictCounts(expected)
 	var m accuracyMetrics
@@ -249,9 +265,45 @@ func compareVerdicts(produced, expected []accuracyVerdict) accuracyMetrics {
 func verdictCounts(vs []accuracyVerdict) map[string]int {
 	m := make(map[string]int, len(vs))
 	for _, v := range vs {
-		m[strings.ToLower(v.CVEID)+"|"+strings.ToLower(v.Asset)+"|"+strings.ToLower(v.Status)]++
+		m[fullVerdictKey(v)]++
 	}
 	return m
+}
+
+func fullVerdictKey(v accuracyVerdict) string {
+	return strings.ToLower(v.CVEID) + "|" + strings.ToLower(v.Asset) + "|" +
+		strings.ToLower(v.Status) + "|" + strings.ToLower(v.FixedVersion) + "|" +
+		strings.ToLower(v.KBArticle) + "|" + strings.ToLower(v.KBURL)
+}
+
+func baseVerdictKey(v accuracyVerdict) string {
+	return strings.ToLower(v.CVEID) + "|" + strings.ToLower(v.Asset) + "|" + strings.ToLower(v.Status)
+}
+
+func hasVerdictMetadata(v accuracyVerdict) bool {
+	return v.FixedVersion != "" || v.KBArticle != "" || v.KBURL != ""
+}
+
+// alignVerdictMetadata keeps old fixtures (expected without fix metadata)
+// compatible while letting new fixtures assert the full patch metadata: when
+// the expected verdict carries no metadata, produced metadata is ignored for
+// comparison so legacy ground truth does not need to be rewritten.
+func alignVerdictMetadata(produced, expected []accuracyVerdict) []accuracyVerdict {
+	out := append([]accuracyVerdict(nil), produced...)
+	legacy := make(map[string]accuracyVerdict, len(expected))
+	for _, e := range expected {
+		if !hasVerdictMetadata(e) {
+			legacy[baseVerdictKey(e)] = e
+		}
+	}
+	for i := range out {
+		if e, ok := legacy[baseVerdictKey(out[i])]; ok {
+			out[i].FixedVersion = e.FixedVersion
+			out[i].KBArticle = e.KBArticle
+			out[i].KBURL = e.KBURL
+		}
+	}
+	return out
 }
 
 func metricRatio(num, den int) float64 {
@@ -282,6 +334,7 @@ func aggregateMetrics(fixtures []accuracyFixtureSnapshot) accuracyMetrics {
 }
 
 func diffVerdicts(produced, expected []accuracyVerdict) []string {
+	produced = alignVerdictMetadata(produced, expected)
 	pc := verdictCounts(produced)
 	ec := verdictCounts(expected)
 	keys := make(map[string]bool, len(pc)+len(ec))

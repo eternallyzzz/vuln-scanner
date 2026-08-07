@@ -1,0 +1,33 @@
+{
+  "name": "linux-xz-backdoor-liblzma5",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "liblzma5", "version": "5.6.0", "format": "deb", "vendor": "Debian"}
+  ],
+  "translations": [
+    {
+      "pattern": "^liblzma[0-9].*",
+      "product": "xz",
+      "platform": "any",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2024-3094",
+      "severity": "CRITICAL",
+      "cvss_score": 10.0,
+      "summary": "Malicious code in xz/liblzma 5.6.0 and 5.6.1",
+      "affected": [
+        {"name": "xz", "vendor": "tukaani", "min_ver": "5.6.0", "max_ver": "5.6.1", "max_inclusive": true, "fixed_in": "5.6.2"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2024-3094", "asset": "xz", "status": "active"}
+  ]
+}

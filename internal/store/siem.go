@@ -149,10 +149,13 @@ func (s *Store) appendSiemPatchTask(ctx context.Context, eventType string, t Pat
 		"post_patch_status":     t.PostPatchStatus,
 		"post_patch_detail":     t.PostPatchDetail,
 		"post_patch_at":         t.PostPatchAt,
+		"fix_set_hash":          t.FixSetHash,
+		"fix_set":               t.FixSet,
 		"actor":                 actor,
 	}
 	if eventType == "patch_task.post_patch" {
 		payload["remaining_cves"] = remainingCVEsFromDetail(t.PostPatchDetail)
+		payload["missing_fixes"] = missingFixesFromDetail(t.PostPatchDetail)
 	}
 	return s.AppendSiemEvent(ctx, key, eventType, payload)
 }

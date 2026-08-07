@@ -119,7 +119,7 @@ func (s *RESTServer) listEDRFindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	findings, err := s.store.ListEDRFindings(r.Context(),
-		q.Get("status"), q.Get("source"), q.Get("agent_id"),
+		q.Get("status"), q.Get("source"), q.Get("finding_type"), q.Get("agent_id"),
 		q.Get("severity"), q.Get("q"), limit, offset, tid)
 	if err != nil {
 		writeError(w, 500, err.Error())

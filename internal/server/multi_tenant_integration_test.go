@@ -34,6 +34,10 @@ func newMultiTenantIntegrationServer(t *testing.T) (*store.Store, *RESTServer) {
 	if err != nil {
 		t.Fatalf("connect integration database: %v", err)
 	}
+	if err := ensureSharedExtensions(ctx, admin); err != nil {
+		_ = admin.Close(context.Background())
+		t.Fatalf("create shared extensions: %v", err)
+	}
 	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+pgQuoteIdent(schema)); err != nil {
 		_ = admin.Close(context.Background())
 		t.Fatalf("create integration schema: %v", err)
@@ -75,6 +79,20 @@ func newMultiTenantIntegrationServer(t *testing.T) (*store.Store, *RESTServer) {
 	cfg.APIKey = "legacy-global-api-key"
 	srv := NewRESTServer(st, NewAgentAuth("jwt-secret"), cfg, nil, nil)
 	return st, srv
+}
+
+// ensureSharedExtensions installs extensions used by migrations into public
+// before an isolated-schema run. Without this, CREATE EXTENSION on a fresh
+// database follows the test connection's search_path and installs pg_trgm
+// inside the temporary schema, making its operator classes invisible to the
+// default public search path used by other integration tests.
+func ensureSharedExtensions(ctx context.Context, admin *pgx.Conn) error {
+	if _, err := admin.Exec(ctx, `SELECT pg_advisory_lock(7248834501)`); err != nil {
+		return err
+	}
+	defer func() { _, _ = admin.Exec(context.Background(), `SELECT pg_advisory_unlock(7248834501)`) }()
+	_, err := admin.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS pg_trgm`)
+	return err
 }
 
 func pgQuoteIdent(s string) string {

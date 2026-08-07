@@ -1,0 +1,25 @@
+{
+  "name": "linux-heartbleed-active",
+  "platform": "linux",
+  "agent_os": "Ubuntu 14.04 LTS",
+  "agent_version": "14.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "openssl", "version": "1.0.1f", "format": "deb", "vendor": "Ubuntu"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2014-0160",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "OpenSSL Heartbleed information disclosure",
+      "affected": [
+        {"name": "openssl", "vendor": "openssl", "min_ver": "1.0.1", "max_ver": "1.0.1f", "max_inclusive": true, "fixed_in": "1.0.1g"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2014-0160", "asset": "openssl", "status": "active"}
+  ]
+}

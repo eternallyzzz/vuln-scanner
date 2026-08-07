@@ -250,6 +250,21 @@ edr_scan:
   timeout_seconds: 120
 ```
 
+```yaml
+monitor:                  # periodic telemetry drift monitoring, default off
+  interval_minutes: 60    # min 15; first report warms the server baseline
+  files:
+    enabled: false        # enable periodic SHA256 file-integrity checks
+    paths: []             # empty = built-in high-risk list (cron/ssh/identity/...)
+    timeout_seconds: 60
+    max_file_bytes: 67108864   # 64 MiB per file
+    max_files_per_dir: 200
+  behavior:
+    enabled: false        # baseline processes/ports/accounts/startup/ssh keys...
+```
+
+启用后 Agent 按 `interval_minutes` 周期上报文件哈希与行为快照；服务端首轮只建基线（warm-up），后续 diff 产生的变更写入 `edr_findings`（source=`file_integrity`/`behavior`），HIGH/CRITICAL 自动经内置 `file-integrity`/`behavior-drift` 规则生成告警。运维可用 `GET /api/v1/monitor/baselines/{agentId}` 查看基线状态、`POST /api/v1/monitor/baselines/{agentId}/rebaseline` 重建基线并关闭相关 open 发现。
+
 开启后 Agent 在存在 `clamscan` 二进制的 Linux/macOS 上执行
 `clamscan --infected --no-summary`，解析 `path: VirusName FOUND` 行并随全量
 SystemInfo 上报（`source=clamav`，Windows 本轮不扫描）。补丁任务成功后 Agent
