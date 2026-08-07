@@ -699,8 +699,9 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 
 	slog.Info("match completed", "agent_id", agentID, "assets", len(assets), "cves", len(results))
 
-	if err := w.match.SaveResults(ctx, agentID, results); err != nil {
-		slog.Error("save results failed", "agent_id", agentID, "error", err)
+	saveErr := w.match.SaveResults(ctx, agentID, results)
+	if saveErr != nil {
+		slog.Error("save results failed", "agent_id", agentID, "error", saveErr)
 	}
 	if _, err := w.store.RecalcAgentRisk(ctx, agentID); err != nil {
 		slog.Warn("risk recalc failed", "agent_id", agentID, "error", err)
@@ -719,6 +720,11 @@ func (w *Worker) runSingleMatch(ctx context.Context, agentID string) {
 		}
 		if err := w.alerts.Evaluate(ctx, agentID, alertResults); err != nil {
 			slog.Error("alert evaluation failed", "agent_id", agentID, "error", err)
+		}
+	}
+	if saveErr == nil {
+		if err := w.store.VerifyPendingPostPatchTasks(ctx, agentID); err != nil {
+			slog.Error("post-patch verification failed", "agent_id", agentID, "error", err)
 		}
 	}
 }

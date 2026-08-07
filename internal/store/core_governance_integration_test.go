@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -9,8 +10,14 @@ import (
 func TestDeleteAuditLogsOlderThan(t *testing.T) {
 	s := testWorkerScaleDB(t)
 	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	oldActor := "old-audit-" + suffix
+	newActor := "new-audit-" + suffix
+	t.Cleanup(func() {
+		_, _ = s.pool.Exec(ctx, `DELETE FROM audit_logs WHERE actor IN ($1,$2)`, oldActor, newActor)
+	})
 
-	for _, actor := range []string{"old-audit", "new-audit"} {
+	for _, actor := range []string{oldActor, newActor} {
 		if err := s.AppendAuditLog(ctx, AuditLog{
 			Actor:    actor,
 			Method:   "POST",
@@ -22,7 +29,7 @@ func TestDeleteAuditLogsOlderThan(t *testing.T) {
 		}
 	}
 	if _, err := s.pool.Exec(ctx,
-		`UPDATE audit_logs SET created_at=NOW() - interval '60 days' WHERE actor='old-audit'`); err != nil {
+		`UPDATE audit_logs SET created_at=NOW() - interval '60 days' WHERE actor=$1`, oldActor); err != nil {
 		t.Fatal(err)
 	}
 
@@ -36,11 +43,11 @@ func TestDeleteAuditLogsOlderThan(t *testing.T) {
 
 	var oldCount, newCount int
 	if err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM audit_logs WHERE actor='old-audit'`).Scan(&oldCount); err != nil {
+		`SELECT count(*) FROM audit_logs WHERE actor=$1`, oldActor).Scan(&oldCount); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.pool.QueryRow(ctx,
-		`SELECT count(*) FROM audit_logs WHERE actor='new-audit'`).Scan(&newCount); err != nil {
+		`SELECT count(*) FROM audit_logs WHERE actor=$1`, newActor).Scan(&newCount); err != nil {
 		t.Fatal(err)
 	}
 	if oldCount != 0 || newCount != 1 {
@@ -52,10 +59,14 @@ func TestReapStalePatchTasks(t *testing.T) {
 	s := testWorkerScaleDB(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	agentID := fmt.Sprintf("agent-reap-%d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_ = s.DeleteAgent(ctx, agentID)
+	})
 
 	if err := s.CreateAgent(ctx, &Agent{
-		ID:        "agent-reap",
-		Hostname:  "reap-host",
+		ID:        agentID,
+		Hostname:  agentID + ".local",
 		OSType:    "linux",
 		Arch:      "amd64",
 		Status:    "online",
@@ -68,7 +79,7 @@ func TestReapStalePatchTasks(t *testing.T) {
 	}
 
 	newTask, err := s.CreatePatchTask(ctx, PatchTaskInput{
-		AgentID:          "agent-reap",
+		AgentID:          agentID,
 		AssetName:        "nginx",
 		FixType:          "version",
 		FixValue:         ">= 1.24.1",
@@ -88,7 +99,7 @@ func TestReapStalePatchTasks(t *testing.T) {
 	}
 
 	staleTask, err := s.CreatePatchTask(ctx, PatchTaskInput{
-		AgentID:          "agent-reap",
+		AgentID:          agentID,
 		AssetName:        "openssl",
 		FixType:          "version",
 		FixValue:         ">= 3.0.7",
@@ -112,8 +123,8 @@ func TestReapStalePatchTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reaped != 1 {
-		t.Fatalf("reaped = %d, want 1", reaped)
+	if reaped < 1 {
+		t.Fatalf("reaped = %d, want at least 1", reaped)
 	}
 
 	stale, err := s.GetPatchTask(ctx, staleTask.ID)

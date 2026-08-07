@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,5 +159,22 @@ func TestCoreLoopIntegration(t *testing.T) {
 	}
 	if task.Status != "success" {
 		t.Fatalf("patch task status = %q, want success", task.Status)
+	}
+	if task.PostPatchStatus != "pending" {
+		t.Fatalf("post-patch status = %q, want pending after success", task.PostPatchStatus)
+	}
+
+	// The CVE result is still active in this test, so post-patch verification
+	// must fail with the remaining CVE listed.
+	if err := st.VerifyPendingPostPatchTasks(ctx, agentID); err != nil {
+		t.Fatalf("verify pending post-patch tasks: %v", err)
+	}
+	task, err = st.GetPatchTask(ctx, taskID)
+	if err != nil {
+		t.Fatalf("get patch task after verification: %v", err)
+	}
+	if task.PostPatchStatus != "failed" || !strings.Contains(task.PostPatchDetail, "CVE-2099-0001") {
+		t.Fatalf("post-patch verification = %q/%q, want failed with CVE-2099-0001",
+			task.PostPatchStatus, task.PostPatchDetail)
 	}
 }

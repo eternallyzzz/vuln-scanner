@@ -161,8 +161,28 @@ try {
     if ($task.status -ne "success") {
         Fail "patch task ended with status $($task.status)"
     }
+
+    Write-Host ">>> wait for post-patch verification (up to 120s)"
+    $deadline = (Get-Date).AddSeconds(120)
+    $postPatchStatus = $null
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep 5
+        $task = Invoke-RestMethod -Uri "http://localhost:$HTTPPort/api/v1/patch-tasks/$taskID" -Headers $headers
+        if ($task.post_patch_status -in @("passed", "failed", "na")) {
+            $postPatchStatus = $task.post_patch_status
+            break
+        }
+    }
+    if (-not $postPatchStatus) {
+        Fail "post-patch verification never completed for task $taskID"
+    }
+    if ($dryRun -and $postPatchStatus -ne "failed") {
+        Fail "dry-run post-patch status expected failed, got $postPatchStatus"
+    }
+    Write-Host ("post_patch_status=" + $postPatchStatus + " detail=" + $task.post_patch_detail)
+
     Write-Host ""
-    Write-Host "SMOKE PASS: asset scan -> CVE match -> patch approval -> agent execution -> success" -ForegroundColor Green
+    Write-Host "SMOKE PASS: asset scan -> CVE match -> patch approval -> agent execution -> success -> post-patch verification" -ForegroundColor Green
 }
 finally {
     try { docker rm -f $agentName 2>$null | Out-Null } catch { }

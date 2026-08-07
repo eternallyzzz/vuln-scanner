@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,9 @@ type PatchTask struct {
 	RuntimeVerifyStatus   string          `json:"runtime_verify_status,omitempty"`
 	RuntimeVerifyDetail   string          `json:"runtime_verify_detail,omitempty"`
 	RuntimeVerifyAt       *time.Time      `json:"runtime_verify_at,omitempty"`
+	PostPatchStatus       string          `json:"post_patch_status,omitempty"`
+	PostPatchDetail       string          `json:"post_patch_detail,omitempty"`
+	PostPatchAt           *time.Time      `json:"post_patch_at,omitempty"`
 }
 
 type PatchTaskInput struct {
@@ -62,7 +66,8 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 		&t.ApprovalRequired, &t.WindowStart, &t.WindowEnd, &resultRaw,
 		&t.CreatedBy, &t.ApprovedBy, &t.CreatedAt, &t.UpdatedAt, &t.CampaignID,
 		&t.CancelRequested, &baselineRaw, &t.RuntimeVerifyStatus,
-		&t.RuntimeVerifyDetail, &t.RuntimeVerifyAt)
+		&t.RuntimeVerifyDetail, &t.RuntimeVerifyAt,
+		&t.PostPatchStatus, &t.PostPatchDetail, &t.PostPatchAt)
 	if err != nil {
 		return t, err
 	}
@@ -75,7 +80,8 @@ func scanPatchTask(row pgx.Row) (PatchTask, error) {
 const patchTaskColumns = `id, agent_id, asset_name, fix_type, fix_value, action, cve_ids,
 	command, commands, status, approval_required, window_start, window_end,
 	result, created_by, approved_by, created_at, updated_at, campaign_id, cancel_requested,
-	runtime_verify_baseline, runtime_verify_status, runtime_verify_detail, runtime_verify_at`
+	runtime_verify_baseline, runtime_verify_status, runtime_verify_detail, runtime_verify_at,
+	post_patch_status, post_patch_detail, post_patch_at`
 
 // PatchTaskEvent is one incremental execution event (stdout/stderr chunk or
 // heartbeat). id is the monotonic cursor used by the REST event stream.
@@ -198,6 +204,9 @@ func (s *Store) CompletePatchTask(ctx context.Context, id int64, status string, 
 			runtime_verify_status=CASE WHEN $2='success' THEN 'pending' ELSE runtime_verify_status END,
 			runtime_verify_detail=CASE WHEN $2='success' THEN '' ELSE runtime_verify_detail END,
 			runtime_verify_at=CASE WHEN $2='success' THEN NULL ELSE runtime_verify_at END,
+			post_patch_status=CASE WHEN $2='success' THEN 'pending' ELSE post_patch_status END,
+			post_patch_detail=CASE WHEN $2='success' THEN '' ELSE post_patch_detail END,
+			post_patch_at=CASE WHEN $2='success' THEN NULL ELSE post_patch_at END,
 			updated_at=NOW()
 		WHERE id=$1
 	`, id, status, raw)
@@ -300,6 +309,173 @@ func (s *Store) CompleteRuntimeVerification(ctx context.Context, id int64, statu
 		slog.Warn("siem patch task verified event failed", "task_id", id, "error", e)
 	}
 	return nil
+}
+
+const (
+	// PostPatchVerifyStaleAfter is how long a successful task may stay in
+	// post-patch pending before the reaper marks it failed.
+	PostPatchVerifyStaleAfter = 24 * time.Hour
+
+	postPatchRemainingPrefix = "remaining active CVEs: "
+	postPatchNoRescanDetail  = "no post-patch re-scan observed"
+)
+
+// postPatchVerdict evaluates the task's own CVE IDs against the active CVEs
+// left after the latest match. It is a pure function so each branch is easy
+// to unit test.
+func postPatchVerdict(taskCVEIDs, remainingActive []string) (status, detail string) {
+	if len(taskCVEIDs) == 0 {
+		return "na", "no CVEs bound to patch task"
+	}
+	if len(remainingActive) == 0 {
+		return "passed", ""
+	}
+	return "failed", postPatchRemainingPrefix + strings.Join(remainingActive, ", ")
+}
+
+// remainingCVEsFromDetail extracts the machine-readable remaining CVE list
+// from the detail string written by postPatchVerdict. It is used by the SIEM
+// payload so consumers do not have to parse free text.
+func remainingCVEsFromDetail(detail string) []string {
+	if !strings.HasPrefix(detail, postPatchRemainingPrefix) {
+		return []string{}
+	}
+	rest := strings.TrimPrefix(detail, postPatchRemainingPrefix)
+	if rest == "" {
+		return []string{}
+	}
+	return strings.Split(rest, ", ")
+}
+
+// ListPendingPostPatchTasks returns succeeded tasks whose post-patch
+// verification has not been completed for one agent.
+func (s *Store) ListPendingPostPatchTasks(ctx context.Context, agentID string) ([]PatchTask, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+patchTaskColumns+` FROM patch_tasks
+		WHERE agent_id=$1 AND status='success' AND post_patch_status='pending'
+		ORDER BY id
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []PatchTask
+	for rows.Next() {
+		t, err := scanPatchTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+	return tasks, rows.Err()
+}
+
+// activeCVEsForPatchTask returns the task's own CVE IDs that are still
+// status=active on the same agent and asset.
+func (s *Store) activeCVEsForPatchTask(ctx context.Context, t PatchTask) ([]string, error) {
+	if len(t.CVEIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT cve_id FROM cve_results
+		WHERE agent_id=$1 AND asset_name=$2 AND status='active'
+		  AND cve_id = ANY($3::text[])
+		ORDER BY cve_id
+	`, t.AgentID, t.AssetName, t.CVEIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var cveID string
+		if err := rows.Scan(&cveID); err != nil {
+			return nil, err
+		}
+		out = append(out, cveID)
+	}
+	return out, rows.Err()
+}
+
+// VerifyPendingPostPatchTasks evaluates every pending post-patch task for an
+// agent against the latest cve_results and records passed/failed/na.
+func (s *Store) VerifyPendingPostPatchTasks(ctx context.Context, agentID string) error {
+	tasks, err := s.ListPendingPostPatchTasks(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	for _, t := range tasks {
+		remaining, err := s.activeCVEsForPatchTask(ctx, t)
+		if err != nil {
+			return err
+		}
+		status, detail := postPatchVerdict(t.CVEIDs, remaining)
+		if err := s.CompletePostPatchVerification(ctx, t.ID, status, detail); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CompletePostPatchVerification writes the post-patch result and appends a
+// patch_task.post_patch outbox event. The pending guard makes concurrent
+// verifiers idempotent.
+func (s *Store) CompletePostPatchVerification(ctx context.Context, id int64, status, detail string) error {
+	if status != "passed" && status != "failed" && status != "na" {
+		return fmt.Errorf("invalid post-patch verification status %q", status)
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE patch_tasks SET post_patch_status=$2, post_patch_detail=$3,
+			post_patch_at=NOW(), updated_at=NOW()
+		WHERE id=$1 AND post_patch_status='pending'
+	`, id, status, detail)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	task, err := s.GetPatchTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if e := s.appendSiemPatchTask(ctx, "patch_task.post_patch", task, "post-patch"); e != nil {
+		slog.Warn("siem patch task post-patch event failed", "task_id", id, "error", e)
+	}
+	return nil
+}
+
+// ReapStalePostPatchVerifications marks successful tasks failed when no
+// re-scan has completed within the given timeout. updated_at is the pending
+// start time written by CompletePatchTask.
+func (s *Store) ReapStalePostPatchVerifications(ctx context.Context, timeout time.Duration) (int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		UPDATE patch_tasks SET post_patch_status='failed',
+			post_patch_detail=$2, post_patch_at=NOW(), updated_at=NOW()
+		WHERE status='success' AND post_patch_status='pending'
+		  AND updated_at < NOW() - $1::interval
+		RETURNING id
+	`, timeout, postPatchNoRescanDetail)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var count int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return count, err
+		}
+		count++
+		task, err := s.GetPatchTask(ctx, id)
+		if err != nil {
+			return count, err
+		}
+		if e := s.appendSiemPatchTask(ctx, "patch_task.post_patch", task, "reaper"); e != nil {
+			slog.Warn("siem patch task post-patch reap event failed", "task_id", id, "error", e)
+		}
+	}
+	return count, rows.Err()
 }
 
 // AppendPatchTaskEvents appends one batch of execution events inside a

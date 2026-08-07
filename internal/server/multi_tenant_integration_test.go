@@ -51,7 +51,9 @@ func newMultiTenantIntegrationServer(t *testing.T) (*store.Store, *RESTServer) {
 		t.Fatalf("parse VULNSCAN_TEST_DATABASE_URL: %v", err)
 	}
 	q := u.Query()
-	q.Set("options", "-csearch_path="+schema)
+	// Keep public in the search path so shared extensions (pg_trgm) and their
+	// operator classes resolve inside the isolated test schema.
+	q.Set("options", "-csearch_path="+schema+",public")
 	u.RawQuery = q.Encode()
 
 	st, err := store.New(ctx, u.String())

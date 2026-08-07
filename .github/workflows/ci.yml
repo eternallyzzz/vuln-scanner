@@ -61,7 +61,7 @@ jobs:
       - name: Multi-tenant DB smoke test
         env:
           VULNSCAN_TEST_DATABASE_URL: postgres://vulnscan:vulnscan@localhost:5432/vulnscan?sslmode=disable
-        run: go test -p 1 -count=1 -run '^(TestMultiTenantIntegration|TestCoreLoopIntegration|TestDeleteAuditLogsOlderThan|TestReapStalePatchTasks)$' ./internal/server ./internal/store
+        run: go test -p 1 -count=1 -run '^(TestMultiTenantIntegration|TestCoreLoopIntegration|TestDeleteAuditLogsOlderThan|TestReapStalePatchTasks|TestPostPatchVerify)' ./internal/server ./internal/store
 
   build:
     runs-on: ubuntu-latest

@@ -146,7 +146,13 @@ func (s *Store) appendSiemPatchTask(ctx context.Context, eventType string, t Pat
 		"runtime_verify_status": t.RuntimeVerifyStatus,
 		"runtime_verify_detail": t.RuntimeVerifyDetail,
 		"runtime_verify_at":     t.RuntimeVerifyAt,
+		"post_patch_status":     t.PostPatchStatus,
+		"post_patch_detail":     t.PostPatchDetail,
+		"post_patch_at":         t.PostPatchAt,
 		"actor":                 actor,
+	}
+	if eventType == "patch_task.post_patch" {
+		payload["remaining_cves"] = remainingCVEsFromDetail(t.PostPatchDetail)
 	}
 	return s.AppendSiemEvent(ctx, key, eventType, payload)
 }

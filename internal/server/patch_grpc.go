@@ -257,6 +257,12 @@ func (w *Worker) reapPatchLoop(ctx context.Context) {
 			} else if n > 0 {
 				slog.Info("reaped stale patch tasks", "count", n)
 			}
+			postPatch, err := w.store.ReapStalePostPatchVerifications(ctx, store.PostPatchVerifyStaleAfter)
+			if err != nil {
+				slog.Warn("reap stale post-patch verifications failed", "error", err)
+			} else if postPatch > 0 {
+				slog.Info("reaped stale post-patch verifications", "count", postPatch)
+			}
 		}
 	}
 }
