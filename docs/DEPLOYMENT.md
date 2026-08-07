@@ -116,6 +116,20 @@ curl http://localhost:8080/health
 
 非容器部署仍可使用根目录 `server.yaml`（支持 `${ENV}` 展开），并可用 `VULNSCAN_CONFIG` 指定路径。
 
+### 1.1 核心闭环一键冒烟 / Core-loop Smoke
+
+仓库内置一键冒烟脚本（PowerShell，需 Docker Compose v2）：自动启动 PostgreSQL + server，
+注册真实 agent 容器，播种一条确定性 CVE（busybox），走完 资产采集 → CVE 匹配 →
+补丁任务 → 审批 → Agent 执行/回传 的完整闭环。
+
+```bash
+make smoke-core-loop                                                            # 默认 dry-run，安全
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-core-loop.ps1 -ExecuteForReal   # 真实执行 apk upgrade busybox
+```
+
+脚本默认使用宿主端口 8080/9090/15433（可用 `HTTP_PORT`/`GRPC_PORT`/`PostgresPort` 参数避开冲突），
+结束后自动 `docker compose down`；加 `-KeepRunning` 可保留服务便于手工查看。
+
 ## 2. 安装 Agent / Install Agent
 
 Server 镜像内已内置 4 个平台的 agent 安装包，通过 `/dl/agent/<platform>` 下载：
