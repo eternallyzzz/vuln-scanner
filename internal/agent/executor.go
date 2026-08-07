@@ -1,11 +1,9 @@
 package agent
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os/exec"
 	"sync"
@@ -64,14 +62,13 @@ func executeCommandsStreaming(ctx context.Context, argvLists [][]string, timeout
 		}
 		cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 		configureProcessGroup(cmd)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return -1, out.String(), err
-		}
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			return -1, out.String(), err
-		}
+		// Writers instead of StdoutPipe/StderrPipe: os/exec guarantees the
+		// copy goroutines have delivered all output before Wait returns,
+		// avoiding the pipe-close race that can drop the tail of the output.
+		stdoutW := newStreamWriter("stdout", out, sink, &cancelled, cancel)
+		stderrW := newStreamWriter("stderr", out, sink, &cancelled, cancel)
+		cmd.Stdout = stdoutW
+		cmd.Stderr = stderrW
 		if err := cmd.Start(); err != nil {
 			return -1, out.String(), err
 		}
@@ -81,12 +78,9 @@ func executeCommandsStreaming(ctx context.Context, argvLists [][]string, timeout
 				killProcessTree(cmd.Process.Pid)
 			}
 		}()
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go streamReader(stdout, "stdout", out, sink, &cancelled, cancel, &wg)
-		go streamReader(stderr, "stderr", out, sink, &cancelled, cancel, &wg)
 		waitErr := cmd.Wait()
-		wg.Wait()
+		stdoutW.flush()
+		stderrW.flush()
 		lastOutput = out.String()
 		if cancelled.Load() {
 			return -1, lastOutput, errCancelled
@@ -130,34 +124,68 @@ func progressHeartbeat(ctx context.Context, done chan struct{}, sink progressSin
 	}
 }
 
-// streamReader copies one output stream into the combined buffer and pushes
-// line-buffered chunks to the sink. Long lines are split at buffer bounds.
-func streamReader(r io.Reader, stream string, out *syncBuffer, sink progressSink, cancelled *atomic.Bool, cancel context.CancelFunc, wg *sync.WaitGroup) {
-	defer wg.Done()
-	br := bufio.NewReader(r)
+// streamWriter is a line-buffered stdout/stderr sink used directly as
+// cmd.Stdout/cmd.Stderr. It writes into the combined buffer and pushes
+// line-buffered chunks to the progress sink; the trailing unterminated line
+// is flushed after the command exits.
+type streamWriter struct {
+	stream    string
+	out       *syncBuffer
+	sink      progressSink
+	cancelled *atomic.Bool
+	cancel    context.CancelFunc
+	pending   []byte
+}
+
+func newStreamWriter(stream string, out *syncBuffer, sink progressSink, cancelled *atomic.Bool, cancel context.CancelFunc) *streamWriter {
+	return &streamWriter{
+		stream:    stream,
+		out:       out,
+		sink:      sink,
+		cancelled: cancelled,
+		cancel:    cancel,
+	}
+}
+
+func (w *streamWriter) Write(p []byte) (int, error) {
+	w.pending = append(w.pending, p...)
 	for {
-		line, err := br.ReadString('\n')
-		if line != "" {
-			chunk := line
-			if len(chunk) > maxEventChunkBytes {
-				chunk = chunk[:maxEventChunkBytes] + "\n...[truncated]"
-			}
-			out.WriteString(chunk)
-			if sink != nil {
-				req, serr := sink(OutputChunk{Stream: stream, Data: chunk})
-				if serr != nil {
-					slog.Warn("patch progress report failed", "stream", stream, "error", serr)
-				} else if req {
-					cancelled.Store(true)
-					cancel()
-				}
-			}
+		idx := bytes.IndexByte(w.pending, '\n')
+		if idx < 0 {
+			return len(p), nil
 		}
+		w.emitLine(w.pending[:idx+1])
+		w.pending = w.pending[idx+1:]
+	}
+}
+
+func (w *streamWriter) flush() {
+	if len(w.pending) > 0 {
+		w.emitLine(w.pending)
+		w.pending = nil
+	}
+}
+
+func (w *streamWriter) emitLine(line []byte) {
+	if len(line) > maxEventChunkBytes {
+		truncated := make([]byte, 0, maxEventChunkBytes+len("\n...[truncated]"))
+		truncated = append(truncated, line[:maxEventChunkBytes]...)
+		truncated = append(truncated, "\n...[truncated]"...)
+		line = truncated
+	}
+	w.emit(line)
+}
+
+func (w *streamWriter) emit(chunk []byte) {
+	s := string(chunk)
+	w.out.WriteString(s)
+	if w.sink != nil {
+		req, err := w.sink(OutputChunk{Stream: w.stream, Data: s})
 		if err != nil {
-			if err == bufio.ErrBufferFull {
-				continue
-			}
-			return
+			slog.Warn("patch progress report failed", "stream", w.stream, "error", err)
+		} else if req {
+			w.cancelled.Store(true)
+			w.cancel()
 		}
 	}
 }

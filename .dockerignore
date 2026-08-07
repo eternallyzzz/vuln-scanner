@@ -21,7 +21,6 @@ results_summary.json
 # Secrets & local config
 .env
 .env.local
-server.yaml
 server-e2e.yaml
 certs/
 *.pem

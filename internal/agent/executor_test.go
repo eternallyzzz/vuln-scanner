@@ -105,7 +105,15 @@ func TestExecuteCommandsStreamsOutput(t *testing.T) {
 		mu.Unlock()
 		return false, nil
 	}
-	argv := shellArgv("echo", "line1", "&", "echo", "line2")
+	var argv []string
+	if runtime.GOOS == "windows" {
+		// "&" separates commands sequentially on Windows cmd.
+		argv = []string{"cmd", "/c", "echo line1 & echo line2"}
+	} else {
+		// "&" would background the first echo on Unix, making chunk order
+		// nondeterministic; use ";" for a deterministic sequential run.
+		argv = []string{"sh", "-c", "echo line1; echo line2"}
+	}
 	_, output, err := executeCommandsStreaming(context.Background(), [][]string{argv}, 10*time.Second, sink)
 	if err != nil {
 		t.Fatal(err)
