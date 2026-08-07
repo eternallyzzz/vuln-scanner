@@ -62,6 +62,17 @@ func executeCommandsStreaming(ctx context.Context, argvLists [][]string, timeout
 		}
 		cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 		configureProcessGroup(cmd)
+		// Cancel the whole process tree instead of the default single-process
+		// kill: on Windows, TerminateProcess on cmd.exe orphans its children
+		// (e.g. ping), which keep the output pipes open until they finish.
+		// taskkill /T must run while the parent is still alive so it can
+		// enumerate the tree.
+		cmd.Cancel = func() error {
+			if cmd.Process != nil {
+				killProcessTree(cmd.Process.Pid)
+			}
+			return nil
+		}
 		// Writers instead of StdoutPipe/StderrPipe: os/exec guarantees the
 		// copy goroutines have delivered all output before Wait returns,
 		// avoiding the pipe-close race that can drop the tail of the output.
@@ -72,12 +83,6 @@ func executeCommandsStreaming(ctx context.Context, argvLists [][]string, timeout
 		if err := cmd.Start(); err != nil {
 			return -1, out.String(), err
 		}
-		go func() {
-			<-runCtx.Done()
-			if cmd.Process != nil {
-				killProcessTree(cmd.Process.Pid)
-			}
-		}()
 		waitErr := cmd.Wait()
 		stdoutW.flush()
 		stderrW.flush()
