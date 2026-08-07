@@ -105,6 +105,18 @@ func (s *Store) CountAuditLogs(ctx context.Context, f AuditLogFilter) (int64, er
 	return n, err
 }
 
+// DeleteAuditLogsOlderThan removes audit entries whose created_at is older
+// than the retention window. It returns the number of rows deleted.
+func (s *Store) DeleteAuditLogsOlderThan(ctx context.Context, olderThan time.Duration) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM audit_logs WHERE created_at < NOW() - $1::interval
+	`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // AuditExportCSV renders the latest 5000 audit entries as CSV bytes. A
 // non-nil tenantID restricts the export to that tenant; nil exports all
 // tenants (the historical full-admin behavior).

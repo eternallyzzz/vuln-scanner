@@ -46,6 +46,7 @@ type Worker struct {
 	reportSMTP       *alert.SMTPConfig
 	reportMu         sync.Mutex
 	reportRunning    bool
+	auditRetention   time.Duration
 	remoteCfg        *remotescan.Config
 	remoteKey        []byte
 	tickets          *ticket.Service
@@ -479,6 +480,14 @@ func (w *Worker) ConfigureReporting(cfg *report.Config, smtp *alert.SMTPConfig) 
 	w.reportSMTP = smtp
 }
 
+// ConfigureAuditRetention enables periodic deletion of audit entries older
+// than the given number of days. A non-positive value disables cleanup.
+func (w *Worker) ConfigureAuditRetention(days int) {
+	if days > 0 {
+		w.auditRetention = time.Duration(days) * 24 * time.Hour
+	}
+}
+
 func (w *Worker) Stop() {
 	close(w.done)
 }
@@ -853,6 +862,14 @@ func (w *Worker) archiveLoop(ctx context.Context) {
 				slog.Warn("cleanup finished jobs failed", "error", err)
 			} else if cleaned > 0 {
 				slog.Info("cleaned finished jobs", "count", cleaned)
+			}
+			if w.auditRetention > 0 {
+				cleaned, err := w.store.DeleteAuditLogsOlderThan(ctx, w.auditRetention)
+				if err != nil {
+					slog.Warn("cleanup audit logs failed", "error", err)
+				} else if cleaned > 0 {
+					slog.Info("cleaned audit logs", "count", cleaned)
+				}
 			}
 		}
 	}

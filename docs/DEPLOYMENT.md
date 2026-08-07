@@ -38,6 +38,7 @@ curl http://localhost:8080/health
 | `SERVER_URL` | `http://localhost:8080` | Agent 可达的 Server 对外地址（注册/安装脚本使用），**生产必改**，如 `https://vuln.example.com` |
 | `DATABASE_URL` | 由 compose 自动拼装 | 覆盖时需指向 `postgres` 服务 |
 | `VULNSCAN_MODE` | `all` | 运行模式：`all`（默认，API+gRPC+后台循环）/ `api`（仅 API/gRPC）/ `worker`（仅后台循环）；多实例水平扩展时使用 |
+| `AUDIT_RETENTION_DAYS` | `365` | 审计日志保留天数；`0` 表示不自动清理 |
 | `ALERTING_ENABLED` | `true` | 核心告警开关；开启后仅内部记录，配置 webhook/SMTP 后才外发 |
 | `ALERTING_WEBHOOK_URL` / `ALERTING_WEBHOOK_SECRET` | 空 | 可选 Webhook 通知渠道 |
 | `PATCH_ENABLED` | `true` | 核心补丁下发开关 |

@@ -45,6 +45,12 @@ type CVEScanConfig struct {
 	RedHatTTLHours     int    `mapstructure:"redhat_ttl_hours"`
 }
 
+// AuditConfig controls governance cleanup for the unified audit log.
+// RetentionDays of 0 disables automatic deletion.
+type AuditConfig struct {
+	RetentionDays int `mapstructure:"retention_days"`
+}
+
 type Config struct {
 	GRPCAddr      string             `mapstructure:"grpc_addr"`
 	HTTPAddr      string             `mapstructure:"http_addr"`
@@ -53,6 +59,7 @@ type Config struct {
 	APIKey        string             `mapstructure:"api_key"`
 	ServerURL     string             `mapstructure:"server_url"`
 	Mode          string             `mapstructure:"mode"`
+	Audit         *AuditConfig       `mapstructure:"audit"`
 	CVE           *CVEScanConfig     `mapstructure:"cve"`
 	LLM           *LLMConfig         `mapstructure:"llm"`
 	Alerting      *alert.Config      `mapstructure:"alerting"`
@@ -76,6 +83,7 @@ func DefaultConfig() *Config {
 		APIKey:      "sk-change-me",
 		Mode:        "all",
 		Alerting:    defaultAlertingConfig(),
+		Audit:       &AuditConfig{RetentionDays: 365},
 		Patch:       defaultPatchConfig(),
 		Reporting:   report.DefaultConfig(),
 		RemoteScan:  remotescan.DefaultConfig(),
@@ -230,6 +238,14 @@ func LoadConfig(path string) (*Config, error) {
 
 	if cfg.Alerting == nil {
 		cfg.Alerting = defaultAlertingConfig()
+	}
+	if cfg.Audit == nil {
+		cfg.Audit = &AuditConfig{RetentionDays: 365}
+	}
+	if raw := os.Getenv("AUDIT_RETENTION_DAYS"); raw != "" {
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n >= 0 {
+			cfg.Audit.RetentionDays = n
+		}
 	}
 	if raw := os.Getenv("ALERTING_ENABLED"); raw != "" {
 		cfg.Alerting.Enabled = envBool(raw)
@@ -666,6 +682,7 @@ func bindCoreEnv(v *viper.Viper) {
 		"jwt_secret",
 		"api_key",
 		"server_url",
+		"audit.retention_days",
 		"alerting.enabled",
 		"alerting.webhook_url",
 		"alerting.webhook_secret",

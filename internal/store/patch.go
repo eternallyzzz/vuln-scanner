@@ -392,7 +392,7 @@ func (s *Store) ReapStalePatchTasks(ctx context.Context, timeout time.Duration) 
 		UPDATE patch_tasks SET status='approved', updated_at=NOW()
 		WHERE status='running' AND updated_at < NOW() - $1::interval
 		RETURNING id
-	`, timeout.String())
+	`, timeout)
 	if err != nil {
 		return 0, err
 	}

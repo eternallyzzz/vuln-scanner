@@ -171,6 +171,9 @@ func main() {
 	worker.ConfigureSIEM(cfg.SIEM)
 	worker.ConfigureCloudScanning(cfg.CloudScan)
 	worker.ConfigureWebDBScanning(cfg.WebDBScan)
+	if cfg.Audit != nil {
+		worker.ConfigureAuditRetention(cfg.Audit.RetentionDays)
+	}
 	var smtpCfg *alert.SMTPConfig
 	if cfg.Alerting != nil {
 		smtpCfg = cfg.Alerting.SMTP

@@ -97,6 +97,8 @@ Agent 可达的对外地址。CI 在 main 分支构建并推送镜像至
 
 ```yaml
 mode: "all"
+audit:
+  retention_days: 365      # 审计日志保留天数；0 表示不自动清理
 alerting:
   enabled: true            # 内部告警默认开启；webhook/SMTP 为可选通知渠道
   delivery_interval_seconds: 30

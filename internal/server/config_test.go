@@ -127,8 +127,22 @@ func TestLoadConfigCoreDefaults(t *testing.T) {
 	if cfg.Alerting == nil || !cfg.Alerting.Enabled {
 		t.Fatalf("default alerting = %#v, want enabled", cfg.Alerting)
 	}
+	if cfg.Audit == nil || cfg.Audit.RetentionDays != 365 {
+		t.Fatalf("default audit = %#v, want retention 365", cfg.Audit)
+	}
 	if cfg.Patch == nil || !cfg.Patch.Enabled || !cfg.Patch.DryRun || !cfg.Patch.DefaultApprovalRequired {
 		t.Fatalf("default patch = %#v, want enabled/dry-run/approval", cfg.Patch)
+	}
+}
+
+func TestLoadConfigAuditRetentionEnv(t *testing.T) {
+	t.Setenv("AUDIT_RETENTION_DAYS", "0")
+	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "missing.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audit == nil || cfg.Audit.RetentionDays != 0 {
+		t.Fatalf("audit retention = %#v, want disabled via AUDIT_RETENTION_DAYS", cfg.Audit)
 	}
 }
 
@@ -139,6 +153,9 @@ func TestLoadConfigCoreFile(t *testing.T) {
 	}
 	if cfg.Alerting == nil || !cfg.Alerting.Enabled {
 		t.Fatalf("core file alerting = %#v, want enabled", cfg.Alerting)
+	}
+	if cfg.Audit == nil || cfg.Audit.RetentionDays != 365 {
+		t.Fatalf("core file audit = %#v, want retention 365", cfg.Audit)
 	}
 	if cfg.Patch == nil || !cfg.Patch.Enabled || !cfg.Patch.DryRun || !cfg.Patch.DefaultApprovalRequired {
 		t.Fatalf("core file patch = %#v, want enabled/dry-run/approval", cfg.Patch)

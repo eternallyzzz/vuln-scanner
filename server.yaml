@@ -13,6 +13,11 @@ jwt_secret: "change-me-in-production"
 api_key: "sk-change-me"
 mode: "all"
 
+# Governance: automatically delete audit entries older than retention_days.
+# Set to 0 to keep audit logs forever.
+audit:
+  retention_days: 365
+
 # Core alerting: alerts are recorded internally by default. Add webhook_url
 # and/or smtp below to enable external delivery.
 alerting:
