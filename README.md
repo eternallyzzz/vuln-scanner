@@ -70,6 +70,14 @@ go run ./cmd/server
 go run ./cmd/agent run
 ```
 
+核心闭环一键冒烟（Docker Compose 起 PostgreSQL + server + 真实 agent，
+自动完成 资产采集 → CVE 匹配 → 补丁任务 → 审批 → Agent 执行/回传）：
+
+```bash
+make smoke-core-loop                                                        # 默认 dry-run，安全
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-core-loop.ps1 -ExecuteForReal   # 真实执行补丁
+```
+
 ## Deployment / 部署
 
 测试/生产环境建议使用 Docker Compose 一键部署（含 PostgreSQL、自动迁移与内置 Agent 安装包），完整说明见

@@ -38,6 +38,7 @@ Thumbs.db
 # Sources not needed in the server image
 deploy/
 docs/
+scripts/
 README.md
 LICENSE
 Makefile

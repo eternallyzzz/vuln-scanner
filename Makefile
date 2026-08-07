@@ -1,4 +1,4 @@
-.PHONY: all proto build build-agent build-server test clean lint run-server run-agent docker-build docker-up docker-down
+.PHONY: all proto build build-agent build-server test clean lint run-server run-agent docker-build docker-up docker-down smoke-core-loop
 
 GO ?= go
 PROTOC ?= protoc
@@ -61,6 +61,9 @@ docker-up:
 
 docker-down:
 	docker compose -f deploy/docker-compose/docker-compose.yml down
+
+smoke-core-loop:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-core-loop.ps1
 
 fmt:
 	$(GO) fmt ./...
