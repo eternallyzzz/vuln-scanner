@@ -1,0 +1,25 @@
+{
+  "name": "linux-alpine-prerelease",
+  "platform": "linux",
+  "agent_os": "Alpine Linux 3.20",
+  "agent_version": "3.20.10",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "sample", "version": "2.0.0_alpha1-r0", "format": "apk", "vendor": "Alpine"}
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2099-0006",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "Alpine alpha prerelease",
+      "affected": [
+        {"name": "sample", "max_ver": "2.0.0", "ecosystem": "Alpine"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0006", "asset": "sample", "status": "active"}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "linux-nvd-openssl-vs-openssl-libs-translated",
+  "platform": "linux",
+  "agent_os": "Red Hat Enterprise Linux 8.9",
+  "agent_version": "8.9",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "openssl-libs", "version": "1:3.0.7-24.el8", "format": "rpm", "vendor": "Red Hat"}
+  ],
+  "translations": [
+    {
+      "pattern": "^openssl-libs$",
+      "product": "openssl",
+      "platform": "any",
+      "priority": 10
+    }
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0002",
+      "severity": "HIGH",
+      "cvss_score": 8.0,
+      "summary": "OpenSSL issue",
+      "affected": [
+        {"name": "openssl", "max_ver": "99.99.99", "vendor": "openssl"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0002", "asset": "openssl", "status": "active"}
+  ]
+}

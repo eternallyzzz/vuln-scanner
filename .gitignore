@@ -54,7 +54,6 @@ coverage.html
 /reports/
 *.metrics
 *.bench
-internal/cve/testdata/accuracy/snapshot.json
 
 # Development worklog (local only, not committed)
 docs/WORKLOG.md

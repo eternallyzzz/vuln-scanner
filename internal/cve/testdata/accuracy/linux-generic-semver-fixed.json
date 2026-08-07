@@ -1,0 +1,25 @@
+{
+  "name": "linux-generic-semver-fixed",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "lib", "version": "1.2", "format": "generic", "vendor": ""}
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2099-0008",
+      "severity": "MEDIUM",
+      "cvss_score": 5.0,
+      "summary": "semver 1.2 equals 1.2.0",
+      "affected": [
+        {"name": "lib", "fixed_in": "1.2.0", "ecosystem": "npm"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0008", "asset": "lib", "status": "fixed"}
+  ]
+}

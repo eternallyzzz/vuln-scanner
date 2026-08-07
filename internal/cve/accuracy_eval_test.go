@@ -157,7 +157,7 @@ func evaluateAccuracyFixture(fx accuracyFixture) ([]accuracyVerdict, error) {
 		}
 		results = enrichVersionStatus(results, assets, installedKBs, fx.AgentVersion, tm.hotfixes())
 		results = applyWUAVerification(results, fx.WUAFacts, fx.WUASource)
-		return verdictsFromResults(results), nil
+		return verdictsFromResults(selectBestMatches(results)), nil
 	}
 
 	rawNames, translatedNames := extractSoftwareNames(assets, "linux", tm)
@@ -168,7 +168,7 @@ func evaluateAccuracyFixture(fx accuracyFixture) ([]accuracyVerdict, error) {
 			lowerNameSet(searchNames), buildAgentCPEIndex(searchNames, assetVersions), installedKBs,
 			fx.AgentOS, fx.AgentVersion, fx.AgentArch, "")...)
 	}
-	return verdictsFromResults(results), nil
+	return verdictsFromResults(selectBestMatches(results)), nil
 }
 
 func toFeedEntry(fe accuracyFeedEntry) FeedEntry {

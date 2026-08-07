@@ -399,6 +399,10 @@ deploy/                # docker-compose / k8s / 脚本
 - Ubuntu 主机通过 OSV 官方记录覆盖 CVE/USN/LSN，生态名按版本映射（如 `Ubuntu:22.04:LTS`）。
 - Red Hat package_state 的未修复状态（Affected / Will not fix / Fix deferred / Under investigation）只对真实 RHEL agent 生效；AlmaLinux/Rocky/CentOS 不继承该判定，避免误报。
 - CentOS Stream 与 Fedora：OSV 无覆盖（生态列表与数据目录均无），CentOS Stream 保持显式跳过 RHEL 数据匹配，Fedora 无专门数据源；Arch 不支持。
+- 匹配准确率由 `internal/cve/testdata/accuracy/*.json` 语料与 `snapshot.json` 基线守护
+  （precision/recall/F1，CI 强制）：改动匹配逻辑后用
+  `go test ./internal/cve -run TestAccuracySnapshot -update` 重新生成基线；
+  新增场景先加 fixture 与 expected 真值再改代码。
 
 ## License / 许可证
 

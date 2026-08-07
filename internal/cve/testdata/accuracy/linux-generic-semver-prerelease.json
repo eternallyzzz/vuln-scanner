@@ -1,0 +1,25 @@
+{
+  "name": "linux-generic-semver-prerelease",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "node", "version": "2.0.0-beta.1", "format": "generic", "vendor": ""}
+  ],
+  "feed": [
+    {
+      "source": "osv",
+      "cve_id": "CVE-2099-0009",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "semver beta before release",
+      "affected": [
+        {"name": "node", "min_ver": "2.0.0-beta.0", "max_ver": "2.0.0", "ecosystem": "npm"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0009", "asset": "node", "status": "active"}
+  ]
+}

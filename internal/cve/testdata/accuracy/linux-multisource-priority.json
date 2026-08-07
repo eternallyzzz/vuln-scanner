@@ -1,0 +1,35 @@
+{
+  "name": "linux-multisource-priority",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 11 (bullseye)",
+  "agent_version": "11.7",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "openssl", "version": "1.1.1n-0+deb11u5", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0003",
+      "severity": "CRITICAL",
+      "cvss_score": 9.8,
+      "summary": "OpenSSL generic advisory",
+      "affected": [
+        {"name": "openssl", "max_ver": "99.99.99", "vendor": "openssl"}
+      ]
+    },
+    {
+      "source": "debian",
+      "cve_id": "CVE-2099-0003",
+      "severity": "HIGH",
+      "cvss_score": 8.0,
+      "summary": "OpenSSL Debian advisory",
+      "affected": [
+        {"name": "openssl", "fixed_in": "1.1.1n-0+deb11u6", "ecosystem": "Debian"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0003", "asset": "openssl", "status": "active"}
+  ]
+}

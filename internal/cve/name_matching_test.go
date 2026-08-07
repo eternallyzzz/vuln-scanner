@@ -32,10 +32,10 @@ func TestFindMatchingKeyTokenBoundaries(t *testing.T) {
 			want:    "git for windows",
 		},
 		{
-			name:    "multi-token product contiguous",
+			name:    "extra distinctive token rejected",
 			product: "visual studio",
 			index:   map[string]string{"visual studio code": "1.85"},
-			want:    "visual studio code",
+			want:    "",
 		},
 		{
 			name:    "reverse distinctive token",

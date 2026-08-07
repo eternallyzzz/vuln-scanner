@@ -1,0 +1,23 @@
+{
+  "name": "linux-nvd-python-openssl-vs-openssl",
+  "platform": "linux",
+  "agent_os": "Ubuntu 22.04 LTS",
+  "agent_version": "22.04",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "openssl", "version": "3.0.2-0ubuntu1.18", "format": "deb", "vendor": "Ubuntu"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0001",
+      "severity": "HIGH",
+      "cvss_score": 8.0,
+      "summary": "pyOpenSSL injection",
+      "affected": [
+        {"name": "python-openssl", "max_ver": "99.99.99", "vendor": "python"}
+      ]
+    }
+  ],
+  "expected": []
+}

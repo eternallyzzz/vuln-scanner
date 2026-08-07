@@ -1,0 +1,455 @@
+{
+  "fixtures": [
+    {
+      "name": "linux-alpine-prerelease",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0006",
+          "asset": "sample",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-amazon-openssh",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2023-51385",
+          "asset": "openssh",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-arch-openssh-fixed",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-debian-epoch-fixed",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0004",
+          "asset": "libldb2",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "linux-debian-libldb2",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2023-34966",
+          "asset": "libldb2",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-debian-libldb2-fixed",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2023-34966",
+          "asset": "libldb2",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "linux-debian-libldb2-nofix",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2023-34966",
+          "asset": "libldb2",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-debian-tilde-prerelease",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0005",
+          "asset": "example",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-generic-semver-fixed",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0008",
+          "asset": "lib",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "linux-generic-semver-prerelease",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0009",
+          "asset": "node",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-git-vs-gitea",
+      "metrics": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2024-24789",
+          "asset": "gitea",
+          "status": "active"
+        },
+        {
+          "cve_id": "CVE-2024-32002",
+          "asset": "git",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-multisource-priority",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0003",
+          "asset": "openssl",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-nvd-openssl-vs-openssl-libs-translated",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0002",
+          "asset": "openssl",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-nvd-python-openssl-vs-openssl",
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": null
+    },
+    {
+      "name": "linux-python3-alias",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2024-11174",
+          "asset": "python",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-rhel-nss-exact-rpm",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2020-25648",
+          "asset": "nss",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-rpm-epoch",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2099-0007",
+          "asset": "openssl",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "linux-suse-libopenssl1_1",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2002-20001",
+          "asset": "libopenssl1_1",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "linux-ubuntu-networkd",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2022-29800",
+          "asset": "networkd-dispatcher",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "windows-libreoffice-translation",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2014-3524",
+          "asset": "libreoffice",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "windows-msrc-os-build-active",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2024-21405",
+          "asset": "Windows 10 Pro 22H2",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "windows-msrc-os-build-fixed",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2024-21405",
+          "asset": "Windows 10 Pro 22H2",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "windows-skype-hotfix-installed",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2016-0145",
+          "asset": "Skype for Business Basic 2016",
+          "status": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "windows-skype-hotfix-missing",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2016-0145",
+          "asset": "Skype for Business Basic 2016",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "name": "windows-wua-installed-fact",
+      "metrics": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1,
+        "recall": 1,
+        "f1": 1
+      },
+      "verdicts": [
+        {
+          "cve_id": "CVE-2016-0145",
+          "asset": "Skype for Business Basic 2016",
+          "status": "fixed"
+        }
+      ]
+    }
+  ],
+  "aggregate": {
+    "tp": 24,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1,
+    "recall": 1,
+    "f1": 1
+  }
+}

@@ -326,21 +326,97 @@ func (f *FeedManager) MatchAssets(ctx context.Context, softwareNames []string, m
 	}
 
 	var allMatched []MatchedCVE
-	seen := make(map[string]bool)
-
 	for _, source := range []string{"debian", "msrc", "redhat", "nvd", "osv", "custom"} {
 		matches := f.matchByName(ctx, source, softwareNames, msrcNames,
 			assetVersions, msrcVersions, installedKBs, agentOS, agentVersion, agentArch, osAssetName)
-		for _, m := range matches {
-			key := m.CVEID + "|" + m.AssetName
-			if !seen[key] {
-				seen[key] = true
-				allMatched = append(allMatched, m)
-			}
+		allMatched = append(allMatched, matches...)
+	}
+
+	return selectBestMatches(allMatched), nil
+}
+
+// sourceOrder is the canonical feed-source ordering used to break ties when
+// the same CVE+asset is reported by several sources.
+var sourceOrder = []string{"debian", "msrc", "redhat", "nvd", "osv", "custom"}
+
+// sourceRank returns the resolution priority for duplicate CVE+asset rows:
+// distro-native advisories (debian/redhat/osv/msrc) win over generic
+// NVD/custom rows so fixed versions and statuses reflect the distro.
+func sourceRank(source string) int {
+	switch source {
+	case "debian", "redhat", "osv", "msrc":
+		return 0
+	default:
+		return 1
+	}
+}
+
+// selectBestMatches collapses duplicate CVE+asset results: the best source
+// provides fixed version/status, the CVSS score is taken from the highest
+// candidate, and the final list is deterministic (CVE, asset).
+func selectBestMatches(matches []MatchedCVE) []MatchedCVE {
+	type group struct {
+		best    MatchedCVE
+		maxCVSS float64
+	}
+	groups := make(map[string]*group, len(matches))
+	for _, m := range matches {
+		key := m.CVEID + "|" + m.AssetName
+		g, ok := groups[key]
+		if !ok {
+			groups[key] = &group{best: m, maxCVSS: m.CVSSScore}
+			continue
+		}
+		if m.CVSSScore > g.maxCVSS {
+			g.maxCVSS = m.CVSSScore
+		}
+		if betterMatch(m, g.best) {
+			g.best = m
 		}
 	}
 
-	return allMatched, nil
+	out := make([]MatchedCVE, 0, len(groups))
+	for _, g := range groups {
+		g.best.CVSSScore = g.maxCVSS
+		out = append(out, g.best)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CVEID != out[j].CVEID {
+			return out[i].CVEID < out[j].CVEID
+		}
+		return out[i].AssetName < out[j].AssetName
+	})
+	return out
+}
+
+// betterMatch reports whether cand should replace cur for the same CVE+asset.
+func betterMatch(cand, cur MatchedCVE) bool {
+	cr, curR := sourceRank(cand.Source), sourceRank(cur.Source)
+	if cr != curR {
+		return cr < curR
+	}
+	candFixed := cand.FixedVersion != ""
+	curFixed := cur.FixedVersion != ""
+	if candFixed != curFixed {
+		return candFixed
+	}
+	if cand.CVSSScore != cur.CVSSScore {
+		return cand.CVSSScore > cur.CVSSScore
+	}
+	ci, cci := sourceIndex(cand.Source), sourceIndex(cur.Source)
+	if ci != cci {
+		return ci < cci
+	}
+	return cand.CVEID+"|"+cand.AssetName < cur.CVEID+"|"+cur.AssetName
+}
+
+func sourceIndex(source string) int {
+	for i, s := range sourceOrder {
+		if s == source {
+			return i
+		}
+	}
+	return len(sourceOrder)
 }
 
 func (f *FeedManager) matchByName(ctx context.Context, source string, names, msrcNames []string,
@@ -728,14 +804,71 @@ func nameMatches(affectedName string, lowerNames map[string]bool) bool {
 	if stopWords[lower] {
 		return false
 	}
-	words := splitWords(lower)
 	for n := range lowerNames {
-		searchWords := splitWords(n)
-		if anyWordMatch(words, searchWords) {
+		if nameCompatible(lower, n) {
 			return true
 		}
 	}
 	return false
+}
+
+// nameCompatible reports whether a feed product name and an installed asset
+// name denote the same product family. Exact names always match. Otherwise
+// one side's tokens must be fully contained in the other side and any extra
+// tokens must be generic qualifiers (stop words). This blocks token-level
+// collisions such as "python-openssl" vs "openssl" in both directions while
+// still allowing "openssh" vs "openssh-server".
+func nameCompatible(a, b string) bool {
+	la := strings.ToLower(strings.TrimSpace(a))
+	lb := strings.ToLower(strings.TrimSpace(b))
+	if la == "" || lb == "" {
+		return false
+	}
+	if la == lb {
+		return true
+	}
+	return tokenSetContainsWithQualifiers(splitWords(la), splitWords(lb)) ||
+		tokenSetContainsWithQualifiers(splitWords(lb), splitWords(la))
+}
+
+// tokenSetContainsWithQualifiers reports whether every token of inner appears
+// in outer and every extra token of outer is a generic qualifier (stop word).
+func tokenSetContainsWithQualifiers(inner, outer []string) bool {
+	if len(inner) == 0 {
+		return false
+	}
+	outerSet := make(map[string]bool, len(outer))
+	for _, w := range outer {
+		outerSet[w] = true
+	}
+	for _, w := range inner {
+		if !outerSet[w] {
+			return false
+		}
+	}
+	innerSet := make(map[string]bool, len(inner))
+	for _, w := range inner {
+		innerSet[w] = true
+	}
+	for _, w := range outer {
+		if !innerSet[w] && !isNameQualifier(w) {
+			return false
+		}
+	}
+	return true
+}
+
+// nameExtraQualifiers are generic words that do not identify a different
+// product when they appear as extra tokens in an installed asset name.
+var nameExtraQualifiers = map[string]bool{
+	"for": true, "and": true, "of": true, "the": true,
+	"windows": true, "portable": true,
+}
+
+// isNameQualifier reports whether a token is a generic qualifier that can be
+// safely ignored when comparing product token sets.
+func isNameQualifier(word string) bool {
+	return stopWords[word] || msrcPlatformTokens[word] || nameExtraQualifiers[word]
 }
 
 // isMSRCOSProductName reports whether an MSRC affected product is a Windows
@@ -846,28 +979,6 @@ var stopWords = map[string]bool{
 	"data": true, "file": true, "web": true, "mobile": true,
 	"cloud": true, "virtual": true, "remote": true, "online": true,
 	"advanced": true, "basic": true, "premium": true, "ultimate": true,
-}
-
-func anyWordMatch(affectedWords, searchWords []string) bool {
-	for _, aw := range affectedWords {
-		if len(aw) < 2 {
-			continue
-		}
-		awIsStop := stopWords[aw]
-		for _, sw := range searchWords {
-			if len(sw) < 2 {
-				continue
-			}
-			swIsStop := stopWords[sw]
-			if awIsStop && swIsStop {
-				continue
-			}
-			if sw == aw {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func firstNonEmpty(a, b string) string {
@@ -1334,24 +1445,13 @@ func findMatchingKey(product string, agentCPEIndex map[string]string) string {
 	keys := sortedMapKeys(agentCPEIndex)
 	best := ""
 	for _, k := range keys {
-		if tokenBoundaryContains(k, product) {
+		if nameCompatible(product, k) {
 			if best == "" || len(k) < len(best) || (len(k) == len(best) && k < best) {
 				best = k
 			}
 		}
 	}
-	if best != "" {
-		return best
-	}
-	for _, k := range keys {
-		// Reverse direction: a distinctive installed token inside a longer
-		// CPE product (openssh <-> openssh-portable). The length floor keeps
-		// short names like "git" or "node" from matching "gitlab"/"node.js".
-		if len(k) >= 5 && tokenBoundaryContains(product, k) {
-			return k
-		}
-	}
-	return ""
+	return best
 }
 
 // tokenBoundaryContains reports whether the needle appears as a contiguous

@@ -1,0 +1,25 @@
+{
+  "name": "linux-debian-tilde-prerelease",
+  "platform": "linux",
+  "agent_os": "Debian GNU/Linux 12 (bookworm)",
+  "agent_version": "12.5",
+  "agent_arch": "amd64",
+  "assets": [
+    {"name": "example", "version": "1.0~rc1-1", "format": "deb", "vendor": "Debian"}
+  ],
+  "feed": [
+    {
+      "source": "debian",
+      "cve_id": "CVE-2099-0005",
+      "severity": "MEDIUM",
+      "cvss_score": 5.5,
+      "summary": "dpkg tilde prerelease",
+      "affected": [
+        {"name": "example", "fixed_in": "1.0-1", "ecosystem": "Debian"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0005", "asset": "example", "status": "active"}
+  ]
+}

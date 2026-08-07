@@ -1,0 +1,25 @@
+{
+  "name": "linux-rpm-epoch",
+  "platform": "linux",
+  "agent_os": "Red Hat Enterprise Linux 8.9",
+  "agent_version": "8.9",
+  "agent_arch": "x86_64",
+  "assets": [
+    {"name": "openssl", "version": "2:3.0.7-24.el8", "format": "rpm", "vendor": "Red Hat"}
+  ],
+  "feed": [
+    {
+      "source": "nvd",
+      "cve_id": "CVE-2099-0007",
+      "severity": "HIGH",
+      "cvss_score": 7.5,
+      "summary": "RPM epoch comparison",
+      "affected": [
+        {"name": "openssl", "fixed_in": "3.0.7-24.el8", "ecosystem": "rpm"}
+      ]
+    }
+  ],
+  "expected": [
+    {"cve_id": "CVE-2099-0007", "asset": "openssl", "status": "fixed"}
+  ]
+}
